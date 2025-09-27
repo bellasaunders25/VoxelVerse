@@ -1143,6 +1143,8 @@ to better suit your requirements.
         lava:    new THREE.MeshStandardMaterial({ color: 0xff6600, emissive: 0xff4500, emissiveIntensity: 1.0, transparent: true, opacity: 0.85 })
     };
     const emptyHandMaterial = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.0 });
+    emptyHandMaterial.depthTest = false;
+    emptyHandMaterial.depthWrite = false;
 
     // --- Block breaking crack textures ---
     // Minecraft uses a set of destroy stage textures (0–9) to show cracks on a
@@ -1230,6 +1232,7 @@ to better suit your requirements.
     // the currently selected block type; handGroup groups the arm and block
     // so that they can be animated together.
     let handBlock;
+    const handMaterialCache = new Map();
     let handGroup;
     let handMesh;
     const toolMeshes = {};
@@ -2926,6 +2929,10 @@ to better suit your requirements.
         const sleeveMaterial = new THREE.MeshStandardMaterial({ color: 0x426dba, roughness: 0.52, metalness: 0.1 });
         const skinMaterial = new THREE.MeshStandardMaterial({ color: 0xffe1c0, roughness: 0.72, metalness: 0.03 });
         const palmMaterial = new THREE.MeshStandardMaterial({ color: 0xf9d5ad, roughness: 0.78, metalness: 0.02 });
+        [sleeveMaterial, skinMaterial, palmMaterial].forEach((mat) => {
+            mat.depthTest = false;
+            mat.depthWrite = false;
+        });
         playerArm = new THREE.Group();
         const sleeve = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.26, 0.34), sleeveMaterial);
         sleeve.position.set(0, 0.28, 0);
@@ -2935,21 +2942,27 @@ to better suit your requirements.
         cuff.position.set(0, 0.06, 0);
         const lowerArm = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.36, 0.26), skinMaterial);
         lowerArm.position.set(0, -0.12, 0);
-        handMesh = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.18, 0.24), palmMaterial);
-        handMesh.position.set(0, -0.38, 0.02);
-        handMesh.rotation.set(-Math.PI / 12, 0.12, 0.06);
+        handMesh = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.3, 0.5), palmMaterial);
+        handMesh.position.set(0.02, -0.36, -0.2);
+        handMesh.rotation.set(-Math.PI / 40, 0.14, 0.08);
         playerArm.add(sleeve, upperArm, cuff, lowerArm, handMesh);
+        playerArm.traverse((child) => {
+            if (child.isMesh) {
+                child.renderOrder = 20;
+            }
+        });
         // Create the block mesh that shows the currently selected block.  It
         // uses a smaller scale so it fits comfortably in view.  The
         // material will be updated whenever the player changes the selected
         // block type.
         const initialType = selectableTypes[selectedIndex];
-        const initialMaterial = (initialType && blockMaterials[initialType]) ? blockMaterials[initialType] : emptyHandMaterial;
+        const initialMaterial = (initialType && blockMaterials[initialType]) ? getHandMaterialForType(initialType) : emptyHandMaterial;
         const initialCount = initialType ? (inventory[initialType] || 0) : 0;
-        handBlock = new THREE.Mesh(cubeGeometry, initialMaterial);
+        handBlock = new THREE.Mesh(cubeGeometry.clone(), initialMaterial);
         handBlock.visible = !!initialType && initialCount > 0;
-        handBlock.scale.set(0.4, 0.4, 0.4);
-        handBlock.rotation.set(-Math.PI / 6, Math.PI / 4, 0);
+        handBlock.scale.set(0.48, 0.48, 0.48);
+        handBlock.rotation.set(-Math.PI / 8, Math.PI / 6, 0.02);
+        handBlock.renderOrder = 20;
         // Group the arm and block for animation.  The group itself is
         // positioned relative to the camera, while the children are
         // positioned within the group.  This makes it easy to animate
@@ -2963,10 +2976,10 @@ to better suit your requirements.
         handGroup.add(axeMesh);
         toolMeshes.axe = axeMesh;
         // Position and orient the arm within the group
-        playerArm.position.set(0.48, -0.58, -0.6);
-        playerArm.rotation.set(-Math.PI / 3.4, Math.PI / 8, Math.PI / 14);
+        playerArm.position.set(0.5, -0.5, -0.34);
+        playerArm.rotation.set(-Math.PI / 3.1, Math.PI / 7, Math.PI / 14);
         // Position the block slightly in front of the arm
-        handBlock.position.set(0.8, -0.55, -0.7);
+        handBlock.position.set(0.72, -0.44, -0.58);
         // Position the hand group relative to the camera so it sits clearly in
         // view.  Without setting a position, the group defaults to the
         // camera's local origin which can place the arm outside the view frustum.
@@ -2978,8 +2991,8 @@ to better suit your requirements.
         // view.  Adjust these coordinates to taste; the hand should be
         // visible on the right side of the screen.  A slightly closer z
         // makes the arm more prominent.
-        handGroup.position.set(0.72, -0.68, -0.86);
-        handGroup.rotation.set(-0.12, 0.22, 0.05);
+        handGroup.position.set(0.66, -0.5, -0.36);
+        handGroup.rotation.set(-0.07, 0.3, 0.04);
         // Capture the base position and rotation for animations
         handBasePosition = handGroup.position.clone();
         handBaseRotation = handGroup.rotation.clone();
@@ -3701,6 +3714,19 @@ to better suit your requirements.
         });
     }
 
+    function getHandMaterialForType(type) {
+        if (!type || !blockMaterials[type]) {
+            return emptyHandMaterial;
+        }
+        if (!handMaterialCache.has(type)) {
+            const mat = blockMaterials[type].clone();
+            mat.depthTest = false;
+            mat.depthWrite = false;
+            handMaterialCache.set(type, mat);
+        }
+        return handMaterialCache.get(type);
+    }
+
     // Update the material of the handBlock mesh to reflect the currently
     // selected block type.  This is called whenever the player presses 1–4.
     function updateHandBlockMaterial() {
@@ -3713,7 +3739,8 @@ to better suit your requirements.
         activeHandTool = null;
         if (type && available > 0) {
             if (blockMaterials[type]) {
-                handBlock.material = blockMaterials[type];
+                handBlock.material = getHandMaterialForType(type);
+                handBlock.material.needsUpdate = true;
                 handBlock.visible = true;
             } else if (toolMeshes[type]) {
                 handBlock.visible = false;
@@ -3721,10 +3748,12 @@ to better suit your requirements.
                 activeHandTool = type;
             } else {
                 handBlock.material = emptyHandMaterial;
+                handBlock.material.needsUpdate = true;
                 handBlock.visible = false;
             }
         } else {
             handBlock.material = emptyHandMaterial;
+            handBlock.material.needsUpdate = true;
             handBlock.visible = false;
         }
         if (typeof updateHotbarSelection === 'function') updateHotbarSelection();
@@ -3741,6 +3770,10 @@ to better suit your requirements.
         const gripMaterial = new THREE.MeshStandardMaterial({ color: 0x4b2f17, roughness: 0.85, metalness: 0.05 });
         const headMaterial = new THREE.MeshStandardMaterial({ color: 0xcad6e2, roughness: 0.35, metalness: 0.85 });
         const edgeMaterial = new THREE.MeshStandardMaterial({ color: 0xeaf2ff, roughness: 0.15, metalness: 1.0 });
+        [handleMaterial, gripMaterial, headMaterial, edgeMaterial].forEach((mat) => {
+            mat.depthTest = false;
+            mat.depthWrite = false;
+        });
 
         const handle = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.6, 0.08), handleMaterial);
         handle.position.set(0, -0.05, 0);
@@ -3753,6 +3786,11 @@ to better suit your requirements.
 
         group.add(handle, grip, head, edge);
         group.rotation.set(-Math.PI / 3.2, Math.PI / 8, Math.PI / 16);
+        group.traverse((child) => {
+            if (child.isMesh) {
+                child.renderOrder = 20;
+            }
+        });
         return group;
     }
 
