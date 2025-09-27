@@ -140,50 +140,205 @@ to better suit your requirements.
 
         /* Inventory overlay styles */
         .inventory-overlay {
-            display: flex;
+            position: fixed;
+            inset: 0;
+            display: none;
             align-items: center;
             justify-content: center;
+            background: rgba(0, 0, 0, 0.65);
+            z-index: 350;
+        }
+        .inventory-overlay.open {
+            display: flex;
+        }
+        .inventory-panel {
+            background: linear-gradient(180deg, rgba(52, 55, 60, 0.98), rgba(36, 38, 42, 0.98));
+            border: 2px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            box-shadow: 0 18px 38px rgba(0, 0, 0, 0.45);
+            padding: 18px 20px 22px;
+            max-width: 720px;
+            width: min(92vw, 720px);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .inventory-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .inventory-tabs {
+            display: flex;
+            gap: 10px;
+        }
+        .inventory-tab {
+            width: 42px;
+            height: 42px;
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            background: linear-gradient(180deg, rgba(92, 96, 105, 0.92), rgba(60, 63, 70, 0.92));
+            color: #e5e9f0;
+            font-size: 1.25rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+        }
+        .inventory-tab:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.35);
+        }
+        .inventory-tab.active {
+            border-color: rgba(148, 202, 255, 0.8);
+            box-shadow: 0 0 0 2px rgba(148, 202, 255, 0.25);
+        }
+        .inventory-close {
+            border: none;
+            background: rgba(0, 0, 0, 0.25);
+            color: #f0f4ff;
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            font-size: 1.2rem;
+            cursor: pointer;
+            transition: background 0.15s ease;
+        }
+        .inventory-close:hover {
+            background: rgba(0, 0, 0, 0.45);
+        }
+        .inventory-content {
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+        .inventory-view {
+            display: none;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .inventory-view.active {
+            display: flex;
+        }
+        .inventory-search-bar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(18, 19, 22, 0.45);
+            padding: 8px 10px;
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .inventory-search-bar input {
+            flex: 1;
+            background: rgba(10, 11, 14, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 4px;
+            padding: 6px 10px;
+            color: #f3f6ff;
+            font-size: 0.95rem;
         }
         .inventory-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
             gap: 8px;
+        }
+        .inventory-grid.search-grid {
+            grid-template-columns: repeat(auto-fill, minmax(58px, 1fr));
+            max-height: 46vh;
+            overflow-y: auto;
+            padding-right: 6px;
+        }
+        .inventory-grid.backpack-grid {
+            grid-template-columns: repeat(9, 58px);
+            justify-content: center;
+            grid-auto-rows: 58px;
         }
         .inv-slot {
             position: relative;
-            width: 60px;
-            height: 60px;
-            background: #333;
-            border: 1px solid #555;
-            border-radius: 4px;
+            width: 58px;
+            height: 58px;
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: linear-gradient(180deg, rgba(74, 78, 88, 0.9), rgba(48, 50, 57, 0.9));
+            box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.35);
             display: flex;
             align-items: center;
             justify-content: center;
             cursor: pointer;
-        }
-        .inv-slot:hover {
-            background: #555;
+            transition: border-color 0.2s ease, transform 0.12s ease;
         }
         .inv-slot img {
-            width: 48px;
-            height: 48px;
+            width: 40px;
+            height: 40px;
             object-fit: contain;
             pointer-events: none;
         }
+        .inv-slot:hover {
+            border-color: rgba(160, 206, 255, 0.55);
+            transform: translateY(-2px);
+        }
+        .inv-slot.empty {
+            opacity: 0.35;
+            cursor: default;
+        }
+        .inv-slot.empty:hover {
+            border-color: rgba(255, 255, 255, 0.1);
+            transform: none;
+        }
+        .inv-slot.drag-over {
+            border-color: rgba(130, 224, 255, 0.9);
+            box-shadow: 0 0 12px rgba(130, 224, 255, 0.65);
+        }
         .inv-count {
             position: absolute;
-            bottom: 2px;
-            right: 4px;
-            font-size: 0.7rem;
-            color: #fff;
-            text-shadow: 0 0 3px #000;
+            bottom: 4px;
+            right: 6px;
+            font-size: 0.75rem;
+            color: #f6fbff;
+            text-shadow: 0 0 4px #000;
+            font-weight: 600;
         }
-
         .inventory-empty {
-            color: #aaa;
+            color: #c3cad6;
             text-align: center;
-            padding: 12px 8px 4px;
-            font-size: 0.9rem;
+            padding: 16px 12px 6px;
+            font-size: 0.95rem;
+            background: rgba(0, 0, 0, 0.25);
+            border-radius: 6px;
+        }
+        .inventory-section-title {
+            font-size: 0.95rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: rgba(228, 235, 252, 0.82);
+        }
+        .crafting-area {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            justify-content: center;
+        }
+        .crafting-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 58px);
+            gap: 8px;
+        }
+        .craft-slot {
+            position: relative;
+        }
+        .crafting-arrow {
+            font-size: 2rem;
+            color: rgba(214, 229, 255, 0.8);
+            text-shadow: 0 0 12px rgba(120, 180, 255, 0.45);
+        }
+        .result-slot {
+            background: linear-gradient(180deg, rgba(82, 116, 86, 0.95), rgba(58, 82, 61, 0.95));
+            border-color: rgba(163, 230, 178, 0.55);
+        }
+        .result-slot.empty {
+            background: linear-gradient(180deg, rgba(60, 63, 70, 0.8), rgba(48, 50, 57, 0.8));
+            border-color: rgba(255, 255, 255, 0.1);
         }
 
         /*
@@ -454,14 +609,41 @@ to better suit your requirements.
          Clicking on an item will switch the hotbar selection to that
          block type.  Close the inventory with the close button or by
          pressing E again. -->
-    <div id="inventoryOverlay" class="inventory-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:350; background:rgba(0,0,0,0.6); align-items:center; justify-content:center;">
-        <div class="inventory-panel" style="background:rgba(30,30,30,0.95); padding:16px; border-radius:8px; display:flex; flex-direction:column; align-items:stretch; max-width:600px; width:90%;">
-            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-                <input id="inventorySearch" type="text" placeholder="Search blocks..." style="flex:1; margin-right:8px; padding:6px; background:#222; color:#fff; border:1px solid #555; border-radius:4px;" />
-                <button id="closeInventory" class="menu-btn" style="padding:6px 12px; font-size:0.9rem;">Close</button>
+    <div id="inventoryOverlay" class="inventory-overlay">
+        <div class="inventory-panel">
+            <div class="inventory-header">
+                <div class="inventory-tabs">
+                    <button id="inventorySearchTab" class="inventory-tab active" title="Search inventory">
+                        🔍
+                    </button>
+                    <button id="inventoryBackpackTab" class="inventory-tab" title="Backpack">
+                        🎒
+                    </button>
+                </div>
+                <button id="closeInventory" class="inventory-close" aria-label="Close inventory">×</button>
             </div>
-            <div id="inventoryEmptyState" class="inventory-empty" style="display:none;">Collect blocks to fill your inventory.</div>
-            <div id="inventoryGrid" class="inventory-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(60px, 1fr)); gap:8px; max-height:50vh; overflow-y:auto;"></div>
+            <div class="inventory-content">
+                <div id="inventorySearchView" class="inventory-view active">
+                    <div class="inventory-search-bar">
+                        <input id="inventorySearch" type="text" placeholder="Search items…" autocomplete="off" />
+                    </div>
+                    <div id="inventoryEmptyState" class="inventory-empty" style="display:none;">Collect blocks to fill your inventory.</div>
+                    <div id="inventoryGrid" class="inventory-grid search-grid"></div>
+                </div>
+                <div id="inventoryBackpackView" class="inventory-view">
+                    <div class="inventory-section-title">Crafting</div>
+                    <div class="crafting-area">
+                        <div id="craftingGrid" class="crafting-grid"></div>
+                        <div class="crafting-arrow">➜</div>
+                        <div id="craftingResultSlot" class="inv-slot result-slot empty" title="Crafting result">
+                            <img alt="" />
+                            <span class="inv-count"></span>
+                        </div>
+                    </div>
+                    <div class="inventory-section-title">Backpack</div>
+                    <div id="backpackGrid" class="inventory-grid backpack-grid"></div>
+                </div>
+            </div>
         </div>
     </div>
     <!-- Main menu overlay.  This full‑screen overlay is displayed on page load
@@ -822,6 +1004,7 @@ to better suit your requirements.
     // per user request.  The cracks overlay and break logic use this
     // constant to determine progress.
     const BREAK_DURATION = 3000;
+    let currentBreakDuration = BREAK_DURATION;
     let isBreaking = false;
     let breakTarget = null;
     let breakStartTime = 0;
@@ -833,6 +1016,8 @@ to better suit your requirements.
     // so that they can be animated together.
     let handBlock;
     let handGroup;
+    const toolMeshes = {};
+    let activeHandTool = null;
     // Base hand position and rotation.  These will be captured after the
     // hand group is positioned in init().  When animations end the
     // hand will return to these defaults.
@@ -897,6 +1082,11 @@ to better suit your requirements.
     // display these counts.  New types are added dynamically as needed.
     const inventory = {};
     const discoveredTypes = new Set();
+    const craftingGridState = new Array(9).fill(null);
+    const craftingSlots = [];
+    let craftingResultSlot = null;
+    let currentCraftingResult = null;
+    let activeInventoryView = 'search';
 
     // Whether the inventory overlay is currently open.  Toggled with
     // the 'E' key.  When open, pointer lock is released and game
@@ -1021,10 +1211,276 @@ to better suit your requirements.
         ice:     'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect fill="%23b6e5ff" width="16" height="16"/><rect x="2" y="2" width="12" height="12" fill="%23e7f6ff" opacity="0.8"/><path stroke="%2398d5ff" stroke-width="1" d="M2 6h12M6 2v12"/></svg>',
         moss:    'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect fill="%233b8a64" width="16" height="16"/><rect x="2" y="2" width="12" height="12" fill="%2347a774" opacity="0.6"/></svg>',
         glowstone: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect fill="%23ffe6a6" width="16" height="16"/><circle cx="5" cy="5" r="3" fill="%23fff7ce"/><circle cx="11" cy="10" r="3" fill="%23fff1b3"/></svg>',
-        cactus:  'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect fill="%232f9b57" width="16" height="16"/><path stroke="%2343b86d" stroke-width="2" d="M4 2v12M8 1v14M12 3v10"/></svg>'
+        cactus:  'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect fill="%232f9b57" width="16" height="16"/><path stroke="%2343b86d" stroke-width="2" d="M4 2v12M8 1v14M12 3v10"/></svg>',
+        stick:   'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" fill="%2330261a"/><path d="M4 2l8 8" stroke="%23c79b5f" stroke-width="2" stroke-linecap="round"/><path d="M6 2l8 8" stroke="%23f3d7a2" stroke-width="1.2" stroke-linecap="round"/></svg>',
+        axe:     'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" rx="2" fill="%23262a33"/><rect x="7" y="2" width="2" height="11" rx="1" fill="%238b5a2b"/><rect x="6.6" y="9.8" width="2.8" height="2.6" rx="1.1" fill="%2350331a"/><path d="M9 4h3.4c.6 0 1.1.5 1.1 1.1v2.2c0 .6-.5 1.1-1.1 1.1H9z" fill="%23c7d5e5"/><path d="M11.6 4.2h.6c.4 0 .8.3.8.8v2c0 .4-.3.8-.8.8h-.6z" fill="%23e4edf7"/></svg>'
     };
     const HOTBAR_DRAG_MIME = 'application/x-voxel-item';
     const HOTBAR_STACK_LIMIT = 64;
+    const TOOL_TYPES = new Set(['axe']);
+    const ITEM_STACK_LIMITS = { axe: 1 };
+
+    function isHotbarAssignable(type) {
+        return !!type && (blockMaterials[type] || TOOL_TYPES.has(type));
+    }
+
+    function setInventoryView(view) {
+        if (!view) return;
+        activeInventoryView = view;
+        const searchView = document.getElementById('inventorySearchView');
+        const backpackView = document.getElementById('inventoryBackpackView');
+        const searchTab = document.getElementById('inventorySearchTab');
+        const backpackTab = document.getElementById('inventoryBackpackTab');
+        if (!searchView || !backpackView || !searchTab || !backpackTab) return;
+        searchView.classList.toggle('active', view === 'search');
+        backpackView.classList.toggle('active', view === 'backpack');
+        searchTab.classList.toggle('active', view === 'search');
+        backpackTab.classList.toggle('active', view === 'backpack');
+        if (view === 'search') {
+            const input = document.getElementById('inventorySearch');
+            if (input) input.focus();
+        } else {
+            const input = document.getElementById('inventorySearch');
+            if (input) input.blur();
+        }
+    }
+
+    function initCraftingUI() {
+        const gridEl = document.getElementById('craftingGrid');
+        const resultEl = document.getElementById('craftingResultSlot');
+        if (!gridEl || !resultEl) return;
+        gridEl.innerHTML = '';
+        for (let i = 0; i < craftingGridState.length; i++) {
+            craftingGridState[i] = null;
+            const slotEl = document.createElement('div');
+            slotEl.className = 'inv-slot craft-slot empty';
+            const img = document.createElement('img');
+            slotEl.appendChild(img);
+            const countSpan = document.createElement('span');
+            countSpan.className = 'inv-count';
+            slotEl.appendChild(countSpan);
+
+            slotEl.addEventListener('dragover', (event) => {
+                if (!canAcceptDraggedItem(event)) return;
+                event.preventDefault();
+                slotEl.classList.add('drag-over');
+                if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+            });
+            slotEl.addEventListener('dragleave', () => {
+                slotEl.classList.remove('drag-over');
+            });
+            slotEl.addEventListener('drop', (event) => {
+                event.preventDefault();
+                slotEl.classList.remove('drag-over');
+                const type = getDraggedItemType(event);
+                if (!type) return;
+                const removed = removeItemFromInventory(type, 1);
+                if (removed <= 0) return;
+                if (!addItemToCraftSlot(i, type, removed)) {
+                    addItemToInventory(type, removed);
+                }
+                recalculateCraftingResult();
+            });
+            slotEl.addEventListener('click', () => {
+                returnCraftingItems(i, 1);
+            });
+            slotEl.addEventListener('contextmenu', (event) => {
+                event.preventDefault();
+                returnCraftingItems(i, Infinity);
+            });
+
+            gridEl.appendChild(slotEl);
+            craftingSlots[i] = { element: slotEl, img, countSpan };
+        }
+
+        const resultImg = resultEl.querySelector('img');
+        const resultCount = resultEl.querySelector('.inv-count');
+        craftingResultSlot = {
+            element: resultEl,
+            img: resultImg,
+            countSpan: resultCount
+        };
+        resultEl.addEventListener('click', () => {
+            applyCraftingResult();
+        });
+        updateCraftingResultUI();
+    }
+
+    function addItemToCraftSlot(index, type, count) {
+        if (index < 0 || index >= craftingGridState.length || count <= 0) return false;
+        const entry = craftingGridState[index];
+        if (entry && entry.type !== type) {
+            return false;
+        }
+        const target = entry || { type, count: 0 };
+        target.type = type;
+        target.count += count;
+        craftingGridState[index] = target;
+        updateCraftingSlot(index);
+        return true;
+    }
+
+    function updateCraftingSlot(index) {
+        const slot = craftingSlots[index];
+        if (!slot) return;
+        const entry = craftingGridState[index];
+        if (!entry || entry.count <= 0) {
+            craftingGridState[index] = null;
+            slot.element.classList.add('empty');
+            slot.img.style.display = 'none';
+            slot.img.removeAttribute('src');
+            slot.countSpan.textContent = '';
+            return;
+        }
+        slot.element.classList.remove('empty');
+        if (hotbarIcons[entry.type]) {
+            slot.img.style.display = 'block';
+            slot.img.src = hotbarIcons[entry.type];
+            slot.img.alt = blockNames[entry.type] || entry.type;
+        } else {
+            slot.img.style.display = 'none';
+        }
+        slot.countSpan.textContent = entry.count > 1 ? entry.count.toString() : (entry.count === 1 ? '1' : '');
+    }
+
+    function returnCraftingItems(index, amount) {
+        if (index < 0 || index >= craftingGridState.length) return;
+        const entry = craftingGridState[index];
+        if (!entry) return;
+        const toRemove = amount === Infinity ? entry.count : Math.min(amount, entry.count);
+        if (toRemove <= 0) return;
+        const added = addItemToInventory(entry.type, toRemove);
+        if (added <= 0) return;
+        entry.count -= added;
+        if (entry.count <= 0) {
+            craftingGridState[index] = null;
+        }
+        updateCraftingSlot(index);
+        recalculateCraftingResult();
+    }
+
+    function consumeFromCraftSlot(index, amount) {
+        if (index < 0 || index >= craftingGridState.length || amount <= 0) return;
+        const entry = craftingGridState[index];
+        if (!entry) return;
+        entry.count -= amount;
+        if (entry.count <= 0) {
+            craftingGridState[index] = null;
+        }
+        updateCraftingSlot(index);
+    }
+
+    function evaluateAxeRecipe() {
+        const required = [
+            { index: 0, type: 'wood' },
+            { index: 1, type: 'wood' },
+            { index: 3, type: 'wood' },
+            { index: 4, type: 'stick' },
+            { index: 7, type: 'stick' }
+        ];
+        for (const req of required) {
+            const entry = craftingGridState[req.index];
+            if (!entry || entry.type !== req.type || entry.count < 1) {
+                return null;
+            }
+        }
+        for (let i = 0; i < craftingGridState.length; i++) {
+            if (required.some((req) => req.index === i)) continue;
+            if (craftingGridState[i]) return null;
+        }
+        const existing = inventory['axe'] || 0;
+        if (existing >= getStackLimit('axe')) return null;
+        return {
+            type: 'axe',
+            count: 1,
+            consumes: required.map((req) => ({ index: req.index, count: 1 }))
+        };
+    }
+
+    function evaluateStickRecipe() {
+        let totalLogs = 0;
+        for (let i = 0; i < craftingGridState.length; i++) {
+            const entry = craftingGridState[i];
+            if (!entry) continue;
+            if (entry.type !== 'wood') return null;
+            totalLogs += entry.count;
+        }
+        if (totalLogs <= 0) return null;
+        const availableSpace = Math.max(0, getStackLimit('stick') - (inventory['stick'] || 0));
+        if (availableSpace < 4) return null;
+        const craftableSets = Math.min(totalLogs, Math.floor(availableSpace / 4));
+        if (craftableSets <= 0) return null;
+        const consumes = [];
+        let remaining = craftableSets;
+        for (let i = 0; i < craftingGridState.length && remaining > 0; i++) {
+            const entry = craftingGridState[i];
+            if (!entry || entry.type !== 'wood') continue;
+            const take = Math.min(entry.count, remaining);
+            if (take > 0) {
+                consumes.push({ index: i, count: take });
+                remaining -= take;
+            }
+        }
+        if (consumes.length === 0) return null;
+        return {
+            type: 'stick',
+            count: craftableSets * 4,
+            consumes
+        };
+    }
+
+    function recalculateCraftingResult() {
+        const axe = evaluateAxeRecipe();
+        if (axe) {
+            currentCraftingResult = axe;
+        } else {
+            currentCraftingResult = evaluateStickRecipe();
+        }
+        updateCraftingResultUI();
+    }
+
+    function updateCraftingResultUI() {
+        if (!craftingResultSlot) return;
+        const { element, img, countSpan } = craftingResultSlot;
+        if (!currentCraftingResult) {
+            element.classList.add('empty');
+            if (img) {
+                img.style.display = 'none';
+                img.removeAttribute('src');
+            }
+            if (countSpan) countSpan.textContent = '';
+            return;
+        }
+        element.classList.remove('empty');
+        if (img && hotbarIcons[currentCraftingResult.type]) {
+            img.style.display = 'block';
+            img.src = hotbarIcons[currentCraftingResult.type];
+            img.alt = blockNames[currentCraftingResult.type] || currentCraftingResult.type;
+        }
+        if (countSpan) {
+            countSpan.textContent = currentCraftingResult.count > 1 ? currentCraftingResult.count.toString() : '';
+        }
+    }
+
+    function applyCraftingResult() {
+        if (!currentCraftingResult) return;
+        const { type, count, consumes } = currentCraftingResult;
+        const availableSpace = Math.max(0, getStackLimit(type) - (inventory[type] || 0));
+        if (availableSpace <= 0) return;
+        const deliverable = Math.min(count, availableSpace);
+        if (deliverable <= 0) return;
+        const added = addItemToInventory(type, deliverable);
+        if (added <= 0) return;
+        consumes.forEach(({ index, count: consumeCount }) => {
+            consumeFromCraftSlot(index, consumeCount);
+        });
+        recalculateCraftingResult();
+    }
+
+    function getStackLimit(type) {
+        if (!type) return HOTBAR_STACK_LIMIT;
+        return ITEM_STACK_LIMITS[type] || HOTBAR_STACK_LIMIT;
+    }
 
     // Human readable names for each block type.  These are used in the
     // selection tooltip shown when switching slots.
@@ -1041,7 +1497,9 @@ to better suit your requirements.
         ice: 'Ice',
         moss: 'Mossy Stone',
         glowstone: 'Glowstone',
-        cactus: 'Cactus'
+        cactus: 'Cactus',
+        stick: 'Sticks',
+        axe: 'Wooden Axe'
     };
     const BLOCK_TYPE_ORDER = Object.keys(blockNames);
 
@@ -1985,9 +2443,17 @@ to better suit your requirements.
         }
         // Create a simple visible arm and block attached to the camera.  We
         // group them so that animations can be applied to both together.
-        const armGeometry = new THREE.BoxBufferGeometry(0.3, 0.7, 0.3);
-        const armMaterial = new THREE.MeshStandardMaterial({ color: 0xffe0bd });
-        playerArm = new THREE.Mesh(armGeometry, armMaterial);
+        const sleeveMaterial = new THREE.MeshStandardMaterial({ color: 0x3c7fd1, roughness: 0.55, metalness: 0.12 });
+        const skinMaterial = new THREE.MeshStandardMaterial({ color: 0xffd7b5, roughness: 0.75, metalness: 0.05 });
+        const handMaterial = new THREE.MeshStandardMaterial({ color: 0xf5c999, roughness: 0.7, metalness: 0.04 });
+        playerArm = new THREE.Group();
+        const sleeve = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.24, 0.32), sleeveMaterial);
+        sleeve.position.set(0, 0.24, 0);
+        const forearm = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.38, 0.28), skinMaterial);
+        forearm.position.set(0, -0.02, 0);
+        const handMesh = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.18, 0.26), handMaterial);
+        handMesh.position.set(0, -0.38, 0);
+        playerArm.add(sleeve, forearm, handMesh);
         // Create the block mesh that shows the currently selected block.  It
         // uses a smaller scale so it fits comfortably in view.  The
         // material will be updated whenever the player changes the selected
@@ -2005,6 +2471,11 @@ to better suit your requirements.
         handGroup = new THREE.Group();
         handGroup.add(playerArm);
         handGroup.add(handBlock);
+        const axeMesh = createAxeMesh();
+        axeMesh.position.set(0.8, -0.55, -0.7);
+        axeMesh.visible = false;
+        handGroup.add(axeMesh);
+        toolMeshes.axe = axeMesh;
         // Position and orient the arm within the group
         playerArm.position.set(0.5, -0.6, -0.6);
         playerArm.rotation.x = -Math.PI / 3;
@@ -2490,13 +2961,14 @@ to better suit your requirements.
                 const elapsed = time - breakStartTime;
                 // Update cracks overlay material and position based on break progress
                 if (cracksMesh) {
-                    let stage = Math.floor((elapsed / BREAK_DURATION) * 10);
+                    const duration = currentBreakDuration || BREAK_DURATION;
+                    let stage = Math.floor((elapsed / duration) * 10);
                     if (stage < 0) stage = 0;
                     if (stage > 9) stage = 9;
                     cracksMesh.material = destroyMaterials[stage];
                     cracksMesh.position.set(breakTarget.x + 0.5, breakTarget.y + 0.5, breakTarget.z + 0.5);
                 }
-                if (elapsed >= BREAK_DURATION) {
+                if (elapsed >= currentBreakDuration) {
                     // break complete
                     removeVoxel(breakTarget.x, breakTarget.y, breakTarget.z);
                     spawnDebris(breakTarget.x, breakTarget.y, breakTarget.z, breakTarget.type);
@@ -2649,21 +3121,53 @@ to better suit your requirements.
         if (!handBlock) return;
         const type = selectableTypes[selectedIndex];
         const available = type ? (inventory[type] || 0) : 0;
-        if (type && blockMaterials[type] && available > 0) {
-            handBlock.material = blockMaterials[type];
-            handBlock.visible = true;
+        Object.values(toolMeshes).forEach((mesh) => {
+            if (mesh) mesh.visible = false;
+        });
+        activeHandTool = null;
+        if (type && available > 0) {
+            if (blockMaterials[type]) {
+                handBlock.material = blockMaterials[type];
+                handBlock.visible = true;
+            } else if (toolMeshes[type]) {
+                handBlock.visible = false;
+                toolMeshes[type].visible = true;
+                activeHandTool = type;
+            } else {
+                handBlock.material = emptyHandMaterial;
+                handBlock.visible = false;
+            }
         } else {
             handBlock.material = emptyHandMaterial;
             handBlock.visible = false;
         }
-        // Update the hotbar highlight when the selection changes
         if (typeof updateHotbarSelection === 'function') updateHotbarSelection();
-        // Show a tooltip indicating the block name and key number
         if (type && available > 0 && typeof showSelectionTooltip === 'function') {
             showSelectionTooltip(type, selectedIndex);
         } else if (selectionTooltip) {
             selectionTooltip.classList.remove('visible');
         }
+    }
+
+    function createAxeMesh() {
+        const group = new THREE.Group();
+        const handleMaterial = new THREE.MeshStandardMaterial({ color: 0x8f5b2a, roughness: 0.75, metalness: 0.1 });
+        const gripMaterial = new THREE.MeshStandardMaterial({ color: 0x4b2f17, roughness: 0.85, metalness: 0.05 });
+        const headMaterial = new THREE.MeshStandardMaterial({ color: 0xcad6e2, roughness: 0.35, metalness: 0.85 });
+        const edgeMaterial = new THREE.MeshStandardMaterial({ color: 0xeaf2ff, roughness: 0.15, metalness: 1.0 });
+
+        const handle = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.6, 0.08), handleMaterial);
+        handle.position.set(0, -0.05, 0);
+        const grip = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.18, 0.1), gripMaterial);
+        grip.position.set(0, -0.32, 0);
+        const head = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.22, 0.12), headMaterial);
+        head.position.set(0.14, 0.18, 0);
+        const edge = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.22, 0.16), edgeMaterial);
+        edge.position.set(0.31, 0.18, 0);
+
+        group.add(handle, grip, head, edge);
+        group.rotation.set(-Math.PI / 3.2, Math.PI / 8, Math.PI / 16);
+        return group;
     }
 
     function refreshHotbarSlot(index) {
@@ -2672,7 +3176,7 @@ to better suit your requirements.
         const img = slot.querySelector('img');
         const countLabel = slot.querySelector('.hotbar-count');
         const type = selectableTypes[index];
-        const count = type ? Math.min(inventory[type] || 0, HOTBAR_STACK_LIMIT) : 0;
+        const count = type ? Math.min(inventory[type] || 0, getStackLimit(type)) : 0;
         if (img) {
             if (type && hotbarIcons[type]) {
                 img.src = hotbarIcons[type];
@@ -2685,7 +3189,11 @@ to better suit your requirements.
         slot.dataset.type = type || '';
         slot.dataset.count = count;
         if (countLabel) {
-            countLabel.textContent = count > 0 ? count.toString() : '';
+            if (type && TOOL_TYPES.has(type)) {
+                countLabel.textContent = '';
+            } else {
+                countLabel.textContent = count > 0 ? count.toString() : '';
+            }
         }
         slot.classList.toggle('empty', !type || count <= 0);
     }
@@ -2698,7 +3206,7 @@ to better suit your requirements.
 
     function assignHotbarSlot(index, type) {
         if (index < 0 || index >= selectableTypes.length) return;
-        const normalizedType = (type && blockMaterials[type]) ? type : null;
+        const normalizedType = (type && isHotbarAssignable(type)) ? type : null;
         const previousSelectedType = selectableTypes[selectedIndex];
         selectableTypes[index] = normalizedType;
         refreshHotbarSlot(index);
@@ -2720,7 +3228,7 @@ to better suit your requirements.
     }
 
     function ensureHotbarHasType(type) {
-        if (!type) return -1;
+        if (!type || !isHotbarAssignable(type)) return -1;
         let idx = selectableTypes.indexOf(type);
         if (idx === -1) {
             idx = selectableTypes.indexOf(null);
@@ -2749,7 +3257,7 @@ to better suit your requirements.
     function getDraggedItemType(event) {
         if (!event || !event.dataTransfer) return null;
         const type = event.dataTransfer.getData(HOTBAR_DRAG_MIME) || event.dataTransfer.getData('text/plain');
-        if (!type || !blockMaterials[type]) return null;
+        if (!type || !blockNames[type]) return null;
         return type;
     }
 
@@ -2864,43 +3372,68 @@ to better suit your requirements.
     // by changing selectedIndex and updating the hotbar selection.  The
     // search field filters the visible items based on the block name.
     function initInventoryUI() {
+        const overlay = document.getElementById('inventoryOverlay');
         const grid = document.getElementById('inventoryGrid');
+        const backpackGrid = document.getElementById('backpackGrid');
         const searchInput = document.getElementById('inventorySearch');
         const closeBtn = document.getElementById('closeInventory');
         const emptyState = document.getElementById('inventoryEmptyState');
-        if (!grid || !searchInput || !closeBtn || !emptyState) return;
-        // Add input listener to filter grid
+        const searchTab = document.getElementById('inventorySearchTab');
+        const backpackTab = document.getElementById('inventoryBackpackTab');
+        if (!overlay || !grid || !backpackGrid || !searchInput || !closeBtn || !emptyState || !searchTab || !backpackTab) return;
         searchInput.addEventListener('input', () => {
             updateInventoryUI();
         });
-        // Close button toggles off the overlay
         closeBtn.addEventListener('click', () => {
             toggleInventory();
         });
-        // Prevent images from capturing native drag behaviour
+        searchTab.addEventListener('click', () => {
+            setInventoryView('search');
+        });
+        backpackTab.addEventListener('click', () => {
+            setInventoryView('backpack');
+        });
         grid.addEventListener('dragstart', (event) => {
             if (event.target && event.target.tagName === 'IMG') {
                 event.preventDefault();
             }
         });
+        backpackGrid.addEventListener('dragstart', (event) => {
+            if (event.target && event.target.tagName === 'IMG') {
+                event.preventDefault();
+            }
+        });
+        initCraftingUI();
+        setInventoryView(activeInventoryView);
         updateInventoryUI();
     }
 
-    function createInventorySlot(type) {
+    function createInventorySlot(type, options = {}) {
+        const { closeOnClick = false } = options;
         const slot = document.createElement('div');
         slot.className = 'inv-slot';
+        const img = document.createElement('img');
+        slot.appendChild(img);
+        const countSpan = document.createElement('span');
+        countSpan.className = 'inv-count';
+        slot.appendChild(countSpan);
+
+        if (!type) {
+            slot.classList.add('empty');
+            slot.dataset.type = '';
+            slot.draggable = false;
+            img.style.display = 'none';
+            return { slot, countSpan, img };
+        }
+
         slot.dataset.type = type;
         slot.draggable = true;
-        const img = document.createElement('img');
         img.src = hotbarIcons[type] || '';
         img.alt = blockNames[type] || type;
         img.draggable = false;
         img.style.pointerEvents = 'none';
         img.addEventListener('dragstart', (event) => event.preventDefault());
-        slot.appendChild(img);
-        const countSpan = document.createElement('span');
-        countSpan.className = 'inv-count';
-        slot.appendChild(countSpan);
+
         slot.addEventListener('click', () => {
             const idx = selectableTypes.indexOf(type);
             if (idx >= 0) {
@@ -2908,7 +3441,7 @@ to better suit your requirements.
                 updateHotbarSelection();
                 updateHandBlockMaterial();
             }
-            toggleInventory();
+            if (closeOnClick) toggleInventory();
         });
         slot.addEventListener('dragstart', (event) => {
             if (!event.dataTransfer) return;
@@ -2916,7 +3449,7 @@ to better suit your requirements.
             event.dataTransfer.setData('text/plain', type);
             event.dataTransfer.effectAllowed = 'copy';
         });
-        return { slot, countSpan };
+        return { slot, countSpan, img };
     }
 
     // Refresh the inventory grid contents.  This is called whenever the
@@ -2927,31 +3460,56 @@ to better suit your requirements.
         const grid = document.getElementById('inventoryGrid');
         const searchInput = document.getElementById('inventorySearch');
         const emptyState = document.getElementById('inventoryEmptyState');
-        if (!grid || !searchInput || !emptyState) return;
-        const query = searchInput.value.trim().toLowerCase();
-        grid.innerHTML = '';
-        const fragment = document.createDocumentFragment();
-        let visibleCount = 0;
-        BLOCK_TYPE_ORDER.forEach((type) => {
-            if (!discoveredTypes.has(type)) return;
-            if (query && !blockNames[type].toLowerCase().includes(query)) return;
-            const { slot, countSpan } = createInventorySlot(type);
-            const count = inventory[type] || 0;
-            const displayCount = Math.min(count, HOTBAR_STACK_LIMIT);
-            countSpan.textContent = displayCount > 0 ? displayCount.toString() : '';
-            fragment.appendChild(slot);
-            visibleCount++;
-        });
-        if (visibleCount === 0) {
-            emptyState.style.display = 'block';
-            emptyState.textContent = discoveredTypes.size === 0
-                ? 'Collect blocks to fill your inventory.'
-                : 'No blocks match your search.';
-        } else {
-            emptyState.style.display = 'none';
-            emptyState.textContent = '';
+        if (grid && searchInput && emptyState) {
+            const query = searchInput.value.trim().toLowerCase();
+            grid.innerHTML = '';
+            const fragment = document.createDocumentFragment();
+            let visibleCount = 0;
+            BLOCK_TYPE_ORDER.forEach((type) => {
+                if (!discoveredTypes.has(type)) return;
+                const label = (blockNames[type] || type).toLowerCase();
+                if (query && !label.includes(query)) return;
+                const { slot, countSpan } = createInventorySlot(type);
+                const count = inventory[type] || 0;
+                const displayCount = Math.min(count, getStackLimit(type));
+                countSpan.textContent = displayCount > 0 ? displayCount.toString() : '';
+                fragment.appendChild(slot);
+                visibleCount++;
+            });
+            if (visibleCount === 0) {
+                emptyState.style.display = 'block';
+                emptyState.textContent = discoveredTypes.size === 0
+                    ? 'Collect blocks to fill your inventory.'
+                    : 'No items match your search.';
+            } else {
+                emptyState.style.display = 'none';
+                emptyState.textContent = '';
+            }
+            grid.appendChild(fragment);
         }
-        grid.appendChild(fragment);
+
+        const backpackGrid = document.getElementById('backpackGrid');
+        if (backpackGrid) {
+            backpackGrid.innerHTML = '';
+            const items = BLOCK_TYPE_ORDER.filter((type) => discoveredTypes.has(type));
+            const rows = Math.max(3, Math.ceil(items.length / 9));
+            const totalSlots = rows * 9;
+            backpackGrid.style.gridTemplateRows = `repeat(${rows}, 58px)`;
+            for (let i = 0; i < totalSlots; i++) {
+                const type = items[i] || null;
+                const { slot, countSpan } = createInventorySlot(type);
+                if (type) {
+                    const count = inventory[type] || 0;
+                    const displayCount = Math.min(count, getStackLimit(type));
+                    countSpan.textContent = displayCount > 1 ? displayCount.toString() : (displayCount === 1 ? '1' : '');
+                } else {
+                    countSpan.textContent = '';
+                }
+                backpackGrid.appendChild(slot);
+            }
+        }
+
+        recalculateCraftingResult();
     }
 
     // Toggle the inventory overlay.  When opening, release pointer lock
@@ -2962,9 +3520,9 @@ to better suit your requirements.
         const bar = document.getElementById('hotbar');
         if (!overlay) return;
         if (!inventoryOpen) {
-            // Opening inventory
             inventoryOpen = true;
-            overlay.style.display = 'flex';
+            overlay.classList.add('open');
+            setInventoryView('search');
             updateInventoryUI();
             if (bar) {
                 bar.classList.add('visible');
@@ -2980,9 +3538,8 @@ to better suit your requirements.
                 window.isPaused = true;
             }
         } else {
-            // Closing inventory
             inventoryOpen = false;
-            overlay.style.display = 'none';
+            overlay.classList.remove('open');
             if (bar) {
                 bar.classList.remove('interactive');
                 if (pointerLocked) bar.classList.add('visible');
@@ -3000,6 +3557,10 @@ to better suit your requirements.
                     window.isPaused = false;
                 }
             }
+        }
+        if (!inventoryOpen) {
+            const searchInput = document.getElementById('inventorySearch');
+            if (searchInput) searchInput.blur();
         }
     }
     // Apply damage to the player.  Decreases health by the given
@@ -3127,6 +3688,7 @@ to better suit your requirements.
         if (hit.type === 'bedrock') return;
         isBreaking = true;
         breakTarget = hit;
+        currentBreakDuration = computeBreakDuration(hit.type);
         breakStartTime = performance.now();
         handAnimTime = 0;
         handAnimType = 'break';
@@ -3143,10 +3705,25 @@ to better suit your requirements.
         isBreaking = false;
         breakTarget = null;
         breakStartTime = 0;
+        currentBreakDuration = BREAK_DURATION;
         // Hide cracks overlay when breaking stops
         if (cracksMesh) {
             cracksMesh.visible = false;
         }
+    }
+
+    function computeBreakDuration(targetType) {
+        let duration = BREAK_DURATION;
+        const heldType = selectableTypes[selectedIndex];
+        const heldCount = heldType ? (inventory[heldType] || 0) : 0;
+        if (heldType === 'axe' && heldCount > 0) {
+            if (targetType === 'wood') {
+                duration *= 0.5;
+            } else {
+                duration *= 1.4;
+            }
+        }
+        return Math.max(250, duration);
     }
 
     // Attempt to place a block adjacent to the currently targeted block.  The
@@ -3366,17 +3943,22 @@ to better suit your requirements.
     // Add an item to the player's inventory.  Creates a new entry if needed.
     function addItemToInventory(type, count = 1) {
         if (!type || count <= 0) return 0;
+        const limit = getStackLimit(type);
         if (!inventory[type]) inventory[type] = 0;
         const current = inventory[type];
-        const space = HOTBAR_STACK_LIMIT - current;
+        const space = limit - current;
         if (space <= 0) return 0;
         const added = Math.min(space, count);
         inventory[type] = current + added;
-        if (added > 0) discoveredTypes.add(type);
-        ensureHotbarHasType(type);
-        refreshHotbarSlotForType(type);
+        if (added > 0) {
+            discoveredTypes.add(type);
+            if (isHotbarAssignable(type)) {
+                ensureHotbarHasType(type);
+                refreshHotbarSlotForType(type);
+            }
+            if (selectableTypes[selectedIndex] === type) updateHandBlockMaterial();
+        }
         if (inventoryOpen) updateInventoryUI();
-        if (selectableTypes[selectedIndex] === type) updateHandBlockMaterial();
         return added;
     }
 
