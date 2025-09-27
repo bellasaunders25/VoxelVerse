@@ -3228,6 +3228,19 @@ to better suit your requirements.
         return (t !== 'water' && t !== 'leaves' && t !== 'lava');
     }
 
+    // Find the highest solid block at the given column that is at or below maxY.
+    // Returns the integer y coordinate of the supporting block, or -Infinity
+    // if no solid block exists at or below that height.
+    function findSupportingBlockY(x, maxY, z) {
+        const clamped = Math.min(maxY, CHUNK_HEIGHT - 1);
+        for (let yy = clamped; yy >= 0; yy--) {
+            if (isSolid(x, yy, z)) {
+                return yy;
+            }
+        }
+        return -Infinity;
+    }
+
     // Cast a ray from the camera forward into the world to find the first
     // voxel that intersects the ray.  Returns an object with the voxel
     // coordinates { x, y, z }, the type of voxel, and the face normal of
@@ -4447,7 +4460,8 @@ to better suit your requirements.
         if (dropType) {
             // Spawn a dropped item corresponding to the removed block now that the
             // column height has been updated so the drop sits atop the new surface.
-            spawnDroppedItem(dropType, x, y, z);
+            const supportY = findSupportingBlockY(x, y - 1, z);
+            spawnDroppedItem(dropType, x, y, z, { surfaceHint: supportY });
         }
     }
 
@@ -4497,9 +4511,24 @@ to better suit your requirements.
         if (options.worldPosition) {
             mesh.position.copy(options.worldPosition);
         } else {
-            const highest = getHighestBlockY(x + 0.5, z + 0.5);
-            const surfaceY = (highest !== -Infinity) ? highest + 1 + DROP_HALF_SIZE : y + 0.6;
-            mesh.position.set(x + 0.5, surfaceY, z + 0.5);
+            const ix = Math.floor(x);
+            const iz = Math.floor(z);
+            let surfaceY;
+            if (options.surfaceHint !== undefined) {
+                surfaceY = (options.surfaceHint !== -Infinity)
+                    ? options.surfaceHint + 1 + DROP_HALF_SIZE
+                    : undefined;
+            }
+            if (surfaceY === undefined) {
+                const support = findSupportingBlockY(ix, typeof y === 'number' ? y - 1 : CHUNK_HEIGHT - 1, iz);
+                if (support !== -Infinity) {
+                    surfaceY = support + 1 + DROP_HALF_SIZE;
+                } else {
+                    const highest = getHighestBlockY(ix + 0.5, iz + 0.5);
+                    surfaceY = (highest !== -Infinity) ? highest + 1 + DROP_HALF_SIZE : y + 0.6;
+                }
+            }
+            mesh.position.set(ix + 0.5, surfaceY, iz + 0.5);
         }
         mesh.rotation.y = Math.random() * Math.PI * 2;
         const velocity = options.velocity ? options.velocity.clone() : new THREE.Vector3(
@@ -4590,9 +4619,12 @@ to better suit your requirements.
             item.velocity.y += gravity * delta;
             item.mesh.position.addScaledVector(item.velocity, delta);
 
-            const highest = getHighestBlockY(item.mesh.position.x, item.mesh.position.z);
-            if (highest !== -Infinity) {
-                const restingY = highest + 1 + DROP_HALF_SIZE;
+            const ix = Math.floor(item.mesh.position.x);
+            const iz = Math.floor(item.mesh.position.z);
+            const bottomY = item.mesh.position.y - DROP_HALF_SIZE - 0.001;
+            const supportY = findSupportingBlockY(ix, Math.floor(bottomY), iz);
+            if (supportY !== -Infinity) {
+                const restingY = supportY + 1 + DROP_HALF_SIZE;
                 if (item.mesh.position.y <= restingY) {
                     item.mesh.position.y = restingY;
                     item.velocity.y = 0;
