@@ -38,7 +38,7 @@ to better suit your requirements.
             transform: translate(-50%, 100%);
             display: flex;
             gap: 6px;
-            z-index: 10;
+            z-index: 500;
             pointer-events: none;
             transition: transform 0.3s ease-out;
         }
@@ -59,16 +59,6 @@ to better suit your requirements.
             justify-content: center;
             position: relative;
             transition: border-color 0.2s ease-out, box-shadow 0.2s ease-out, background 0.2s ease-out;
-        }
-        .hotbar-slot::after {
-            content: attr(data-key);
-            position: absolute;
-            bottom: 2px;
-            right: 4px;
-            font-size: 0.6rem;
-            color: rgba(255, 255, 255, 0.7);
-            text-shadow: 0 0 3px #000;
-            pointer-events: none;
         }
         .hotbar-slot img {
             width: 90%;
@@ -187,6 +177,13 @@ to better suit your requirements.
             font-size: 0.7rem;
             color: #fff;
             text-shadow: 0 0 3px #000;
+        }
+
+        .inventory-empty {
+            color: #aaa;
+            text-align: center;
+            padding: 12px 8px 4px;
+            font-size: 0.9rem;
         }
 
         /*
@@ -463,6 +460,7 @@ to better suit your requirements.
                 <input id="inventorySearch" type="text" placeholder="Search blocks..." style="flex:1; margin-right:8px; padding:6px; background:#222; color:#fff; border:1px solid #555; border-radius:4px;" />
                 <button id="closeInventory" class="menu-btn" style="padding:6px 12px; font-size:0.9rem;">Close</button>
             </div>
+            <div id="inventoryEmptyState" class="inventory-empty" style="display:none;">Collect blocks to fill your inventory.</div>
             <div id="inventoryGrid" class="inventory-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(60px, 1fr)); gap:8px; max-height:50vh; overflow-y:auto;"></div>
         </div>
     </div>
@@ -898,6 +896,7 @@ to better suit your requirements.
     // placing blocks the count is decremented.  The inventory UI will
     // display these counts.  New types are added dynamically as needed.
     const inventory = {};
+    const discoveredTypes = new Set();
 
     // Whether the inventory overlay is currently open.  Toggled with
     // the 'E' key.  When open, pointer lock is released and game
@@ -1044,6 +1043,7 @@ to better suit your requirements.
         glowstone: 'Glowstone',
         cactus: 'Cactus'
     };
+    const BLOCK_TYPE_ORDER = Object.keys(blockNames);
 
     // Tooltip element shown above the selected hotbar slot.  The element
     // itself is created in the HTML; we reference it here and control its
@@ -2772,6 +2772,7 @@ to better suit your requirements.
             const img = document.createElement('img');
             img.alt = '';
             img.draggable = false;
+            img.addEventListener('dragstart', (event) => event.preventDefault());
             slot.appendChild(img);
             const count = document.createElement('span');
             count.className = 'hotbar-count';
@@ -2866,7 +2867,8 @@ to better suit your requirements.
         const grid = document.getElementById('inventoryGrid');
         const searchInput = document.getElementById('inventorySearch');
         const closeBtn = document.getElementById('closeInventory');
-        if (!grid || !searchInput || !closeBtn) return;
+        const emptyState = document.getElementById('inventoryEmptyState');
+        if (!grid || !searchInput || !closeBtn || !emptyState) return;
         // Add input listener to filter grid
         searchInput.addEventListener('input', () => {
             updateInventoryUI();
@@ -2875,77 +2877,81 @@ to better suit your requirements.
         closeBtn.addEventListener('click', () => {
             toggleInventory();
         });
-        // Create grid slot elements for each block type once; we will
-        // update their counts and visibility in updateInventoryUI().
-        grid.innerHTML = '';
-        Object.keys(blockNames).forEach((type) => {
-            const slot = document.createElement('div');
-            slot.className = 'inv-slot';
-            slot.dataset.type = type;
-            slot.draggable = true;
-            // Icon image
-            const img = document.createElement('img');
-            img.src = hotbarIcons[type] || '';
-            img.style.pointerEvents = 'none';
-            slot.appendChild(img);
-            // Count label
-            const countSpan = document.createElement('span');
-            countSpan.className = 'inv-count';
-            countSpan.style.position = 'absolute';
-            countSpan.style.bottom = '4px';
-            countSpan.style.right = '4px';
-            countSpan.style.fontSize = '0.7rem';
-            countSpan.style.color = '#fff';
-            slot.appendChild(countSpan);
-            // Click handler to select block and close inventory
-            slot.addEventListener('click', () => {
-                // Set selected index to this block type if present in selectableTypes
-                const idx = selectableTypes.indexOf(type);
-                if (idx >= 0) {
-                    selectedIndex = idx;
-                    updateHotbarSelection();
-                    updateHandBlockMaterial();
-                }
-                toggleInventory();
-            });
-            slot.addEventListener('dragstart', (event) => {
-                if (!event.dataTransfer) return;
-                event.dataTransfer.setData(HOTBAR_DRAG_MIME, type);
-                event.dataTransfer.setData('text/plain', type);
-                event.dataTransfer.effectAllowed = 'copy';
-                if (event.dataTransfer.setDragImage && img) {
-                    event.dataTransfer.setDragImage(img, img.width / 2, img.height / 2);
-                }
-            });
-            grid.appendChild(slot);
+        // Prevent images from capturing native drag behaviour
+        grid.addEventListener('dragstart', (event) => {
+            if (event.target && event.target.tagName === 'IMG') {
+                event.preventDefault();
+            }
         });
         updateInventoryUI();
     }
 
+    function createInventorySlot(type) {
+        const slot = document.createElement('div');
+        slot.className = 'inv-slot';
+        slot.dataset.type = type;
+        slot.draggable = true;
+        const img = document.createElement('img');
+        img.src = hotbarIcons[type] || '';
+        img.alt = blockNames[type] || type;
+        img.draggable = false;
+        img.style.pointerEvents = 'none';
+        img.addEventListener('dragstart', (event) => event.preventDefault());
+        slot.appendChild(img);
+        const countSpan = document.createElement('span');
+        countSpan.className = 'inv-count';
+        slot.appendChild(countSpan);
+        slot.addEventListener('click', () => {
+            const idx = selectableTypes.indexOf(type);
+            if (idx >= 0) {
+                selectedIndex = idx;
+                updateHotbarSelection();
+                updateHandBlockMaterial();
+            }
+            toggleInventory();
+        });
+        slot.addEventListener('dragstart', (event) => {
+            if (!event.dataTransfer) return;
+            event.dataTransfer.setData(HOTBAR_DRAG_MIME, type);
+            event.dataTransfer.setData('text/plain', type);
+            event.dataTransfer.effectAllowed = 'copy';
+        });
+        return { slot, countSpan };
+    }
+
     // Refresh the inventory grid contents.  This is called whenever the
     // inventory overlay is opened or when the search/filter changes or
-    // when item counts are updated.  Each slot's count is updated and
-    // slots that do not match the search query are hidden.
+    // when item counts are updated.  Slots are regenerated to reflect the
+    // discovered items while keeping undiscovered ones hidden.
     function updateInventoryUI() {
         const grid = document.getElementById('inventoryGrid');
         const searchInput = document.getElementById('inventorySearch');
-        if (!grid || !searchInput) return;
+        const emptyState = document.getElementById('inventoryEmptyState');
+        if (!grid || !searchInput || !emptyState) return;
         const query = searchInput.value.trim().toLowerCase();
-        const slots = grid.children;
-        for (let i = 0; i < slots.length; i++) {
-            const slot = slots[i];
-            const type = slot.dataset.type;
-            const countLabel = slot.querySelector('.inv-count');
+        grid.innerHTML = '';
+        const fragment = document.createDocumentFragment();
+        let visibleCount = 0;
+        BLOCK_TYPE_ORDER.forEach((type) => {
+            if (!discoveredTypes.has(type)) return;
+            if (query && !blockNames[type].toLowerCase().includes(query)) return;
+            const { slot, countSpan } = createInventorySlot(type);
             const count = inventory[type] || 0;
             const displayCount = Math.min(count, HOTBAR_STACK_LIMIT);
-            countLabel.textContent = (displayCount > 0) ? displayCount.toString() : '';
-            // Show or hide based on search query
-            if (!query || blockNames[type].toLowerCase().includes(query)) {
-                slot.style.display = '';
-            } else {
-                slot.style.display = 'none';
-            }
+            countSpan.textContent = displayCount > 0 ? displayCount.toString() : '';
+            fragment.appendChild(slot);
+            visibleCount++;
+        });
+        if (visibleCount === 0) {
+            emptyState.style.display = 'block';
+            emptyState.textContent = discoveredTypes.size === 0
+                ? 'Collect blocks to fill your inventory.'
+                : 'No blocks match your search.';
+        } else {
+            emptyState.style.display = 'none';
+            emptyState.textContent = '';
         }
+        grid.appendChild(fragment);
     }
 
     // Toggle the inventory overlay.  When opening, release pointer lock
@@ -3366,6 +3372,7 @@ to better suit your requirements.
         if (space <= 0) return 0;
         const added = Math.min(space, count);
         inventory[type] = current + added;
+        if (added > 0) discoveredTypes.add(type);
         ensureHotbarHasType(type);
         refreshHotbarSlotForType(type);
         if (inventoryOpen) updateInventoryUI();
