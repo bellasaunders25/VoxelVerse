@@ -2684,6 +2684,7 @@ to better suit your requirements.
         const group = new THREE.Group();
         group.position.set(0,0,0);
         const instancedMeshes = [];
+        const instancedByType = new Map();
         // For each type create instanced mesh and record mapping to voxelInstances
         for (const key of Object.keys(matrices)) {
             const mats = matrices[key];
@@ -2699,6 +2700,7 @@ to better suit your requirements.
             inst.castShadow = (key !== 'water');
             group.add(inst);
             instancedMeshes.push(inst);
+            instancedByType.set(key, inst);
             // Register instance indices in voxelInstances
             const positions = positionsByType[key];
             for (let i = 0; i < positions.length; i++) {
@@ -2707,7 +2709,7 @@ to better suit your requirements.
                 voxelInstances.set(globalKey, { mesh: inst, index: i, chunk: chunkKeyString, type: key });
             }
         }
-        return { cx, cz, group, instancedMeshes };
+        return { cx, cz, group, instancedMeshes, instancedByType };
     }
     // Dispose chunk
     function disposeChunk(chunk) {
@@ -4354,31 +4356,76 @@ to better suit your requirements.
     function removeVoxel(x, y, z) {
         const key = `${x},${y},${z}`;
         const info = voxelInstances.get(key);
-        if (!info) return;
-        if (info.chunk === 'mod') {
-            // Remove dynamic mesh
-            scene.remove(info.mesh);
-            const idx = modifiedMeshes.indexOf(info.mesh);
-            if (idx >= 0) modifiedMeshes.splice(idx, 1);
-        } else {
-            // Hide instanced block by scaling to zero
-            const inst = info.mesh;
-            const idxInst = info.index;
-            const m = new THREE.Matrix4();
-            m.makeScale(0, 0, 0);
-            inst.setMatrixAt(idxInst, m);
-            inst.instanceMatrix.needsUpdate = true;
-        }
-        voxelInstances.delete(key);
         const oldEntry = voxelMap.get(key);
-        let dropType = null;
-        if (oldEntry) {
-            // Remove the voxel from the map before spawning a drop so
-            // that collision checks treat the space as empty.  Store
-            // the type for later use.
-            voxelMap.delete(key);
-            dropType = oldEntry.type;
+        if (info) {
+            if (info.chunk === 'mod') {
+                // Remove dynamic mesh
+                scene.remove(info.mesh);
+                const idx = modifiedMeshes.indexOf(info.mesh);
+                if (idx >= 0) modifiedMeshes.splice(idx, 1);
+            } else {
+                // Hide instanced block by scaling to zero
+                const inst = info.mesh;
+                const idxInst = info.index;
+                const m = new THREE.Matrix4();
+                m.makeScale(0, 0, 0);
+                inst.setMatrixAt(idxInst, m);
+                inst.instanceMatrix.needsUpdate = true;
+            }
+            voxelInstances.delete(key);
+        } else if (oldEntry) {
+            // Fallback: occasionally voxelInstances can lose track of a block
+            // (for example if an instance mapping was trimmed during streaming).
+            // Attempt to remove the visible geometry by searching the owning
+            // structures directly so that collisions and drops stay in sync.
+            if (oldEntry.chunk === 'mod') {
+                for (let i = modifiedMeshes.length - 1; i >= 0; i--) {
+                    const mesh = modifiedMeshes[i];
+                    if (Math.abs(mesh.position.x - (x + 0.5)) < 0.01 &&
+                        Math.abs(mesh.position.y - (y + 0.5)) < 0.01 &&
+                        Math.abs(mesh.position.z - (z + 0.5)) < 0.01) {
+                        scene.remove(mesh);
+                        modifiedMeshes.splice(i, 1);
+                        break;
+                    }
+                }
+            } else {
+                const chunk = chunkMap.get(oldEntry.chunk);
+                if (chunk && chunk.instancedByType) {
+                    const inst = chunk.instancedByType.get(oldEntry.type);
+                    if (inst) {
+                        const tmpMatrix = new THREE.Matrix4();
+                        const tmpPos = new THREE.Vector3();
+                        const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+                        const instanceCount = (typeof inst.count === 'number') ? inst.count : inst.instanceMatrix.count;
+                        let found = false;
+                        for (let i = 0; i < instanceCount; i++) {
+                            inst.getMatrixAt(i, tmpMatrix);
+                            tmpPos.setFromMatrixPosition(tmpMatrix);
+                            if (Math.abs(tmpPos.x - (x + 0.5)) < 0.01 &&
+                                Math.abs(tmpPos.y - (y + 0.5)) < 0.01 &&
+                                Math.abs(tmpPos.z - (z + 0.5)) < 0.01) {
+                                inst.setMatrixAt(i, zero);
+                                inst.instanceMatrix.needsUpdate = true;
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (!found) {
+                            // Ensure at least one instance matrix update occurs so that
+                            // subsequent lookups don't read stale transforms.
+                            inst.instanceMatrix.needsUpdate = true;
+                        }
+                    }
+                }
+            }
         }
+        if (!oldEntry) return;
+        let dropType = oldEntry.type;
+        // Remove the voxel from the map before spawning a drop so
+        // that collision checks treat the space as empty.  Store
+        // the type for later use.
+        voxelMap.delete(key);
         // Update heightMap if needed
         const colKey = `${x},${z}`;
         if (heightMap[colKey] !== undefined && y >= heightMap[colKey]) {
