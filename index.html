@@ -995,11 +995,32 @@ to better suit your requirements.
     // appear near the horizon at the edge of the world.  A small offset
     // above CHUNK_HEIGHT ensures they remain visible above terrain.
     const SUN_HEIGHT    = CHUNK_HEIGHT + 10;
-    // Probability that a stone block deep underground will be carved out to
-    // create a cave.  A small value like 0.08 produces occasional open
-    // spaces in the stone layers.  Only stone below the dirt layers is
-    // eligible for carving.
-    const CAVE_PROBABILITY = 0.08;
+    // Cave noise configuration.  Underground spaces are carved by sampling
+    // layered 3D Perlin noise fields instead of a simple probability.  The
+    // base and detail frequencies control tunnel width and branching,
+    // while the cavern frequency spawns larger chambers.  Threshold
+    // determines how much of the stone is removed and CAVE_MIN_Y limits
+    // generation to deeper levels so the surface remains intact.
+    const CAVE_BASE_FREQUENCY = 0.038;
+    const CAVE_DETAIL_FREQUENCY = 0.085;
+    const CAVERN_FREQUENCY = 0.02;
+    const CAVE_THRESHOLD = 0.6;
+    const CAVE_MIN_Y = 6;
+    const CAVE_VERTICAL_RIPPLE_FREQ = 0.22;
+    const CAVE_VERTICAL_RIPPLE_STRENGTH = 0.08;
+    const CAVE_CAVERN_THRESHOLD = 0.7;
+    const CAVE_CAVERN_BOOST = 0.35;
+
+    const PLAINS_MASK_FREQUENCY = 0.045;
+    const PLAINS_THRESHOLD = 0.58;
+    const PLAINS_BASE = 0.28;
+    const PLAINS_VARIATION = 0.24;
+
+    const OCEAN_MASK_FREQUENCY = 0.12;
+    const OCEAN_THRESHOLD = 0.46;
+    const OCEAN_SHELF_BLEND = 0.12;
+    const OCEAN_MAX_DEPTH = 14;
+    const OCEAN_FLOOR_JITTER = 3.5;
 
     // Cave entrance configuration.  A small chance per column on the surface
     // produces an entrance that opens downward into the world.  Each
@@ -1193,6 +1214,9 @@ to better suit your requirements.
     let moistureNoise;
     let mysticNoise;
     let skyIslandNoise;
+    let caveNoisePrimary;
+    let caveNoiseDetail;
+    let cavernNoise;
     const biomeCache = new Map();
     // A global height map storing the highest solid block for each (x,z)
     const heightMap = {};
@@ -1258,6 +1282,59 @@ to better suit your requirements.
     let handGroup;
     const handItemMeshes = {};
     let activeHandTool = null;
+    const TOOL_VARIANTS = ['wooden', 'stone', 'copper', 'iron', 'diamond'];
+    const TOOL_VARIANT_LABELS = {
+        wooden: 'Wooden',
+        stone: 'Stone',
+        copper: 'Copper',
+        iron: 'Iron',
+        diamond: 'Diamond'
+    };
+    const TOOL_KINDS = ['axe', 'pickaxe', 'sword', 'shovel'];
+    const TOOL_KIND_LABELS = {
+        axe: 'Axe',
+        pickaxe: 'Pickaxe',
+        sword: 'Sword',
+        shovel: 'Shovel'
+    };
+    const TOOL_VARIANT_STYLE = {
+        wooden: {
+            headPrimary: 0xb37a45,
+            headSecondary: 0xd9a062,
+            edge: 0xf3d9ad,
+            emissive: 0x25160a,
+            wrap: 0x4c2f16
+        },
+        stone: {
+            headPrimary: 0x6f6f6f,
+            headSecondary: 0x9d9d9d,
+            edge: 0xe7e7e7,
+            emissive: 0x1e1e1e,
+            wrap: 0x3b3229
+        },
+        copper: {
+            headPrimary: 0xa55f24,
+            headSecondary: 0xd68138,
+            edge: 0xffddbb,
+            emissive: 0x331400,
+            wrap: 0x513019
+        },
+        iron: {
+            headPrimary: 0xa9b6c6,
+            headSecondary: 0xd9e4f5,
+            edge: 0xffffff,
+            emissive: 0x2e3e52,
+            wrap: 0x2f3b4d
+        },
+        diamond: {
+            headPrimary: 0x0fa7bd,
+            headSecondary: 0x7cf4ff,
+            edge: 0xcffbff,
+            emissive: 0x0a4452,
+            wrap: 0x1e4d56
+        }
+    };
+    const TOOL_STATS = {};
     // Base hand position and rotation.  These will be captured after the
     // hand group is positioned in init().  When animations end the
     // hand will return to these defaults.
@@ -1491,16 +1568,21 @@ to better suit your requirements.
             icons[type] = captureIcon(renderer, scene, camera, mesh);
         });
 
-        const toolCaptures = [
-            { type: 'stick', mesh: createStickMesh({ forIcon: true }) },
-            { type: 'axe', mesh: createAxeMesh({ forIcon: true }) },
-            { type: 'pickaxe', mesh: createPickaxeMesh({ forIcon: true }) }
-        ];
+        const toolCaptures = [];
+        toolCaptures.push({ type: 'stick', mesh: createStickMesh({ forIcon: true }) });
+        TOOL_VARIANTS.forEach((variant) => {
+            TOOL_KINDS.forEach((kind) => {
+                const factory = TOOL_FACTORIES[kind];
+                if (!factory) return;
+                toolCaptures.push({ type: `${variant}_${kind}`, mesh: factory({ forIcon: true, variant }) });
+            });
+        });
         toolCaptures.forEach(({ type, mesh }) => {
             if (!mesh) return;
             const group = new THREE.Group();
             mesh.position.set(0, -0.2, 0);
             mesh.rotation.set(-0.4, -Math.PI / 5, Math.PI / 12);
+            mesh.scale.multiplyScalar(1.08);
             group.add(mesh);
             icons[type] = captureIcon(renderer, scene, camera, group);
         });
@@ -1533,9 +1615,47 @@ to better suit your requirements.
 
     const HOTBAR_DRAG_MIME = 'application/x-voxel-item';
     const HOTBAR_STACK_LIMIT = 64;
-    const TOOL_TYPES = new Set(['axe', 'pickaxe']);
-    const ITEM_STACK_LIMITS = { axe: 1, pickaxe: 1 };
-    const PICKAXE_FAST_TYPES = new Set(['stone', 'iron', 'copper', 'ruby', 'diamond', 'coal', 'moss', 'glowstone']);
+    const TOOL_TYPES = new Set();
+    const ITEM_STACK_LIMITS = {};
+    const TOOL_TIER_SPEED = {
+        wooden: 0.7,
+        stone: 0.55,
+        copper: 0.48,
+        iron: 0.4,
+        diamond: 0.28
+    };
+    const TOOL_TIER_PENALTY = {
+        wooden: 1.28,
+        stone: 1.32,
+        copper: 1.34,
+        iron: 1.36,
+        diamond: 1.38
+    };
+    const TOOL_EFFECTIVE_TYPES = {
+        axe: new Set(['wood', 'leaves', 'moss']),
+        pickaxe: new Set(['stone', 'iron', 'copper', 'ruby', 'diamond', 'coal', 'moss', 'glowstone']),
+        shovel: new Set(['dirt', 'grass', 'sand', 'snow', 'moss']),
+        sword: new Set(['leaves', 'moss', 'glowstone'])
+    };
+    const HEAD_RESOURCE_VARIANT = {
+        wood: 'wooden',
+        stone: 'stone',
+        copper: 'copper',
+        iron: 'iron',
+        diamond: 'diamond'
+    };
+    TOOL_VARIANTS.forEach((variant) => {
+        TOOL_KINDS.forEach((kind) => {
+            const type = `${variant}_${kind}`;
+            TOOL_TYPES.add(type);
+            ITEM_STACK_LIMITS[type] = 1;
+            TOOL_STATS[type] = { kind, tier: variant };
+        });
+    });
+    const VARIANT_HEAD_RESOURCE = {};
+    Object.entries(HEAD_RESOURCE_VARIANT).forEach(([resource, variant]) => {
+        VARIANT_HEAD_RESOURCE[variant] = resource;
+    });
 
     function isHotbarAssignable(type) {
         return !!type && (blockMaterials[type] || TOOL_TYPES.has(type));
@@ -1691,58 +1811,63 @@ to better suit your requirements.
         updateCraftingSlot(index);
     }
 
-    function evaluatePickaxeRecipe() {
-        const required = [
-            { index: 0, type: 'wood' },
-            { index: 1, type: 'wood' },
-            { index: 2, type: 'wood' },
-            { index: 4, type: 'stick' },
-            { index: 7, type: 'stick' }
-        ];
-        for (const req of required) {
-            const entry = craftingGridState[req.index];
-            if (!entry || entry.type !== req.type || entry.count < 1) {
-                return null;
-            }
-        }
-        for (let i = 0; i < craftingGridState.length; i++) {
-            if (required.some((req) => req.index === i)) continue;
-            if (craftingGridState[i]) return null;
-        }
-        const existing = inventory['pickaxe'] || 0;
-        if (existing >= getStackLimit('pickaxe')) return null;
-        return {
-            type: 'pickaxe',
-            count: 1,
-            consumes: required.map((req) => ({ index: req.index, count: 1 }))
-        };
-    }
+    const TOOL_PATTERNS = {
+        pickaxe: [
+            ['HHH', ' S ', ' S ']
+        ],
+        axe: [
+            ['HH ', 'HS ', ' S '],
+            [' HH', ' SH', ' S ']
+        ],
+        shovel: [
+            [' H ', ' S ', ' S ']
+        ],
+        sword: [
+            [' H ', ' H ', ' S ']
+        ]
+    };
+    const TOOL_RECIPE_ORDER = ['pickaxe', 'axe', 'shovel', 'sword'];
 
-    function evaluateAxeRecipe() {
-        const required = [
-            { index: 0, type: 'wood' },
-            { index: 1, type: 'wood' },
-            { index: 3, type: 'wood' },
-            { index: 4, type: 'stick' },
-            { index: 7, type: 'stick' }
-        ];
-        for (const req of required) {
-            const entry = craftingGridState[req.index];
-            if (!entry || entry.type !== req.type || entry.count < 1) {
-                return null;
+    function evaluateToolRecipe(toolKind) {
+        const patterns = TOOL_PATTERNS[toolKind];
+        if (!patterns || patterns.length === 0) return null;
+        for (const pattern of patterns) {
+            let headType = null;
+            const consumes = [];
+            let valid = true;
+            for (let row = 0; row < 3 && valid; row++) {
+                const rowPattern = pattern[row] || '   ';
+                for (let col = 0; col < 3; col++) {
+                    const char = rowPattern[col] || ' ';
+                    const index = row * 3 + col;
+                    const entry = craftingGridState[index];
+                    if (char === ' ') {
+                        if (entry) { valid = false; break; }
+                        continue;
+                    }
+                    if (!entry || entry.count < 1) { valid = false; break; }
+                    if (char === 'H') {
+                        const variant = HEAD_RESOURCE_VARIANT[entry.type];
+                        if (!variant) { valid = false; break; }
+                        if (!headType) headType = entry.type;
+                        else if (headType !== entry.type) { valid = false; break; }
+                    } else if (char === 'S') {
+                        if (entry.type !== 'stick') { valid = false; break; }
+                    }
+                    consumes.push({ index, count: 1 });
+                }
             }
+            if (!valid) continue;
+            if (!headType) continue;
+            const variant = HEAD_RESOURCE_VARIANT[headType];
+            if (!variant) continue;
+            const resultType = `${variant}_${toolKind}`;
+            if (!TOOL_TYPES.has(resultType)) continue;
+            const existing = inventory[resultType] || 0;
+            if (existing >= getStackLimit(resultType)) continue;
+            return { type: resultType, count: 1, consumes };
         }
-        for (let i = 0; i < craftingGridState.length; i++) {
-            if (required.some((req) => req.index === i)) continue;
-            if (craftingGridState[i]) return null;
-        }
-        const existing = inventory['axe'] || 0;
-        if (existing >= getStackLimit('axe')) return null;
-        return {
-            type: 'axe',
-            count: 1,
-            consumes: required.map((req) => ({ index: req.index, count: 1 }))
-        };
+        return null;
     }
 
     function evaluateStickRecipe() {
@@ -1778,16 +1903,16 @@ to better suit your requirements.
     }
 
     function recalculateCraftingResult() {
-        const pickaxe = evaluatePickaxeRecipe();
-        if (pickaxe) {
-            currentCraftingResult = pickaxe;
-        } else {
-            const axe = evaluateAxeRecipe();
-            if (axe) {
-                currentCraftingResult = axe;
-            } else {
-                currentCraftingResult = evaluateStickRecipe();
+        currentCraftingResult = null;
+        for (const kind of TOOL_RECIPE_ORDER) {
+            const result = evaluateToolRecipe(kind);
+            if (result) {
+                currentCraftingResult = result;
+                break;
             }
+        }
+        if (!currentCraftingResult) {
+            currentCraftingResult = evaluateStickRecipe();
         }
         updateCraftingResultUI();
     }
@@ -1857,10 +1982,20 @@ to better suit your requirements.
         moss: 'Mossy Stone',
         glowstone: 'Glowstone',
         cactus: 'Cactus',
-        stick: 'Sticks',
-        axe: 'Wooden Axe',
-        pickaxe: 'Wooden Pickaxe'
+        iron: 'Iron Ore',
+        copper: 'Copper Ore',
+        ruby: 'Ruby Crystal',
+        diamond: 'Diamond',
+        coal: 'Coal Ore',
+        lava: 'Lava',
+        stick: 'Sticks'
     };
+    TOOL_VARIANTS.forEach((variant) => {
+        TOOL_KINDS.forEach((kind) => {
+            const type = `${variant}_${kind}`;
+            blockNames[type] = `${TOOL_VARIANT_LABELS[variant]} ${TOOL_KIND_LABELS[kind]}`;
+        });
+    });
     const BLOCK_TYPE_ORDER = Object.keys(blockNames);
 
     const recipeBookEntries = [
@@ -1882,44 +2017,83 @@ to better suit your requirements.
                 'Add a second log before collecting to craft eight sticks at once.'
             ],
             note: 'Keep a reserve of sticks for tools, torches, and other recipes.'
-        },
-        {
-            id: 'axe',
-            name: 'Wooden Axe',
-            result: { type: 'axe', label: 'Creates one wooden axe', shortLabel: '×1' },
-            listLabel: '×1',
-            summary: 'Shape a basic axe that chops trees much faster than using your hands.',
-            pattern: [
-                ['wood', 'wood', null],
-                ['wood', 'stick', null],
-                [null, 'stick', null]
-            ],
-            steps: [
-                'Arrange three logs in an L shape across the top-left of the grid.',
-                'Stack two sticks vertically beneath the right-most log.',
-                'Take the axe from the result slot to equip it.'
-            ],
-            note: 'The wooden axe destroys logs twice as fast but is slower on other block types.'
-        },
-        {
-            id: 'pickaxe',
-            name: 'Wooden Pickaxe',
-            result: { type: 'pickaxe', label: 'Creates one wooden pickaxe', shortLabel: '×1' },
-            listLabel: '×1',
-            summary: 'Carve a basic pickaxe that mines stone and ores far quicker than fists or axes.',
-            pattern: [
-                ['wood', 'wood', 'wood'],
-                [null, 'stick', null],
-                [null, 'stick', null]
-            ],
-            steps: [
-                'Lay three logs across the entire top row of the crafting grid.',
-                'Place a stick in the centre of the middle row and another directly beneath it.',
-                'Collect the wooden pickaxe from the output slot to start mining stone efficiently.'
-            ],
-            note: 'Wooden pickaxes are ideal for early stone and ore gathering but still slow on wood blocks.'
         }
     ];
+    const TOOL_RECIPE_TEXT = {
+        pickaxe: {
+            summary: (variantLabel) => `Build a ${variantLabel} Pickaxe that tears through stone and ore nodes.`,
+            steps: [
+                (_variant, _tool, material) => `Lay three ${material} blocks across the top row.`,
+                () => 'Place sticks in the centre of the middle and bottom rows.',
+                (variantLabel, toolLabel) => `Collect the ${variantLabel} ${toolLabel} from the output slot.`
+            ]
+        },
+        axe: {
+            summary: (variantLabel) => `Craft a ${variantLabel} Axe to bite through tree trunks with ease.`,
+            steps: [
+                (_variant, _tool, material) => `Arrange ${material} blocks in an L shape matching the diagram.`,
+                () => 'Stack sticks down the handle column.',
+                (variantLabel, toolLabel) => `Pick up the ${variantLabel} ${toolLabel} once the pattern is complete.`
+            ]
+        },
+        shovel: {
+            summary: (variantLabel) => `Shape a ${variantLabel} Shovel for rapid digging through soil and sand.`,
+            steps: [
+                (_variant, _tool, material) => `Place one ${material} block at the top centre.`,
+                () => 'Set sticks in the middle column beneath it.',
+                (variantLabel, toolLabel) => `Grab the ${variantLabel} ${toolLabel} from the result slot.`
+            ]
+        },
+        sword: {
+            summary: (variantLabel) => `Forge a ${variantLabel} Sword for close combat and foliage cutting.`,
+            steps: [
+                (_variant, _tool, material) => `Stack two ${material} blocks in the centre column.`,
+                () => 'Add a stick beneath them to form the grip.',
+                (variantLabel, toolLabel) => `Claim the ${variantLabel} ${toolLabel} from the output.`
+            ]
+        }
+    };
+    TOOL_VARIANTS.forEach((variant) => {
+        const material = VARIANT_HEAD_RESOURCE[variant];
+        if (!material) return;
+        const materialLabel = (blockNames[material] || material).toLowerCase();
+        const variantLabel = TOOL_VARIANT_LABELS[variant];
+        const resourceLabel = blockNames[material] || material;
+        TOOL_KINDS.forEach((kind) => {
+            const type = `${variant}_${kind}`;
+            if (!TOOL_TYPES.has(type)) return;
+            const toolLabel = TOOL_KIND_LABELS[kind];
+            const text = TOOL_RECIPE_TEXT[kind];
+            if (!text) return;
+            const summary = text.summary(variantLabel);
+            const steps = text.steps.map((fn) => fn(variantLabel, toolLabel, materialLabel));
+            const patternTemplate = TOOL_PATTERNS[kind] && TOOL_PATTERNS[kind][0];
+            if (!patternTemplate) return;
+            const pattern = patternTemplate.map((row) => {
+                return (row || '   ').split('').map((char) => {
+                    if (char === 'H') return material;
+                    if (char === 'S') return 'stick';
+                    return null;
+                });
+            });
+            const entry = {
+                id: type,
+                name: `${variantLabel} ${toolLabel}`,
+                result: { type, label: `Creates one ${variantLabel.toLowerCase()} ${toolLabel.toLowerCase()}`, shortLabel: '×1' },
+                listLabel: '×1',
+                summary,
+                pattern,
+                steps
+            };
+            if (kind === 'axe') {
+                entry.patternNote = 'Pattern works mirrored—flip the head to craft left- or right-handed axes.';
+            }
+            if (variant !== 'wooden') {
+                entry.note = `Mine ${resourceLabel.toLowerCase()} to unlock this ${toolLabel.toLowerCase()} recipe.`;
+            }
+            recipeBookEntries.push(entry);
+        });
+    });
     let activeRecipeId = null;
 
     function setRecipeBookOpen(open) {
@@ -2311,6 +2485,58 @@ to better suit your requirements.
             return total / maxValue;
         };
     }
+    function createPerlin3D(seedValue) {
+        const rand = mulberry32(seedValue | 0);
+        const p = new Uint8Array(512);
+        const permutation = new Uint8Array(256);
+        for (let i = 0; i < 256; i++) permutation[i] = i;
+        for (let i = 255; i > 0; i--) {
+            const j = Math.floor(rand() * (i + 1));
+            const tmp = permutation[i];
+            permutation[i] = permutation[j];
+            permutation[j] = tmp;
+        }
+        for (let i = 0; i < 512; i++) p[i] = permutation[i & 255];
+        function fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+        function lerp(t, a, b) { return a + t * (b - a); }
+        function grad(hash, x, y, z) {
+            const h = hash & 15;
+            const u = h < 8 ? x : y;
+            const v = h < 4 ? y : (h === 12 || h === 14 ? x : z);
+            return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
+        }
+        function rawNoise(x, y, z) {
+            let X = Math.floor(x) & 255;
+            let Y = Math.floor(y) & 255;
+            let Z = Math.floor(z) & 255;
+            x -= Math.floor(x);
+            y -= Math.floor(y);
+            z -= Math.floor(z);
+            const u = fade(x), v = fade(y), w = fade(z);
+            const A = p[X] + Y, AA = p[A] + Z, AB = p[A + 1] + Z;
+            const B = p[X + 1] + Y, BA = p[B] + Z, BB = p[B + 1] + Z;
+            return lerp(w,
+                lerp(v,
+                    lerp(u, grad(p[AA], x, y, z), grad(p[BA], x - 1, y, z)),
+                    lerp(u, grad(p[AB], x, y - 1, z), grad(p[BB], x - 1, y - 1, z))
+                ),
+                lerp(v,
+                    lerp(u, grad(p[AA + 1], x, y, z - 1), grad(p[BA + 1], x - 1, y, z - 1)),
+                    lerp(u, grad(p[AB + 1], x, y - 1, z - 1), grad(p[BB + 1], x - 1, y - 1, z - 1))
+                )
+            );
+        }
+        return function(x, y, z, octaves = 4, persistence = 0.5, frequency = 0.05) {
+            let total = 0, amplitude = 1, maxValue = 0, freq = frequency;
+            for (let i = 0; i < octaves; i++) {
+                total += rawNoise(x * freq, y * freq, z * freq) * amplitude;
+                maxValue += amplitude;
+                amplitude *= persistence;
+                freq *= 2;
+            }
+            return total / maxValue;
+        };
+    }
     const BIOME_FREQUENCY = 0.008;
     const DEFAULT_FOG_RANGE = { near: 120, far: 320 };
     const BIOME_SETTINGS = {
@@ -2494,9 +2720,43 @@ to better suit your requirements.
                 const wz = worldZ0 + dz;
                 const biome = getBiomeAt(wx, wz);
                 columnBiomes.set(`${wx},${wz}`, biome);
-                const n = perlinNoise(wx, wz);
-                const normalized = (n + 1) / 2;
-                let h = Math.floor(normalized * (CHUNK_HEIGHT - 8)) + 2;
+                const continentNoise = (perlinNoise(wx, wz, 4, 0.5, WORLD_FREQUENCY * 0.22) + 1) / 2;
+                const ridgeNoise = (perlinNoise(wx, wz, 5, 0.5, WORLD_FREQUENCY * 0.9) + 1) / 2;
+                const detailNoise = (perlinNoise(wx, wz, 3, 0.55, WORLD_FREQUENCY * 1.6) + 1) / 2;
+                const mountainNoise = Math.pow(ridgeNoise, 1.6);
+                let normalized = continentNoise * 0.52 + mountainNoise * 0.34 + detailNoise * 0.14;
+                const plateauNoise = (perlinNoise(wx, wz, 2, 0.6, WORLD_FREQUENCY * 0.12) + 1) / 2;
+                if (plateauNoise > 0.58) {
+                    const strength = Math.min(1, (plateauNoise - 0.58) / 0.42);
+                    const flatTarget = Math.round(normalized * 12) / 12;
+                    normalized = THREE.MathUtils.lerp(normalized, flatTarget, strength * 0.7);
+                }
+                const flattenMask = (perlinNoise(wx, wz, 3, 0.6, PLAINS_MASK_FREQUENCY) + 1) / 2;
+                const flatTarget = PLAINS_BASE + continentNoise * PLAINS_VARIATION;
+                const isMeadowy = biome && (biome.key === 'meadow' || biome.key === 'desert');
+                let flattenStrength = 0;
+                if (flattenMask > PLAINS_THRESHOLD) {
+                    flattenStrength = Math.min(1, (flattenMask - PLAINS_THRESHOLD) / (1 - PLAINS_THRESHOLD));
+                }
+                if (isMeadowy) {
+                    flattenStrength = Math.max(flattenStrength, 0.45);
+                }
+                if (flattenStrength > 0) {
+                    normalized = THREE.MathUtils.lerp(normalized, flatTarget, flattenStrength * 0.85);
+                }
+                normalized = THREE.MathUtils.clamp(normalized, 0, 1);
+                let h = Math.floor(normalized * (CHUNK_HEIGHT - 12)) + 4;
+                const oceanNoise = (perlinNoise(wx, wz, 3, 0.55, OCEAN_MASK_FREQUENCY) + 1) / 2;
+                if (oceanNoise < OCEAN_THRESHOLD) {
+                    const denom = Math.max(OCEAN_SHELF_BLEND, 0.0001);
+                    const shelfFactor = Math.min(1, Math.max(0, (OCEAN_THRESHOLD - oceanNoise) / denom));
+                    const depthStrength = Math.pow((OCEAN_THRESHOLD - oceanNoise) / OCEAN_THRESHOLD, 1.2);
+                    const floorNoise = (perlinNoise(wx, wz, 2, 0.55, WORLD_FREQUENCY * 1.8) + 1) / 2;
+                    const depth = OCEAN_MAX_DEPTH * (0.35 + 0.65 * depthStrength) * shelfFactor;
+                    const floorOffset = Math.round(floorNoise * OCEAN_FLOOR_JITTER);
+                    const oceanFloor = Math.floor(WATER_LEVEL - 2 - depth - floorOffset);
+                    h = Math.min(h, oceanFloor);
+                }
                 if (biome && typeof biome.heightOffset === 'number') {
                     h += biome.heightOffset;
                 }
@@ -2691,7 +2951,7 @@ to better suit your requirements.
                 const columnKey = `${wx},${wz}`;
                 const columnHeight = heights[columnKey];
                 const columnBiome = columnBiomes.get(columnKey) || BIOME_SETTINGS.meadow;
-                const soilLayers = (columnBiome && typeof columnBiome.soilLayers === 'number') ? columnBiome.soilLayers : DIRT_LAYERS;
+                let soilLayers = (columnBiome && typeof columnBiome.soilLayers === 'number') ? columnBiome.soilLayers : DIRT_LAYERS;
                 // Always place bedrock at y=0
                 {
                     const m = new THREE.Matrix4();
@@ -2728,11 +2988,30 @@ to better suit your requirements.
                     // water level), the next DIRT_LAYERS blocks become dirt, and
                     // everything below becomes stone.
                     let matKey;
-                    const surfaceBlock = (columnHeight < waterLevel)
+                    let surfaceBlock = (columnHeight < waterLevel)
                         ? (columnBiome.underwaterSurface || columnBiome.surface || 'sand')
                         : (columnBiome.surface || 'grass');
-                    const subsurfaceBlock = columnBiome.subsurface || 'dirt';
-                    const deepBlock = columnBiome.deep || 'stone';
+                    let subsurfaceBlock = columnBiome.subsurface || 'dirt';
+                    let deepBlock = columnBiome.deep || 'stone';
+                    const belowWater = columnHeight < waterLevel - 1;
+                    const coastal = !belowWater && columnHeight >= waterLevel - 2 && columnHeight <= waterLevel + 2;
+                    const depthBelowSea = waterLevel - columnHeight;
+                    if (belowWater) {
+                        surfaceBlock = 'sand';
+                        subsurfaceBlock = 'sand';
+                        deepBlock = 'stone';
+                        if (depthBelowSea > 8) {
+                            soilLayers = Math.max(soilLayers, 6);
+                        } else if (depthBelowSea > 4) {
+                            soilLayers = Math.max(soilLayers, 5);
+                        } else {
+                            soilLayers = Math.max(soilLayers, 4);
+                        }
+                    } else if (coastal) {
+                        surfaceBlock = 'sand';
+                        subsurfaceBlock = 'sand';
+                        soilLayers = Math.max(soilLayers, 3);
+                    }
                     if (y === columnHeight) {
                         matKey = surfaceBlock;
                     } else if (soilLayers > 0 && y >= columnHeight - soilLayers) {
@@ -2773,16 +3052,19 @@ to better suit your requirements.
                             }
                         }
                     }
-                    // Carve caves out of stone below the dirt layers.  A small
-                    // probability determines whether the current stone block is
-                    // removed entirely.  The random value is derived from the
-                    // global seed and the world coordinates, ensuring deterministic
-                    // caves that line up across chunk boundaries.
+                    // Carve caves out of stone below the dirt layers using layered noise.
                     let carved = false;
                     if (matKey === 'stone' && y <= columnHeight - DIRT_LAYERS) {
-                        const rSeed = (seed ^ (wx * 92837111) ^ (y * 689287) ^ (wz * 1234567)) >>> 0;
-                        const rng = mulberry32(rSeed);
-                        if (rng() < CAVE_PROBABILITY) {
+                        const baseVal = (caveNoisePrimary(wx, y * 0.72, wz, 4, 0.55, CAVE_BASE_FREQUENCY) + 1) / 2;
+                        const detailVal = (caveNoiseDetail(wx, y * 1.05, wz, 3, 0.6, CAVE_DETAIL_FREQUENCY) + 1) / 2;
+                        const cavernVal = (cavernNoise(wx, y * 0.55, wz, 2, 0.58, CAVERN_FREQUENCY) + 1) / 2;
+                        const verticalRipple = (Math.sin(y * CAVE_VERTICAL_RIPPLE_FREQ) + 1) / 2;
+                        const carveValue = baseVal * 0.6 + detailVal * 0.4;
+                        let threshold = CAVE_THRESHOLD - (verticalRipple - 0.5) * CAVE_VERTICAL_RIPPLE_STRENGTH;
+                        if (cavernVal > CAVE_CAVERN_THRESHOLD) {
+                            threshold -= (cavernVal - CAVE_CAVERN_THRESHOLD) * CAVE_CAVERN_BOOST;
+                        }
+                        if (carveValue > threshold && y > CAVE_MIN_Y) {
                             carved = true;
                         }
                     }
@@ -3128,25 +3410,33 @@ to better suit your requirements.
         // rendered.
         handGroup = new THREE.Group();
         handGroup.add(handBlock);
-        const axeMesh = createAxeMesh();
-        axeMesh.position.set(0.24, -0.2, -0.34);
-        axeMesh.rotation.set(-1.18, 0.92, 0.32);
-        axeMesh.scale.setScalar(1.08);
-        axeMesh.visible = false;
-        handGroup.add(axeMesh);
-        handItemMeshes.axe = axeMesh;
         const stickMesh = createStickMesh();
         stickMesh.position.set(0.16, -0.18, -0.26);
         stickMesh.visible = false;
         handGroup.add(stickMesh);
         handItemMeshes.stick = stickMesh;
-        const pickaxeMesh = createPickaxeMesh();
-        pickaxeMesh.position.set(0.18, -0.16, -0.38);
-        pickaxeMesh.rotation.set(-1.12, 0.76, -0.28);
-        pickaxeMesh.scale.setScalar(1.04);
-        pickaxeMesh.visible = false;
-        handGroup.add(pickaxeMesh);
-        handItemMeshes.pickaxe = pickaxeMesh;
+        const toolTransforms = {
+            axe: { position: [0.24, -0.2, -0.34], rotation: [-1.18, 0.92, 0.32], scale: 1.08 },
+            pickaxe: { position: [0.18, -0.16, -0.38], rotation: [-1.12, 0.76, -0.28], scale: 1.04 },
+            sword: { position: [0.2, -0.22, -0.32], rotation: [-1.25, 0.88, 0.1], scale: 1.12 },
+            shovel: { position: [0.22, -0.18, -0.36], rotation: [-1.2, 0.82, -0.12], scale: 1.08 }
+        };
+        TOOL_VARIANTS.forEach((variant) => {
+            TOOL_KINDS.forEach((kind) => {
+                const factory = TOOL_FACTORIES[kind];
+                if (!factory) return;
+                const mesh = factory({ variant });
+                const transform = toolTransforms[kind];
+                if (transform) {
+                    mesh.position.set(...transform.position);
+                    mesh.rotation.set(...transform.rotation);
+                    mesh.scale.setScalar(transform.scale);
+                }
+                mesh.visible = false;
+                handGroup.add(mesh);
+                handItemMeshes[`${variant}_${kind}`] = mesh;
+            });
+        });
         // Position the held item group relative to the camera so it sits clearly
         // in view on the right-hand side.  The group is brought a little
         // closer to the lens so items appear substantial without clipping into
@@ -3188,6 +3478,9 @@ to better suit your requirements.
         moistureNoise = createPerlin(seed ^ 0x9f4c3);
         mysticNoise = createPerlin(seed ^ 0x1f2a7);
         skyIslandNoise = createPerlin(seed ^ 0x7ab9d);
+        caveNoisePrimary = createPerlin3D(seed ^ 0x4ad34);
+        caveNoiseDetail = createPerlin3D(seed ^ 0x7c9f1);
+        cavernNoise = createPerlin3D(seed ^ 0x1bd45);
         biomeCache.clear();
         updateVisibleChunks(true);
         // Apply volume settings now that audio objects have been created.  This
@@ -4000,19 +4293,28 @@ to better suit your requirements.
         }
     }
 
-    function createAxeMesh(options = {}) {
-        const { forIcon = false } = options;
-        const group = new THREE.Group();
-        const handleMaterial = new THREE.MeshStandardMaterial({ color: 0x8d5e2c, roughness: 0.68, metalness: 0.18, flatShading: true });
-        const gripMaterial = new THREE.MeshStandardMaterial({ color: 0x2f1b0c, roughness: 0.82, metalness: 0.08, flatShading: true });
-        const headCoreMaterial = new THREE.MeshStandardMaterial({ color: 0x2fa7c3, roughness: 0.35, metalness: 0.9, emissive: 0x0e4a5b, emissiveIntensity: 0.25, flatShading: true });
-        const headPlateMaterial = new THREE.MeshStandardMaterial({ color: 0x5fe9ff, roughness: 0.18, metalness: 0.95, emissive: 0x1a6f80, emissiveIntensity: 0.28, flatShading: true });
-        const edgeMaterial = new THREE.MeshStandardMaterial({ color: 0xe8faff, roughness: 0.06, metalness: 1.0, flatShading: true });
+    function getToolStyle(variant) {
+        return TOOL_VARIANT_STYLE[variant] || TOOL_VARIANT_STYLE.wooden;
+    }
+
+    function applyToolMaterialSettings(materials, forIcon) {
         const shouldDepthTest = !!forIcon;
-        [handleMaterial, gripMaterial, headCoreMaterial, headPlateMaterial, edgeMaterial].forEach((mat) => {
+        materials.forEach((mat) => {
             mat.depthTest = shouldDepthTest;
             mat.depthWrite = shouldDepthTest;
         });
+    }
+
+    function createAxeMesh(options = {}) {
+        const { forIcon = false, variant = 'wooden' } = options;
+        const style = getToolStyle(variant);
+        const group = new THREE.Group();
+        const handleMaterial = new THREE.MeshStandardMaterial({ color: 0x8d5e2c, roughness: 0.68, metalness: 0.18, flatShading: true });
+        const gripMaterial = new THREE.MeshStandardMaterial({ color: style.wrap, roughness: 0.82, metalness: 0.08, flatShading: true });
+        const headCoreMaterial = new THREE.MeshStandardMaterial({ color: style.headPrimary, roughness: 0.35, metalness: 0.88, emissive: style.emissive, emissiveIntensity: 0.24, flatShading: true });
+        const headPlateMaterial = new THREE.MeshStandardMaterial({ color: style.headSecondary, roughness: 0.18, metalness: 0.95, emissive: style.emissive, emissiveIntensity: 0.3, flatShading: true });
+        const edgeMaterial = new THREE.MeshStandardMaterial({ color: style.edge, roughness: 0.06, metalness: 1.0, flatShading: true });
+        applyToolMaterialSettings([handleMaterial, gripMaterial, headCoreMaterial, headPlateMaterial, edgeMaterial], forIcon);
 
         const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.74, 0.09), handleMaterial);
         shaft.position.set(-0.05, -0.02, 0);
@@ -4035,7 +4337,7 @@ to better suit your requirements.
         lowerNotch.rotation.z = -Math.PI / 6;
 
         group.add(shaft, grip, pommel, headBase, headInset, blade, bladeEdge, lowerNotch);
-        group.rotation.set(-Math.PI / 3.1, Math.PI / 3.9, Math.PI / 10);
+        group.rotation.set(-Math.PI / 3.2, Math.PI / 4, Math.PI / 16);
         group.traverse((child) => {
             if (child.isMesh) {
                 child.renderOrder = 31;
@@ -4076,18 +4378,15 @@ to better suit your requirements.
     }
 
     function createPickaxeMesh(options = {}) {
-        const { forIcon = false } = options;
+        const { forIcon = false, variant = 'wooden' } = options;
+        const style = getToolStyle(variant);
         const group = new THREE.Group();
         const handleMaterial = new THREE.MeshStandardMaterial({ color: 0x84532a, roughness: 0.68, metalness: 0.18, flatShading: true });
-        const wrapMaterial = new THREE.MeshStandardMaterial({ color: 0x3b2616, roughness: 0.82, metalness: 0.08, flatShading: true });
-        const headCoreMaterial = new THREE.MeshStandardMaterial({ color: 0x3d8bd0, roughness: 0.3, metalness: 0.92, emissive: 0x123a5e, emissiveIntensity: 0.22, flatShading: true });
-        const headPlateMaterial = new THREE.MeshStandardMaterial({ color: 0x8fc5ff, roughness: 0.18, metalness: 0.95, emissive: 0x1c5f9c, emissiveIntensity: 0.26, flatShading: true });
-        const tipMaterial = new THREE.MeshStandardMaterial({ color: 0xf3fbff, roughness: 0.08, metalness: 1.0, flatShading: true });
-        const shouldDepthTest = !!forIcon;
-        [handleMaterial, wrapMaterial, headCoreMaterial, headPlateMaterial, tipMaterial].forEach((mat) => {
-            mat.depthTest = shouldDepthTest;
-            mat.depthWrite = shouldDepthTest;
-        });
+        const wrapMaterial = new THREE.MeshStandardMaterial({ color: style.wrap, roughness: 0.82, metalness: 0.08, flatShading: true });
+        const headCoreMaterial = new THREE.MeshStandardMaterial({ color: style.headPrimary, roughness: 0.3, metalness: 0.92, emissive: style.emissive, emissiveIntensity: 0.22, flatShading: true });
+        const headPlateMaterial = new THREE.MeshStandardMaterial({ color: style.headSecondary, roughness: 0.18, metalness: 0.95, emissive: style.emissive, emissiveIntensity: 0.28, flatShading: true });
+        const tipMaterial = new THREE.MeshStandardMaterial({ color: style.edge, roughness: 0.08, metalness: 1.0, flatShading: true });
+        applyToolMaterialSettings([handleMaterial, wrapMaterial, headCoreMaterial, headPlateMaterial, tipMaterial], forIcon);
 
         const haft = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.82, 0.085), handleMaterial);
         haft.rotation.z = THREE.MathUtils.degToRad(8);
@@ -4125,6 +4424,90 @@ to better suit your requirements.
         });
         return group;
     }
+
+    function createSwordMesh(options = {}) {
+        const { forIcon = false, variant = 'wooden' } = options;
+        const style = getToolStyle(variant);
+        const group = new THREE.Group();
+        const handleMaterial = new THREE.MeshStandardMaterial({ color: 0x7a4a1f, roughness: 0.7, metalness: 0.2, flatShading: true });
+        const wrapMaterial = new THREE.MeshStandardMaterial({ color: style.wrap, roughness: 0.82, metalness: 0.12, flatShading: true });
+        const guardMaterial = new THREE.MeshStandardMaterial({ color: style.headPrimary, roughness: 0.35, metalness: 0.85, emissive: style.emissive, emissiveIntensity: 0.2, flatShading: true });
+        const bladeMaterial = new THREE.MeshStandardMaterial({ color: style.headSecondary, roughness: 0.16, metalness: 0.96, emissive: style.emissive, emissiveIntensity: 0.28, flatShading: true });
+        const edgeMaterial = new THREE.MeshStandardMaterial({ color: style.edge, roughness: 0.08, metalness: 1.0, flatShading: true });
+        applyToolMaterialSettings([handleMaterial, wrapMaterial, guardMaterial, bladeMaterial, edgeMaterial], forIcon);
+
+        const grip = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.24, 0.1), wrapMaterial);
+        grip.position.set(0, -0.28, 0);
+        const handle = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.28, 0.08), handleMaterial);
+        handle.position.set(0, -0.5, 0);
+        const pommel = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.08, 0.14), wrapMaterial);
+        pommel.position.set(0, -0.62, 0);
+        const guard = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.08, 0.18), guardMaterial);
+        guard.position.set(0, -0.12, 0);
+        const bladeCore = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.96, 0.08), bladeMaterial);
+        bladeCore.position.set(0, 0.4, 0);
+        const bladeEdge = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.96, 0.02), edgeMaterial);
+        bladeEdge.position.set(0, 0.4, 0.05);
+        const tip = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 0.06), bladeMaterial);
+        tip.position.set(0, 0.94, 0);
+        tip.scale.set(0.5, 1, 1);
+
+        group.add(grip, handle, pommel, guard, bladeCore, bladeEdge, tip);
+        group.rotation.set(-Math.PI / 3.3, Math.PI / 3.8, Math.PI / 20);
+        group.traverse((child) => {
+            if (child.isMesh) {
+                child.renderOrder = 31;
+                child.castShadow = false;
+                child.receiveShadow = false;
+            }
+        });
+        return group;
+    }
+
+    function createShovelMesh(options = {}) {
+        const { forIcon = false, variant = 'wooden' } = options;
+        const style = getToolStyle(variant);
+        const group = new THREE.Group();
+        const handleMaterial = new THREE.MeshStandardMaterial({ color: 0x84532a, roughness: 0.7, metalness: 0.18, flatShading: true });
+        const gripMaterial = new THREE.MeshStandardMaterial({ color: style.wrap, roughness: 0.82, metalness: 0.1, flatShading: true });
+        const scoopMaterial = new THREE.MeshStandardMaterial({ color: style.headSecondary, roughness: 0.22, metalness: 0.92, emissive: style.emissive, emissiveIntensity: 0.26, flatShading: true });
+        const edgeMaterial = new THREE.MeshStandardMaterial({ color: style.edge, roughness: 0.08, metalness: 1.0, flatShading: true });
+        applyToolMaterialSettings([handleMaterial, gripMaterial, scoopMaterial, edgeMaterial], forIcon);
+
+        const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.92, 0.08), handleMaterial);
+        shaft.rotation.z = THREE.MathUtils.degToRad(-6);
+        shaft.position.set(-0.04, -0.04, 0);
+        const grip = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.2, 0.12), gripMaterial);
+        grip.position.set(-0.04, -0.46, 0.02);
+        const pommel = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.08, 0.16), gripMaterial);
+        pommel.position.set(-0.04, -0.56, 0.02);
+
+        const scoopBack = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.24, 0.12), scoopMaterial);
+        scoopBack.position.set(0.32, 0.36, 0);
+        scoopBack.rotation.z = THREE.MathUtils.degToRad(-10);
+        const scoopFace = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.22, 0.08), scoopMaterial.clone());
+        scoopFace.position.set(0.38, 0.4, 0);
+        const scoopEdge = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.06, 0.16), edgeMaterial);
+        scoopEdge.position.set(0.4, 0.28, 0);
+
+        group.add(shaft, grip, pommel, scoopBack, scoopFace, scoopEdge);
+        group.rotation.set(-Math.PI / 3.5, Math.PI / 4, -Math.PI / 14);
+        group.traverse((child) => {
+            if (child.isMesh) {
+                child.renderOrder = 31;
+                child.castShadow = false;
+                child.receiveShadow = false;
+            }
+        });
+        return group;
+    }
+
+    const TOOL_FACTORIES = {
+        axe: createAxeMesh,
+        pickaxe: createPickaxeMesh,
+        sword: createSwordMesh,
+        shovel: createShovelMesh
+    };
 
     function refreshAllHotbarSlots() {
         if (!hotbarSlots || hotbarSlots.length === 0) return;
@@ -4723,17 +5106,15 @@ to better suit your requirements.
         if (targetType === 'leaves') {
             duration = Math.min(duration, 80);
         }
-        if (heldType === 'axe' && heldCount > 0) {
-            if (targetType === 'wood') {
-                duration *= 0.5;
+        const toolInfo = (heldCount > 0) ? TOOL_STATS[heldType] : null;
+        if (toolInfo) {
+            const effectiveSet = TOOL_EFFECTIVE_TYPES[toolInfo.kind] || null;
+            if (effectiveSet && effectiveSet.has(targetType)) {
+                const speed = TOOL_TIER_SPEED[toolInfo.tier] || 0.65;
+                duration *= speed;
             } else {
-                duration *= 1.35;
-            }
-        } else if (heldType === 'pickaxe' && heldCount > 0) {
-            if (PICKAXE_FAST_TYPES.has(targetType)) {
-                duration *= 0.45;
-            } else {
-                duration *= 1.35;
+                const penalty = TOOL_TIER_PENALTY[toolInfo.tier] || 1.35;
+                duration *= penalty;
             }
         }
         return Math.max(80, duration);
@@ -5046,11 +5427,39 @@ to better suit your requirements.
     function spawnDroppedItem(type, x, y, z, options = {}) {
         // Do not drop items for water, leaves or fluids; bedrock also drops nothing.
         if (type === 'water' || type === 'leaves' || type === 'lava' || type === 'bedrock') return;
-        const geom = new THREE.BoxBufferGeometry(0.4, 0.4, 0.4);
-        const mat  = blockMaterials[type] || new THREE.MeshStandardMaterial({ color: 0xffffff });
-        const mesh = new THREE.Mesh(geom, mat);
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
+        let mesh;
+        let halfSize = DROP_HALF_SIZE;
+        if (blockMaterials[type]) {
+            const geom = new THREE.BoxBufferGeometry(0.4, 0.4, 0.4);
+            mesh = new THREE.Mesh(geom, blockMaterials[type]);
+        } else if (type === 'stick') {
+            mesh = createStickMesh();
+            mesh.scale.multiplyScalar(0.6);
+            halfSize = 0.28;
+        } else if (TOOL_TYPES.has(type)) {
+            const [variant, kind] = type.split('_');
+            const factory = TOOL_FACTORIES[kind];
+            if (factory) {
+                mesh = factory({ variant });
+                mesh.scale.multiplyScalar(0.7);
+                halfSize = 0.32;
+            }
+        }
+        if (!mesh) {
+            const geom = new THREE.BoxBufferGeometry(0.4, 0.4, 0.4);
+            mesh = new THREE.Mesh(geom, new THREE.MeshStandardMaterial({ color: 0xffffff }));
+        }
+        if (mesh.isMesh) {
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+        } else if (mesh.traverse) {
+            mesh.traverse((child) => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                }
+            });
+        }
         if (options.worldPosition) {
             mesh.position.copy(options.worldPosition);
         } else {
@@ -5065,15 +5474,19 @@ to better suit your requirements.
             if (surfaceY === undefined) {
                 const support = findSupportingBlockY(ix, typeof y === 'number' ? y - 1 : CHUNK_HEIGHT - 1, iz);
                 if (support !== -Infinity) {
-                    surfaceY = support + 1 + DROP_HALF_SIZE;
+                    surfaceY = support + 1 + halfSize;
                 } else {
                     const highest = getHighestBlockY(ix + 0.5, iz + 0.5);
-                    surfaceY = (highest !== -Infinity) ? highest + 1 + DROP_HALF_SIZE : y + 0.6;
+                    surfaceY = (highest !== -Infinity) ? highest + 1 + halfSize : y + 0.6;
                 }
             }
             mesh.position.set(ix + 0.5, surfaceY, iz + 0.5);
         }
-        mesh.rotation.y = Math.random() * Math.PI * 2;
+        if (TOOL_TYPES.has(type) || type === 'stick') {
+            mesh.rotation.set(-0.45, Math.random() * Math.PI * 2, 0.18);
+        } else {
+            mesh.rotation.y = Math.random() * Math.PI * 2;
+        }
         const velocity = options.velocity ? options.velocity.clone() : new THREE.Vector3(
             (Math.random() - 0.5) * 0.3,
             0.3 + Math.random() * 0.3,
@@ -5091,7 +5504,8 @@ to better suit your requirements.
             floatPhase,
             hoverTime: 0,
             restingY: mesh.position.y,
-            pickupCooldown: pickupDelay
+            pickupCooldown: pickupDelay,
+            halfSize
         });
         scene.add(mesh);
     }
@@ -5164,10 +5578,11 @@ to better suit your requirements.
 
             const ix = Math.floor(item.mesh.position.x);
             const iz = Math.floor(item.mesh.position.z);
-            const bottomY = item.mesh.position.y - DROP_HALF_SIZE - 0.001;
+            const dropHalf = item.halfSize || DROP_HALF_SIZE;
+            const bottomY = item.mesh.position.y - dropHalf - 0.001;
             const supportY = findSupportingBlockY(ix, Math.floor(bottomY), iz);
             if (supportY !== -Infinity) {
-                const restingY = supportY + 1 + DROP_HALF_SIZE;
+                const restingY = supportY + 1 + dropHalf;
                 if (item.mesh.position.y <= restingY) {
                     item.mesh.position.y = restingY;
                     item.velocity.y = 0;
