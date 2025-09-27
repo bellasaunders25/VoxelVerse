@@ -2927,8 +2927,8 @@ to better suit your requirements.
         // Create a simple visible arm and block attached to the camera.  We
         // group them so that animations can be applied to both together.
         const sleeveMaterial = new THREE.MeshStandardMaterial({ color: 0x426dba, roughness: 0.52, metalness: 0.1 });
-        const skinMaterial = new THREE.MeshStandardMaterial({ color: 0xffe1c0, roughness: 0.72, metalness: 0.03 });
-        const palmMaterial = new THREE.MeshStandardMaterial({ color: 0xf9d5ad, roughness: 0.78, metalness: 0.02 });
+        const skinMaterial = new THREE.MeshStandardMaterial({ color: 0xffe6cc, roughness: 0.72, metalness: 0.03 });
+        const palmMaterial = new THREE.MeshStandardMaterial({ color: 0xf5ddc0, roughness: 0.78, metalness: 0.02 });
         [sleeveMaterial, skinMaterial, palmMaterial].forEach((mat) => {
             mat.depthTest = false;
             mat.depthWrite = false;
@@ -2940,11 +2940,12 @@ to better suit your requirements.
         upperArm.position.set(0, 0.1, 0);
         const cuff = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.1, 0.36), sleeveMaterial);
         cuff.position.set(0, 0.06, 0);
-        const lowerArm = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.36, 0.26), skinMaterial);
+        const lowerArm = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.36, 0.28), skinMaterial);
         lowerArm.position.set(0, -0.12, 0);
-        handMesh = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.3, 0.5), palmMaterial);
-        handMesh.position.set(0.02, -0.36, -0.2);
+        handMesh = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.32, 0.96), palmMaterial);
+        handMesh.position.set(0.04, -0.36, -0.1);
         handMesh.rotation.set(-Math.PI / 40, 0.14, 0.08);
+        handMesh.renderOrder = 30;
         playerArm.add(sleeve, upperArm, cuff, lowerArm, handMesh);
         playerArm.traverse((child) => {
             if (child.isMesh) {
@@ -2962,7 +2963,7 @@ to better suit your requirements.
         handBlock.visible = !!initialType && initialCount > 0;
         handBlock.scale.set(0.48, 0.48, 0.48);
         handBlock.rotation.set(-Math.PI / 8, Math.PI / 6, 0.02);
-        handBlock.renderOrder = 20;
+        handBlock.renderOrder = 32;
         // Group the arm and block for animation.  The group itself is
         // positioned relative to the camera, while the children are
         // positioned within the group.  This makes it easy to animate
@@ -3788,7 +3789,7 @@ to better suit your requirements.
         group.rotation.set(-Math.PI / 3.2, Math.PI / 8, Math.PI / 16);
         group.traverse((child) => {
             if (child.isMesh) {
-                child.renderOrder = 20;
+                child.renderOrder = 30;
             }
         });
         return group;
