@@ -695,6 +695,11 @@ to better suit your requirements.
         wood:  new THREE.MeshStandardMaterial({ map: woodTexture }),
         leaves:new THREE.MeshStandardMaterial({ map: leavesTexture, transparent: true, alphaTest: 0.5 }),
         bedrock: new THREE.MeshStandardMaterial({ map: bedrockTexture }),
+        snow:   new THREE.MeshStandardMaterial({ color: 0xf5fbff, roughness: 0.45, metalness: 0.05 }),
+        ice:    new THREE.MeshStandardMaterial({ color: 0x9bd8ff, transparent: true, opacity: 0.7, roughness: 0.12, metalness: 0.15, envMapIntensity: 0.6 }),
+        moss:   new THREE.MeshStandardMaterial({ color: 0x3b8a64, roughness: 0.85, metalness: 0.05 }),
+        glowstone: new THREE.MeshStandardMaterial({ color: 0xfff2b3, emissive: 0xffd76b, emissiveIntensity: 1.5, roughness: 0.3 }),
+        cactus: new THREE.MeshStandardMaterial({ color: 0x2f9b57, roughness: 0.9, metalness: 0.05 }),
         // Ores and lava.  Ores are represented by coloured materials
         // rather than textures for simplicity.  Lava is an emissive
         // semi‑transparent material that glows.  These materials can be
@@ -739,6 +744,11 @@ to better suit your requirements.
     const chunkMap = new Map();
     let seed = Math.floor(Math.random() * 1e9);
     let perlinNoise;
+    let heatNoise;
+    let moistureNoise;
+    let mysticNoise;
+    let skyIslandNoise;
+    const biomeCache = new Map();
     // A global height map storing the highest solid block for each (x,z)
     const heightMap = {};
     // A map storing information about each voxel in the world.  The key is
@@ -767,15 +777,15 @@ to better suit your requirements.
     // fill the bar.
     let selectedIndex = 0;
     const selectableTypes = [
-        'grass',  // 1
-        'dirt',   // 2
-        'stone',  // 3
-        'wood',   // 4
-        'leaves', // 5
-        'sand',   // 6
-        'water',  // 7
-        'bedrock',// 8
-        'stone'   // 9 (duplicate to fill bar)
+        'grass',     // 1
+        'dirt',      // 2
+        'stone',     // 3
+        'wood',      // 4
+        'leaves',    // 5
+        'sand',      // 6
+        'water',     // 7
+        'glowstone', // 8
+        'moss'       // 9
     ];
     // Hotbar DOM elements will be stored here after initialisation.  Each
     // entry corresponds to a slot in the bar so that selection highlights
@@ -842,6 +852,15 @@ to better suit your requirements.
     // mesh (a small cube), the block type, and a velocity.  Items fall
     // until they reach the ground, then can be picked up by the player.
     const droppedItems = [];
+
+    // Ambient fauna such as fireflies.  Each entry stores a mesh and motion
+    // parameters for lightweight animation in the main loop.
+    const ambientCreatures = [];
+
+    // Cached biome under the player and the current sky brightness.  These
+    // values are updated each frame and consumed by the sky/lighting logic.
+    let currentBiomeInfo = null;
+    let skyBrightness = 1;
 
     // Queue of fluid cells to process for water flowing.  When water is
     // placed or spawns, a record is added to this queue.  Each frame we
@@ -972,7 +991,12 @@ to better suit your requirements.
         leaves:  'https://i.postimg.cc/BnV6yDL3/image.png',
         sand:    'https://i.postimg.cc/pTMN7XPk/image.png',
         water:   'https://i.postimg.cc/pTMN7XPk/image.png',
-        bedrock: 'https://i.postimg.cc/Wbh9Gcv4/image.png'
+        bedrock: 'https://i.postimg.cc/Wbh9Gcv4/image.png',
+        snow:    'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect fill="%23f4f9ff" width="16" height="16"/><path stroke="%23dce9ff" stroke-width="1" d="M1 8h14M8 1v14"/><circle cx="8" cy="8" r="2" fill="%23ffffff"/></svg>',
+        ice:     'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect fill="%23b6e5ff" width="16" height="16"/><rect x="2" y="2" width="12" height="12" fill="%23e7f6ff" opacity="0.8"/><path stroke="%2398d5ff" stroke-width="1" d="M2 6h12M6 2v12"/></svg>',
+        moss:    'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect fill="%233b8a64" width="16" height="16"/><rect x="2" y="2" width="12" height="12" fill="%2347a774" opacity="0.6"/></svg>',
+        glowstone: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect fill="%23ffe6a6" width="16" height="16"/><circle cx="5" cy="5" r="3" fill="%23fff7ce"/><circle cx="11" cy="10" r="3" fill="%23fff1b3"/></svg>',
+        cactus:  'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect fill="%232f9b57" width="16" height="16"/><path stroke="%2343b86d" stroke-width="2" d="M4 2v12M8 1v14M12 3v10"/></svg>'
     };
 
     // Human readable names for each block type.  These are used in the
@@ -985,7 +1009,12 @@ to better suit your requirements.
         leaves: 'Leaves',
         sand: 'Sand',
         water: 'Water',
-        bedrock: 'Bedrock'
+        bedrock: 'Bedrock',
+        snow: 'Snow',
+        ice: 'Ice',
+        moss: 'Mossy Stone',
+        glowstone: 'Glowstone',
+        cactus: 'Cactus'
     };
 
     // Tooltip element shown above the selected hotbar slot.  The element
@@ -1133,6 +1162,169 @@ to better suit your requirements.
             return total / maxValue;
         };
     }
+    const BIOME_FREQUENCY = 0.008;
+    const DEFAULT_FOG_RANGE = { near: 120, far: 320 };
+    const BIOME_SETTINGS = {
+        meadow: {
+            key: 'meadow',
+            name: 'Luminous Meadow',
+            surface: 'grass',
+            underwaterSurface: 'sand',
+            subsurface: 'dirt',
+            deep: 'stone',
+            soilLayers: DIRT_LAYERS,
+            treeType: 'oak',
+            treeChance: 0.035,
+            decorations: { moss: 0.05 },
+            heightOffset: 0,
+            fogNear: 110,
+            fogFar: 320,
+            skyTint: 0x9fd3ff,
+            ambientBoost: 0.02
+        },
+        desert: {
+            key: 'desert',
+            name: 'Sunstone Desert',
+            surface: 'sand',
+            underwaterSurface: 'sand',
+            subsurface: 'sand',
+            deep: 'stone',
+            soilLayers: 1,
+            treeType: 'cactus',
+            treeChance: 0.05,
+            decorations: {},
+            heightOffset: -1,
+            fogNear: 130,
+            fogFar: 360,
+            skyTint: 0xf2d7a2,
+            ambientBoost: 0
+        },
+        taiga: {
+            key: 'taiga',
+            name: 'Frostpine Taiga',
+            surface: 'snow',
+            underwaterSurface: 'stone',
+            subsurface: 'dirt',
+            deep: 'stone',
+            soilLayers: 2,
+            treeType: 'pine',
+            treeChance: 0.05,
+            decorations: { moss: 0.02 },
+            heightOffset: 2,
+            fogNear: 80,
+            fogFar: 260,
+            skyTint: 0xd8f0ff,
+            ambientBoost: -0.02,
+            freezeWater: true
+        },
+        tundra: {
+            key: 'tundra',
+            name: 'Polar Tundra',
+            surface: 'snow',
+            underwaterSurface: 'stone',
+            subsurface: 'stone',
+            deep: 'stone',
+            soilLayers: 1,
+            treeType: null,
+            treeChance: 0,
+            decorations: {},
+            heightOffset: 1,
+            fogNear: 70,
+            fogFar: 220,
+            skyTint: 0xe5effa,
+            ambientBoost: -0.03,
+            freezeWater: true
+        },
+        rainforest: {
+            key: 'rainforest',
+            name: 'Emerald Rainforest',
+            surface: 'grass',
+            underwaterSurface: 'dirt',
+            subsurface: 'dirt',
+            deep: 'stone',
+            soilLayers: 4,
+            treeType: 'oak',
+            treeChance: 0.07,
+            decorations: { moss: 0.12, glowstone: 0.02 },
+            heightOffset: 1,
+            fogNear: 60,
+            fogFar: 200,
+            skyTint: 0x83d8b0,
+            ambientBoost: 0.08
+        },
+        crystal: {
+            key: 'crystal',
+            name: 'Crystal Wilds',
+            surface: 'moss',
+            underwaterSurface: 'stone',
+            subsurface: 'stone',
+            deep: 'stone',
+            soilLayers: 2,
+            treeType: 'glowshroom',
+            treeChance: 0.08,
+            decorations: { glowstone: 0.18 },
+            heightOffset: -1,
+            fogNear: 70,
+            fogFar: 220,
+            skyTint: 0x7ad8ff,
+            ambientBoost: 0.1,
+            glowstoneInStone: 0.02
+        },
+        skylands: {
+            key: 'skylands',
+            name: 'Skybloom Isles',
+            surface: 'moss',
+            underwaterSurface: 'stone',
+            subsurface: 'stone',
+            deep: 'stone',
+            soilLayers: 2,
+            treeType: 'glowshroom',
+            treeChance: 0.06,
+            decorations: { glowstone: 0.12 },
+            heightOffset: 3,
+            fogNear: 85,
+            fogFar: 260,
+            skyTint: 0xc1f4ff,
+            ambientBoost: 0.06,
+            skyIslands: true,
+            glowstoneInStone: 0.015
+        }
+    };
+    function sampleBiomeNoise(noiseFn, x, z, freq) {
+        if (!noiseFn) return 0.5;
+        return (noiseFn(x, z, 3, 0.5, freq) + 1) / 2;
+    }
+    function computeBiome(x, z) {
+        const heat = sampleBiomeNoise(heatNoise, x, z, BIOME_FREQUENCY);
+        const moisture = sampleBiomeNoise(moistureNoise, x, z, BIOME_FREQUENCY);
+        const mystic = sampleBiomeNoise(mysticNoise, x, z, BIOME_FREQUENCY * 0.7);
+        const skyVal = sampleBiomeNoise(skyIslandNoise, x, z, BIOME_FREQUENCY * 0.5);
+        let key = 'meadow';
+        if (skyVal > 0.84 && heat > 0.4) {
+            key = 'skylands';
+        } else if (mystic > 0.78 && moisture > 0.55) {
+            key = 'crystal';
+        } else if (heat > 0.7 && moisture < 0.35) {
+            key = 'desert';
+        } else if (heat < 0.28 && moisture > 0.55) {
+            key = 'taiga';
+        } else if (heat < 0.25 && moisture < 0.5) {
+            key = 'tundra';
+        } else if (moisture > 0.72) {
+            key = 'rainforest';
+        }
+        const base = BIOME_SETTINGS[key] || BIOME_SETTINGS.meadow;
+        return { ...base, samples: { heat, moisture, mystic, sky: skyVal } };
+    }
+    function getBiomeAt(x, z) {
+        const ix = Math.floor(x);
+        const iz = Math.floor(z);
+        const key = `${ix},${iz}`;
+        if (biomeCache.has(key)) return biomeCache.get(key);
+        const biome = computeBiome(ix, iz);
+        biomeCache.set(key, biome);
+        return biome;
+    }
     // Deterministic helper for tree placement
     function coordSeededRand(cx, cz, wx, wz) {
         const s = (seed ^ (cx*73856093) ^ (cz*19349663) ^ (wx*83492791) ^ (wz*1234567)) >>> 0;
@@ -1143,6 +1335,7 @@ to better suit your requirements.
     function generateChunk(cx, cz) {
         const chunkKeyString = `${cx},${cz}`;
         const heights = {};
+        const columnBiomes = new Map();
         const worldX0 = cx * CHUNK_SIZE;
         const worldZ0 = cz * CHUNK_SIZE;
         // Compute height map for this chunk (with border for neighbours)
@@ -1150,9 +1343,14 @@ to better suit your requirements.
             for (let dz = -1; dz <= CHUNK_SIZE; dz++) {
                 const wx = worldX0 + dx;
                 const wz = worldZ0 + dz;
+                const biome = getBiomeAt(wx, wz);
+                columnBiomes.set(`${wx},${wz}`, biome);
                 const n = perlinNoise(wx, wz);
                 const normalized = (n + 1) / 2;
                 let h = Math.floor(normalized * (CHUNK_HEIGHT - 8)) + 2;
+                if (biome && typeof biome.heightOffset === 'number') {
+                    h += biome.heightOffset;
+                }
                 h = Math.max(0, Math.min(CHUNK_HEIGHT - 1, h));
                 heights[`${wx},${wz}`] = h;
                 // Update global height map if this column is higher than previous
@@ -1214,12 +1412,126 @@ to better suit your requirements.
         // lava, otherwise pushes into undefined arrays will throw errors.
         const matrices = {
             grass: [], dirt: [], stone: [], sand: [], water: [], wood: [], leaves: [], bedrock: [],
+            snow: [], ice: [], moss: [], glowstone: [], cactus: [],
             iron: [], copper: [], ruby: [], diamond: [], coal: [], lava: []
         };
         const positionsByType = {
             grass: [], dirt: [], stone: [], sand: [], water: [], wood: [], leaves: [], bedrock: [],
+            snow: [], ice: [], moss: [], glowstone: [], cactus: [],
             iron: [], copper: [], ruby: [], diamond: [], coal: [], lava: []
         };
+        // Helper to queue a block into the instancing buffers while keeping
+        // voxelMap and the height map in sync.
+        function queueBlock(type, x, y, z) {
+            if (!matrices[type]) return;
+            if (y < 0 || y >= CHUNK_HEIGHT) return;
+            const key = `${x},${y},${z}`;
+            voxelMap.set(key, { type, chunk: chunkKeyString });
+            const m = new THREE.Matrix4();
+            m.makeTranslation(x + 0.5, y + 0.5, z + 0.5);
+            matrices[type].push(m);
+            positionsByType[type].push({ x, y, z });
+            if (type !== 'water' && type !== 'leaves' && type !== 'lava') {
+                const colKey = `${x},${z}`;
+                if (heightMap[colKey] === undefined || y > heightMap[colKey]) {
+                    heightMap[colKey] = y;
+                }
+            }
+        }
+        function growTree(type, baseX, baseY, baseZ, biome) {
+            const rng = coordSeededRand(cx, cz, baseX, baseZ);
+            const next = () => rng();
+            if (type === 'oak') {
+                const trunkH = 4 + Math.floor(next() * 3);
+                for (let t = 0; t < trunkH; t++) {
+                    queueBlock('wood', baseX, baseY + t, baseZ);
+                }
+                const topY = baseY + trunkH - 1;
+                for (let lx = -2; lx <= 2; lx++) {
+                    for (let lz = -2; lz <= 2; lz++) {
+                        for (let ly = 0; ly <= 2; ly++) {
+                            if (Math.abs(lx) === 2 && Math.abs(lz) === 2 && ly === 2) continue;
+                            const leafX = baseX + lx;
+                            const leafY = topY + ly;
+                            const leafZ = baseZ + lz;
+                            const key = `${leafX},${leafY},${leafZ}`;
+                            if (!voxelMap.has(key)) queueBlock('leaves', leafX, leafY, leafZ);
+                        }
+                    }
+                }
+            } else if (type === 'pine') {
+                const trunkH = 5 + Math.floor(next() * 4);
+                for (let t = 0; t < trunkH; t++) {
+                    queueBlock('wood', baseX, baseY + t, baseZ);
+                }
+                const topY = baseY + trunkH;
+                for (let i = 0; i < 4; i++) {
+                    const radius = Math.max(1, 3 - i);
+                    const y = topY - i;
+                    for (let lx = -radius; lx <= radius; lx++) {
+                        for (let lz = -radius; lz <= radius; lz++) {
+                            if (Math.abs(lx) + Math.abs(lz) > radius + 1) continue;
+                            const leafX = baseX + lx;
+                            const leafY = y;
+                            const leafZ = baseZ + lz;
+                            const key = `${leafX},${leafY},${leafZ}`;
+                            if (!voxelMap.has(key)) queueBlock('leaves', leafX, leafY, leafZ);
+                        }
+                    }
+                }
+                queueBlock('leaves', baseX, topY + 1, baseZ);
+            } else if (type === 'cactus') {
+                const height = 3 + Math.floor(next() * 3);
+                for (let t = 0; t < height; t++) {
+                    queueBlock('cactus', baseX, baseY + t, baseZ);
+                }
+            } else if (type === 'glowshroom') {
+                const stem = 3 + Math.floor(next() * 2);
+                for (let t = 0; t < stem; t++) {
+                    queueBlock('moss', baseX, baseY + t, baseZ);
+                }
+                const capY = baseY + stem;
+                for (let lx = -2; lx <= 2; lx++) {
+                    for (let lz = -2; lz <= 2; lz++) {
+                        const distSq = lx*lx + lz*lz;
+                        if (distSq <= 4) {
+                            queueBlock('glowstone', baseX + lx, capY, baseZ + lz);
+                        }
+                        if (distSq <= 2) {
+                            queueBlock('glowstone', baseX + lx, capY + 1, baseZ + lz);
+                        }
+                    }
+                }
+                if (biome && biome.key === 'skylands') {
+                    queueBlock('glowstone', baseX, capY - 1, baseZ);
+                }
+            }
+        }
+        function spawnSkyIsland(centerX, centerZ, groundHeight, strength) {
+            const radius = 3 + Math.floor(strength * 4);
+            const islandY = Math.min(CHUNK_HEIGHT - 6, groundHeight + 10 + Math.floor(strength * 12));
+            for (let dx = -radius; dx <= radius; dx++) {
+                for (let dz = -radius; dz <= radius; dz++) {
+                    const dist = Math.sqrt(dx * dx + dz * dz);
+                    if (dist > radius) continue;
+                    const peakOffset = Math.round((1 - dist / radius) * 3);
+                    const topY = islandY + peakOffset;
+                    for (let yy = topY; yy >= topY - 3; yy--) {
+                        const blockType = (yy === topY) ? 'moss' : (yy >= topY - 1 ? 'dirt' : 'stone');
+                        queueBlock(blockType, centerX + dx, yy, centerZ + dz);
+                    }
+                    const hangSeed = coordSeededRand(cx, cz, centerX + dx, centerZ + dz)();
+                    if (hangSeed > 0.82) {
+                        const hangLength = 1 + Math.floor(hangSeed * 3);
+                        for (let i = 1; i <= hangLength; i++) {
+                            const y = topY - 3 - i;
+                            if (y <= 0) break;
+                            queueBlock(i === hangLength ? 'glowstone' : 'stone', centerX + dx, y, centerZ + dz);
+                        }
+                    }
+                }
+            }
+        }
         // Use the global WATER_LEVEL constant instead of a hardcoded value.
         const waterLevel = WATER_LEVEL;
         // For each column generate terrain, trees, water and bedrock
@@ -1227,14 +1539,10 @@ to better suit your requirements.
             for (let lz = 0; lz < CHUNK_SIZE; lz++) {
                 const wx = worldX0 + lx;
                 const wz = worldZ0 + lz;
-                const columnHeight = heights[`${wx},${wz}`];
-                // Determine the lowest y coordinate at which we want to make stone visible.
-                // The visible stone layers start just below the dirt layers.  For example,
-                // if columnHeight = 20, DIRT_LAYERS = 3 and STONE_VISIBLE_LAYERS = 10,
-                // then startStoneVisible = 20 - 3 - 10 + 1 = 8.  We clamp to 1 so
-                // that we never draw below bedrock.  Any stone block at y >= startStoneVisible
-                // will be drawn even if not exposed.
-                const startStoneVisible = Math.max(1, columnHeight - DIRT_LAYERS - STONE_VISIBLE_LAYERS + 1);
+                const columnKey = `${wx},${wz}`;
+                const columnHeight = heights[columnKey];
+                const columnBiome = columnBiomes.get(columnKey) || BIOME_SETTINGS.meadow;
+                const soilLayers = (columnBiome && typeof columnBiome.soilLayers === 'number') ? columnBiome.soilLayers : DIRT_LAYERS;
                 // Always place bedrock at y=0
                 {
                     const m = new THREE.Matrix4();
@@ -1271,22 +1579,29 @@ to better suit your requirements.
                     // water level), the next DIRT_LAYERS blocks become dirt, and
                     // everything below becomes stone.
                     let matKey;
+                    const surfaceBlock = (columnHeight < waterLevel)
+                        ? (columnBiome.underwaterSurface || columnBiome.surface || 'sand')
+                        : (columnBiome.surface || 'grass');
+                    const subsurfaceBlock = columnBiome.subsurface || 'dirt';
+                    const deepBlock = columnBiome.deep || 'stone';
                     if (y === columnHeight) {
-                        matKey = (columnHeight < waterLevel) ? 'sand' : 'grass';
-                    } else if (y >= columnHeight - DIRT_LAYERS) {
-                        matKey = 'dirt';
+                        matKey = surfaceBlock;
+                    } else if (soilLayers > 0 && y >= columnHeight - soilLayers) {
+                        matKey = subsurfaceBlock;
                     } else {
-                        matKey = 'stone';
+                        matKey = deepBlock;
                         // Introduce ores in deeper stone layers.  Use a
                         // deterministic random seed based on world
                         // coordinates and depth so ores align across
                         // chunk boundaries.  Only generate ores below
                         // the dirt layers to avoid ores appearing on
                         // the surface.
-                        if (y <= columnHeight - DIRT_LAYERS) {
+                        if (matKey === 'stone' && y <= columnHeight - soilLayers) {
                             const oreSeed = (seed ^ (wx * 912373) ^ (y * 190713) ^ (wz * 827927)) >>> 0;
                             const oreRng  = mulberry32(oreSeed)();
-                            if (oreRng < 0.0007) {
+                            if (columnBiome.glowstoneInStone && oreRng < columnBiome.glowstoneInStone) {
+                                matKey = 'glowstone';
+                            } else if (oreRng < 0.0007) {
                                 matKey = 'diamond';
                             } else if (oreRng < 0.0015) {
                                 matKey = 'ruby';
@@ -1351,41 +1666,62 @@ to better suit your requirements.
                 // Water generation loop
                 if (columnHeight < waterLevel) {
                     for (let y = columnHeight + 1; y <= waterLevel; y++) {
-                        voxelMap.set(`${wx},${y},${wz}`, { type: 'water', chunk: chunkKeyString });
+                        const waterType = (columnBiome.freezeWater && y === waterLevel) ? 'ice' : 'water';
+                        voxelMap.set(`${wx},${y},${wz}`, { type: waterType, chunk: chunkKeyString });
                         const m = new THREE.Matrix4();
                         m.makeTranslation(wx + 0.5, y + 0.5, wz + 0.5);
-                        matrices.water.push(m);
-                        positionsByType.water.push({ x: wx, y, z: wz });
+                        matrices[waterType].push(m);
+                        positionsByType[waterType].push({ x: wx, y, z: wz });
+                        if (waterType !== 'water') {
+                            const colKey = `${wx},${wz}`;
+                            if (heightMap[colKey] === undefined || y > heightMap[colKey]) {
+                                heightMap[colKey] = y;
+                            }
+                        }
                     }
                 }
-                // Tree generation (only on ground above water level)
-                if (columnHeight > waterLevel + 1) {
+                // Tree and flora generation tailored by biome.
+                const treeType = columnBiome.treeType;
+                const treeChance = columnBiome.treeChance || 0;
+                if (treeType && columnHeight >= waterLevel) {
                     const rand = coordSeededRand(cx, cz, wx, wz)();
-                    if (rand < 0.02) {
-                        const trunkH = 3 + Math.floor(coordSeededRand(cx, cz, wx+1, wz)() * 3);
-                        for (let t = 1; t <= trunkH; t++) {
-                            const sy = columnHeight + t;
-                            voxelMap.set(`${wx},${sy},${wz}`, { type: 'wood', chunk: chunkKeyString });
-                            const tm = new THREE.Matrix4();
-                            tm.makeTranslation(wx + 0.5, sy + 0.5, wz + 0.5);
-                            matrices.wood.push(tm);
-                            positionsByType.wood.push({ x: wx, y: sy, z: wz });
+                    if (rand < treeChance) {
+                        growTree(treeType, wx, columnHeight + 1, wz, columnBiome);
+                    }
+                }
+                if (columnBiome.decorations) {
+                    const decoRand = coordSeededRand(cx, cz, wx * 7, wz * 13)();
+                    let threshold = 0;
+                    if (columnBiome.decorations.glowstone) {
+                        threshold += columnBiome.decorations.glowstone;
+                        if (decoRand < threshold) {
+                            queueBlock('glowstone', wx, columnHeight + 1, wz);
                         }
-                        const topY = columnHeight + trunkH;
-                        for (let lx2 = -1; lx2 <= 1; lx2++) {
-                            for (let lz2 = -1; lz2 <= 1; lz2++) {
-                                for (let ly2 = 0; ly2 <= 2; ly2++) {
-                                    if (Math.abs(lx2) === 1 && Math.abs(lz2) === 1 && ly2 === 2) continue;
-                                    const leafX = wx + lx2;
-                                    const leafY = topY + ly2;
-                                    const leafZ = wz + lz2;
-                                    voxelMap.set(`${leafX},${leafY},${leafZ}`, { type: 'leaves', chunk: chunkKeyString });
-                                    const lm = new THREE.Matrix4();
-                                    lm.makeTranslation(leafX + 0.5, leafY + 0.5, leafZ + 0.5);
-                                    matrices.leaves.push(lm);
-                                    positionsByType.leaves.push({ x: leafX, y: leafY, z: leafZ });
+                    }
+                    if (columnBiome.decorations.moss && decoRand >= threshold) {
+                        threshold += columnBiome.decorations.moss;
+                        if (decoRand < threshold && columnHeight >= waterLevel) {
+                            queueBlock('moss', wx, columnHeight + 1, wz);
+                        }
+                    }
+                }
+                if (columnBiome.skyIslands) {
+                    const skyStrength = columnBiome.samples ? columnBiome.samples.sky : sampleBiomeNoise(skyIslandNoise, wx, wz, BIOME_FREQUENCY * 0.5);
+                    if (skyStrength > 0.82) {
+                        let isPeak = true;
+                        for (let nx = -1; nx <= 1 && isPeak; nx++) {
+                            for (let nz = -1; nz <= 1; nz++) {
+                                if (nx === 0 && nz === 0) continue;
+                                const neighbour = getBiomeAt(wx + nx, wz + nz);
+                                const neighbourSky = neighbour && neighbour.samples ? neighbour.samples.sky : sampleBiomeNoise(skyIslandNoise, wx + nx, wz + nz, BIOME_FREQUENCY * 0.5);
+                                if (neighbourSky > skyStrength) {
+                                    isPeak = false;
+                                    break;
                                 }
                             }
+                        }
+                        if (isPeak) {
+                            spawnSkyIsland(wx, wz, columnHeight, skyStrength);
                         }
                     }
                 }
@@ -1406,6 +1742,8 @@ to better suit your requirements.
                 inst.setMatrixAt(i, mats[i]);
             }
             inst.matrixAutoUpdate = false;
+            inst.receiveShadow = true;
+            inst.castShadow = (key !== 'water');
             group.add(inst);
             instancedMeshes.push(inst);
             // Register instance indices in voxelInstances
@@ -1448,6 +1786,7 @@ to better suit your requirements.
             scene.remove(mesh);
         }
         modifiedMeshes.length = 0;
+        biomeCache.clear();
     }
     function cameraToChunkCoord(pos) {
         const cx = Math.floor(pos.x / CHUNK_SIZE);
@@ -1513,11 +1852,18 @@ to better suit your requirements.
         renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setPixelRatio(window.devicePixelRatio || 1);
         renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.outputEncoding = THREE.sRGBEncoding;
+        renderer.physicallyCorrectLights = true;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.15;
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         document.body.appendChild(renderer.domElement);
         // Initialise the sky elements including clouds, sun, moon, stars and
         // dynamic lights.  initSky() will add its own lights; the old
         // ambient and directional lights are no longer created here.
         initSky();
+        spawnAmbientCreatures();
 
         // Audio listener and sound initialization
         audioListener = new THREE.AudioListener();
@@ -1674,6 +2020,11 @@ to better suit your requirements.
 
         // initialize noise and chunks
         perlinNoise = createPerlin(seed);
+        heatNoise = createPerlin(seed ^ 0x51633);
+        moistureNoise = createPerlin(seed ^ 0x9f4c3);
+        mysticNoise = createPerlin(seed ^ 0x1f2a7);
+        skyIslandNoise = createPerlin(seed ^ 0x7ab9d);
+        biomeCache.clear();
         updateVisibleChunks(true);
         // Apply volume settings now that audio objects have been created.  This
         // call ensures that in‑game music and sound effects respect the
@@ -1947,6 +2298,8 @@ to better suit your requirements.
         camera.rotation.y = player.yaw;
         camera.rotation.x = player.pitch;
 
+        // Determine the biome under the player for sky/lighting adjustments.
+        currentBiomeInfo = getBiomeAt(player.position.x, player.position.z);
         // Update day/night cycle and cloud movement.  These functions
         // adjust the sky colours, sun and moon positions, star opacity,
         // lighting intensities and reposition clouds relative to the
@@ -1954,6 +2307,7 @@ to better suit your requirements.
         // position.
         updateSky(delta);
         updateClouds(delta);
+        updateAmbientCreatures(delta);
         // Determine movement direction on the XZ plane
         const forward = new THREE.Vector3(0,0,-1).applyAxisAngle(new THREE.Vector3(0,1,0), player.yaw);
         const right  = new THREE.Vector3(1,0,0).applyAxisAngle(new THREE.Vector3(0,1,0), player.yaw);
@@ -2637,6 +2991,8 @@ to better suit your requirements.
     function placeVoxel(x, y, z, type) {
         const mat = blockMaterials[type];
         const mesh = new THREE.Mesh(cubeGeometry, mat);
+        mesh.castShadow = (type !== 'water');
+        mesh.receiveShadow = true;
         mesh.position.set(x + 0.5, y + 0.5, z + 0.5);
         scene.add(mesh);
         modifiedMeshes.push(mesh);
@@ -2728,7 +3084,7 @@ to better suit your requirements.
     function playRandomDigSound(type) {
         let category;
         if (type === 'wood') category = 'wood';
-        else if (type === 'stone' || type === 'bedrock' || type === 'sand') category = 'stone';
+        else if (type === 'stone' || type === 'bedrock' || type === 'sand' || type === 'glowstone' || type === 'ice') category = 'stone';
         else category = 'grass';
         const arr = digSounds[category];
         if (!arr || arr.length === 0) return;
@@ -3068,6 +3424,11 @@ to better suit your requirements.
         scene.add(ambientLight);
         sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
         sunLight.position.set(0, 1, 0);
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.set(2048, 2048);
+        sunLight.shadow.camera.near = 0.5;
+        sunLight.shadow.camera.far = 600;
+        sunLight.shadow.bias = -0.0005;
         scene.add(sunLight);
     }
 
@@ -3129,13 +3490,20 @@ to better suit your requirements.
         const dayColor = new THREE.Color(0x87ceeb);
         const nightColor = new THREE.Color(0x020916);
         const skyColor = nightColor.clone().lerp(dayColor, brightness);
+        if (currentBiomeInfo && currentBiomeInfo.skyTint) {
+            const tint = new THREE.Color(currentBiomeInfo.skyTint);
+            skyColor.lerp(tint, 0.35);
+        }
         scene.background.copy(skyColor);
         scene.fog.color.copy(skyColor);
-        // Adjust light intensities based on brightness.  The ambient and
-        // directional lights fade in as the sun rises and out as it
-        // sets.
-        ambientLight.intensity = 0.15 + 0.45 * brightness;
-        sunLight.intensity = 0.05 + 0.75 * brightness;
+        const targetFogNear = currentBiomeInfo && currentBiomeInfo.fogNear ? currentBiomeInfo.fogNear : DEFAULT_FOG_RANGE.near;
+        const targetFogFar = currentBiomeInfo && currentBiomeInfo.fogFar ? currentBiomeInfo.fogFar : DEFAULT_FOG_RANGE.far;
+        scene.fog.near = THREE.MathUtils.lerp(scene.fog.near, targetFogNear, delta * 0.5);
+        scene.fog.far = THREE.MathUtils.lerp(scene.fog.far, targetFogFar, delta * 0.5);
+        // Adjust light intensities based on brightness and biome ambience.
+        const ambientBoost = currentBiomeInfo ? (currentBiomeInfo.ambientBoost || 0) : 0;
+        ambientLight.intensity = 0.15 + 0.45 * brightness + ambientBoost;
+        sunLight.intensity = 0.05 + 0.75 * brightness + ambientBoost * 0.5;
         sunLight.position.set(sunX, sunY, 0);
         // Sun and moon visibility: show the sun only when it is above the
         // horizon; show the moon only when it is above the horizon.  This
@@ -3160,6 +3528,8 @@ to better suit your requirements.
         stars.visible = starOpacity > 0.001;
         // Reposition stars to follow the camera
         stars.position.copy(camera.position);
+
+        skyBrightness = brightness;
 
         // Show clouds only during the day.  When brightness drops below a
         // small threshold the clouds are hidden so that stars can shine
@@ -3201,6 +3571,56 @@ to better suit your requirements.
             else if (dz < -region) cloud.position.z += region * 2;
         });
     }
+    function spawnAmbientCreatures() {
+        const fireflyCount = 24;
+        const geometry = new THREE.SphereGeometry(0.12, 8, 8);
+        for (let i = 0; i < fireflyCount; i++) {
+            const hue = 0.32 + Math.random() * 0.08;
+            const material = new THREE.MeshBasicMaterial({ color: new THREE.Color().setHSL(hue, 0.8, 0.6), transparent: true, opacity: 0.9 });
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.position.set((Math.random() - 0.5) * 80, 6 + Math.random() * 8, (Math.random() - 0.5) * 80);
+            scene.add(mesh);
+            ambientCreatures.push({
+                mesh,
+                type: 'firefly',
+                origin: mesh.position.clone(),
+                radius: new THREE.Vector3(6 + Math.random() * 6, 2 + Math.random() * 2, 6 + Math.random() * 6),
+                speed: 0.6 + Math.random() * 0.5,
+                phase: Math.random() * Math.PI * 2,
+                target: new THREE.Vector3()
+            });
+        }
+    }
+    function updateAmbientCreatures(delta) {
+        if (ambientCreatures.length === 0) return;
+        const allowedBiomes = ['crystal', 'skylands', 'rainforest', 'meadow'];
+        const biomeKey = currentBiomeInfo ? currentBiomeInfo.key : 'meadow';
+        const biomeAllows = allowedBiomes.includes(biomeKey);
+        ambientCreatures.forEach((creature) => {
+            const mesh = creature.mesh;
+            if (!biomeAllows) {
+                mesh.visible = false;
+                return;
+            }
+            mesh.visible = true;
+            creature.phase += delta * creature.speed;
+            if (creature.type === 'firefly') {
+                const ox = creature.origin.x;
+                const oy = creature.origin.y;
+                const oz = creature.origin.z;
+                creature.target.set(
+                    ox + Math.sin(creature.phase) * creature.radius.x,
+                    oy + Math.sin(creature.phase * 1.7) * creature.radius.y,
+                    oz + Math.cos(creature.phase * 0.8) * creature.radius.z
+                );
+                mesh.position.lerp(creature.target, delta * 2.0);
+                const opacityTarget = (skyBrightness < 0.55) ? 0.9 : 0.15;
+                mesh.material.opacity = THREE.MathUtils.lerp(mesh.material.opacity, opacityTarget, delta * 3);
+                const hue = 0.32 + Math.sin(creature.phase) * 0.05;
+                mesh.material.color.setHSL(hue, 0.8, 0.6);
+            }
+        });
+    }
     // Delay world initialisation until the Play button is pressed.  Instead of
     // calling init() and animate() immediately, define a function that
     // performs this setup.  When the game starts, init() will build the
@@ -3223,6 +3643,11 @@ to better suit your requirements.
             clearAllChunks();
             Object.keys(heightMap).forEach(k => delete heightMap[k]);
             perlinNoise = createPerlin(seed);
+            heatNoise = createPerlin(seed ^ 0x51633);
+            moistureNoise = createPerlin(seed ^ 0x9f4c3);
+            mysticNoise = createPerlin(seed ^ 0x1f2a7);
+            skyIslandNoise = createPerlin(seed ^ 0x7ab9d);
+            biomeCache.clear();
             updateVisibleChunks(true);
         },
         getSeed: () => seed,
