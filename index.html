@@ -1064,11 +1064,22 @@ to better suit your requirements.
 
     // --- Shared block geometry & materials ---
     const cubeGeometry = new THREE.BoxBufferGeometry(1,1,1);
+    const loadingManager = new THREE.LoadingManager();
+    const iconReadyCallbacks = [];
+    let iconsReady = false;
+    let hotbarIcons = {};
+    function onIconsReady(cb) {
+        if (iconsReady) {
+            cb();
+        } else {
+            iconReadyCallbacks.push(cb);
+        }
+    }
     // Prepare textures for certain block types.  We load these textures once
     // up‑front so that they can be reused across all chunks.  Setting
     // crossOrigin ensures that images hosted on external domains (like
     // postimg.cc) load correctly in the browser.
-    const textureLoader = new THREE.TextureLoader();
+    const textureLoader = new THREE.TextureLoader(loadingManager);
     if (textureLoader.setCrossOrigin) textureLoader.setCrossOrigin('anonymous');
     // Grass texture – this replaces the solid green colour with the provided
     // pixel art grass.  Using NearestFilter preserves the crisp pixels and
@@ -1124,7 +1135,7 @@ to better suit your requirements.
         sand:  new THREE.MeshStandardMaterial({ color: 0xe6d4a0 }),
         water: new THREE.MeshStandardMaterial({ color: 0x4a7ad1, transparent: true, opacity: 0.6 }),
         wood:  new THREE.MeshStandardMaterial({ map: woodTexture }),
-        leaves:new THREE.MeshStandardMaterial({ map: leavesTexture, transparent: true, alphaTest: 0.5 }),
+        leaves:new THREE.MeshStandardMaterial({ map: leavesTexture, transparent: true, alphaTest: 0.5, side: THREE.DoubleSide }),
         bedrock: new THREE.MeshStandardMaterial({ map: bedrockTexture }),
         snow:   new THREE.MeshStandardMaterial({ color: 0xf5fbff, roughness: 0.45, metalness: 0.05 }),
         ice:    new THREE.MeshStandardMaterial({ color: 0x9bd8ff, transparent: true, opacity: 0.7, roughness: 0.12, metalness: 0.15, envMapIntensity: 0.6 }),
@@ -1201,6 +1212,9 @@ to better suit your requirements.
     // A list of dynamically created block meshes (placed blocks) so we can
     // remove them easily when breaking.  Each entry is a THREE.Mesh.
     const modifiedMeshes = [];
+    const leafDecayQueue = [];
+    const leafDecayScheduled = new Map();
+    const LEAF_DECAY_RADIUS = 4;
     // Selection state for placing blocks.  selectableTypes defines which
     // materials the player can place.  selectedIndex indexes into this
     // array.  Press number keys 1–4 to change selection.
@@ -1221,10 +1235,18 @@ to better suit your requirements.
     // per user request.  The cracks overlay and break logic use this
     // constant to determine progress.
     const BREAK_DURATION = 3000;
+    const BREAK_SOUND_MIN = 0.22;
+    const BREAK_SOUND_MAX = 0.45;
+    const PLACE_REPEAT_INTERVAL = 0.22;
     let currentBreakDuration = BREAK_DURATION;
     let isBreaking = false;
     let breakTarget = null;
     let breakStartTime = 0;
+    let breakSoundElapsed = 0;
+    let breakSoundDelay = BREAK_SOUND_MAX;
+    let leftMouseDown = false;
+    let rightMouseDown = false;
+    let placeHoldCooldown = 0;
     // Highlight mesh shown around the currently targeted block.  This will
     // be created during init().
     let highlightMesh;
@@ -1417,184 +1439,103 @@ to better suit your requirements.
     window.pauseMenuElement = pauseMenuElement;
     window.optionsMenuElement = optionsMenuElement;
 
-    // Icon URLs for the hotbar slots.  Each icon is generated at runtime using
-    // small inline SVGs so the art style matches the semi-realistic, slightly
-    // isometric look of the game UI without relying on external URLs.
-    const hotbarIcons = createHotbarIcons();
-
-    function svgDataUrl(svg) {
-        return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
-    }
-
-    function shadeColor(hex, amount) {
-        const col = hex.replace('#', '');
-        if (col.length !== 6) return hex;
-        const num = parseInt(col, 16);
-        const r = Math.max(0, Math.min(255, Math.round(((num >> 16) & 0xff) + 255 * amount)));
-        const g = Math.max(0, Math.min(255, Math.round(((num >> 8) & 0xff) + 255 * amount)));
-        const b = Math.max(0, Math.min(255, Math.round((num & 0xff) + 255 * amount)));
-        return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
-    }
-
-    function createCubeIcon(topColor, leftColor, rightColor, {
-        outlineColor = '#091015',
-        topInset = true,
-        leftShine = true,
-        rightShadow = true,
-        detailSvg = ''
-    } = {}) {
-        const topHighlight = shadeColor(topColor, 0.25);
-        const leftHighlight = shadeColor(leftColor, 0.2);
-        const rightDark = shadeColor(rightColor, -0.25);
-        const svg = `
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-                <g stroke-linejoin="round">
-                    <polygon fill="${topColor}" points="50,8 92,32 50,56 8,32"/>
-                    <polygon fill="${leftColor}" points="8,32 50,56 50,92 8,72"/>
-                    <polygon fill="${rightColor}" points="92,32 50,56 50,92 92,72"/>
-                    ${topInset ? `<polygon fill="${topHighlight}" opacity="0.45" points="50,16 80,32 50,48 20,32"/>` : ''}
-                    ${leftShine ? `<polygon fill="${leftHighlight}" opacity="0.28" points="12,36 46,56 46,84 12,68"/>` : ''}
-                    ${rightShadow ? `<polygon fill="${rightDark}" opacity="0.4" points="54,56 88,36 88,68 54,88"/>` : ''}
-                    <path d="M50 8L92 32L92 72L50 92L8 72L8 32Z" fill="none" stroke="${outlineColor}" stroke-width="3"/>
-                    <path d="M8 32L50 56L92 32" fill="none" stroke="${outlineColor}" stroke-width="3"/>
-                </g>
-                ${detailSvg}
-            </svg>
-        `;
-        return svgDataUrl(svg);
-    }
-
-    function createStickIcon() {
-        const base = '#a8733a';
-        const highlight = shadeColor(base, 0.25);
-        const shadow = shadeColor(base, -0.35);
-        const svg = `
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-                <rect width="100" height="100" rx="18" fill="#1b1f27"/>
-                <g transform="translate(16 14) rotate(-33 34 36)" stroke-linejoin="round">
-                    <polygon points="24,6 44,16 44,74 24,64" fill="${shadow}"/>
-                    <polygon points="24,6 52,20 52,72 24,58" fill="${base}"/>
-                    <polygon points="52,20 44,16 44,74 52,78" fill="${shadeColor(base, -0.18)}"/>
-                    <polygon points="26,12 46,22 46,66 26,56" fill="${highlight}" opacity="0.28"/>
-                    <path d="M24 6L44 16L44 74L24 64Z" fill="none" stroke="#0e131a" stroke-width="3"/>
-                </g>
-            </svg>
-        `;
-        return svgDataUrl(svg);
-    }
-
-    function createAxeIcon() {
-        const handle = '#8a5f2d';
-        const wrap = '#3d2614';
-        const blade = '#5de4ff';
-        const bladeAccent = '#1d99b8';
-        const edge = '#e5fbff';
-        const svg = `
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-                <rect width="100" height="100" rx="18" fill="#151a22"/>
-                <g transform="translate(12 6)">
-                    <g transform="rotate(-32 42 52)" stroke-linejoin="round">
-                        <polygon points="30,6 44,12 44,86 30,80" fill="${shadeColor(handle, -0.2)}"/>
-                        <polygon points="30,6 56,18 56,80 30,68" fill="${handle}"/>
-                        <polygon points="30,30 56,42 56,56 30,44" fill="${wrap}"/>
-                        <polygon points="30,30 44,36 44,54 30,48" fill="${shadeColor(wrap, 0.2)}" opacity="0.35"/>
-                        <polygon points="56,18 80,20 80,66 56,80" fill="${bladeAccent}"/>
-                        <polygon points="56,18 90,28 90,58 56,80" fill="${blade}"/>
-                        <polygon points="90,28 94,30 94,58 90,58" fill="${edge}"/>
-                        <polygon points="56,26 84,32 84,52 56,68" fill="${shadeColor(blade, -0.25)}" opacity="0.4"/>
-                        <path d="M30 6L56 18L56 80L30 68Z" fill="none" stroke="#0e131a" stroke-width="3"/>
-                        <path d="M56 18L90 28L90 58L56 80Z" fill="none" stroke="#0e131a" stroke-width="3"/>
-                    </g>
-                </g>
-            </svg>
-        `;
-        return svgDataUrl(svg);
+    // Icons are generated by rendering miniature 3D previews of each block or tool
+    // so the UI reflects how the objects appear in the world.
+    function captureIcon(renderer, scene, camera, object) {
+        scene.add(object);
+        renderer.render(scene, camera);
+        const data = renderer.domElement.toDataURL('image/png');
+        scene.remove(object);
+        return data;
     }
 
     function createHotbarIcons() {
-        return {
-            grass: createCubeIcon('#54b15b', '#6a4826', '#74481f', {
-                detailSvg: `
-                    <path d="M10 52L50 72L50 92L10 72Z" fill="${shadeColor('#6a4826', -0.2)}" opacity="0.45"/>
-                    <path d="M90 52L50 72L50 92L90 72Z" fill="${shadeColor('#74481f', -0.25)}" opacity="0.5"/>
-                    <path d="M18 30L50 44L82 30" stroke="#8ce68f" stroke-width="4" stroke-linecap="round" opacity="0.6"/>
-                `
-            }),
-            dirt: createCubeIcon('#b47d47', '#9b6636', '#87542b'),
-            stone: createCubeIcon('#bfc5cc', '#9ca2aa', '#818892', {
-                detailSvg: `
-                    <path d="M18 66L34 74" stroke="#d5dade" stroke-width="5" stroke-linecap="round" opacity="0.4"/>
-                    <path d="M70 58L82 66" stroke="#d5dade" stroke-width="6" stroke-linecap="round" opacity="0.35"/>
-                `
-            }),
-            wood: createCubeIcon('#caa062', '#9a6d3b', '#8c5c27', {
-                detailSvg: `
-                    <path d="M18 40L18 86" stroke="#5c3a1a" stroke-width="5" opacity="0.45"/>
-                    <path d="M32 46L32 90" stroke="#5c3a1a" stroke-width="4" opacity="0.35"/>
-                `
-            }),
-            leaves: createCubeIcon('#4aa75b', '#3a7f47', '#2e5f36', {
-                detailSvg: `
-                    <path d="M24 60C32 54 36 60 44 54" stroke="#7ddf8d" stroke-width="4" stroke-linecap="round" opacity="0.45"/>
-                    <path d="M60 56C68 50 74 56 80 50" stroke="#7ddf8d" stroke-width="4" stroke-linecap="round" opacity="0.45"/>
-                `
-            }),
-            sand: createCubeIcon('#f0d39c', '#d3b078', '#c9a267', {
-                detailSvg: `
-                    <circle cx="36" cy="68" r="6" fill="#f7e5c5" opacity="0.4"/>
-                    <circle cx="68" cy="62" r="5" fill="#fdf0d4" opacity="0.35"/>
-                `
-            }),
-            water: createCubeIcon('#3ba7ff', '#2b74c4', '#2159a0', {
-                detailSvg: `
-                    <path d="M18 62C26 58 34 62 42 58" stroke="#8fd3ff" stroke-width="5" stroke-linecap="round" opacity="0.45"/>
-                    <path d="M60 56C68 52 76 56 84 52" stroke="#8fd3ff" stroke-width="5" stroke-linecap="round" opacity="0.4"/>
-                `,
-                topInset: false
-            }),
-            bedrock: createCubeIcon('#7b7f85', '#585b61', '#3f4247', {
-                detailSvg: `
-                    <path d="M20 60L32 68" stroke="#9da1a6" stroke-width="5" stroke-linecap="round" opacity="0.3"/>
-                    <path d="M66 62L80 72" stroke="#9da1a6" stroke-width="4" stroke-linecap="round" opacity="0.28"/>
-                `
-            }),
-            snow: createCubeIcon('#f3f7fc', '#d8dee7', '#bcc3cf', {
-                detailSvg: `
-                    <path d="M36 40L50 48L64 40" stroke="#ffffff" stroke-width="6" stroke-linecap="round" opacity="0.5"/>
-                `,
-                leftShine: false
-            }),
-            ice: createCubeIcon('#bce6ff', '#92c5e6', '#6f9bcf', {
-                detailSvg: `
-                    <path d="M32 42L50 50L68 42" stroke="#e6f6ff" stroke-width="6" stroke-linecap="round" opacity="0.45"/>
-                    <path d="M24 68L36 74" stroke="#d7f0ff" stroke-width="4" stroke-linecap="round" opacity="0.4"/>
-                `
-            }),
-            moss: createCubeIcon('#3f9f6b', '#347d55', '#296145', {
-                detailSvg: `
-                    <path d="M20 60C28 54 34 60 42 54" stroke="#63d596" stroke-width="4" stroke-linecap="round" opacity="0.45"/>
-                `
-            }),
-            glowstone: createCubeIcon('#ffdf95', '#d9b46a', '#c0984f', {
-                detailSvg: `
-                    <circle cx="34" cy="66" r="8" fill="#fff5cf" opacity="0.55"/>
-                    <circle cx="70" cy="60" r="6" fill="#ffeab3" opacity="0.55"/>
-                `
-            }),
-            cactus: createCubeIcon('#2d9d57', '#227642', '#1a5530', {
-                detailSvg: `
-                    <path d="M22 46L22 84" stroke="#44cc77" stroke-width="5" opacity="0.4" stroke-linecap="round"/>
-                    <path d="M36 52L36 88" stroke="#44cc77" stroke-width="4" opacity="0.35" stroke-linecap="round"/>
-                `
-            }),
-            stick: createStickIcon(),
-            axe: createAxeIcon()
-        };
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(120, 120);
+        renderer.setPixelRatio(1);
+        renderer.setClearColor(0x000000, 0);
+        renderer.outputEncoding = THREE.sRGBEncoding;
+
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 10);
+        camera.position.set(1.45, 1.1, 1.65);
+        camera.lookAt(0, -0.05, 0);
+
+        const ambient = new THREE.AmbientLight(0xffffff, 0.75);
+        scene.add(ambient);
+        const keyLight = new THREE.DirectionalLight(0xffffff, 1.05);
+        keyLight.position.set(2.8, 4.2, 3.5);
+        scene.add(keyLight);
+        const rimLight = new THREE.DirectionalLight(0xffffff, 0.32);
+        rimLight.position.set(-3, -2.4, -1.5);
+        scene.add(rimLight);
+
+        const icons = {};
+        const previewGeometry = new THREE.BoxGeometry(1, 1, 1);
+        const blockTypes = ['grass', 'dirt', 'stone', 'sand', 'wood', 'leaves', 'snow', 'ice', 'moss', 'glowstone', 'cactus'];
+        blockTypes.forEach((type) => {
+            const baseMat = blockMaterials[type];
+            if (!baseMat) return;
+            const mat = baseMat.clone();
+            mat.side = (type === 'leaves') ? THREE.DoubleSide : THREE.FrontSide;
+            mat.depthWrite = true;
+            mat.depthTest = true;
+            if (type === 'leaves') {
+                mat.alphaTest = 0.5;
+                mat.transparent = true;
+            }
+            const mesh = new THREE.Mesh(previewGeometry, mat);
+            mesh.scale.set(0.9, 0.9, 0.9);
+            mesh.rotation.set(-0.55, Math.PI / 4, 0);
+            mesh.position.set(0, -0.08, 0);
+            icons[type] = captureIcon(renderer, scene, camera, mesh);
+        });
+
+        const toolCaptures = [
+            { type: 'stick', mesh: createStickMesh({ forIcon: true }) },
+            { type: 'axe', mesh: createAxeMesh({ forIcon: true }) },
+            { type: 'pickaxe', mesh: createPickaxeMesh({ forIcon: true }) }
+        ];
+        toolCaptures.forEach(({ type, mesh }) => {
+            if (!mesh) return;
+            const group = new THREE.Group();
+            mesh.position.set(0, -0.2, 0);
+            mesh.rotation.set(-0.4, -Math.PI / 5, Math.PI / 12);
+            group.add(mesh);
+            icons[type] = captureIcon(renderer, scene, camera, group);
+        });
+
+        renderer.dispose();
+        previewGeometry.dispose();
+        return icons;
     }
+
+    function refreshAllItemIcons() {
+        refreshAllHotbarSlots();
+        updateInventoryUI();
+        refreshRecipeBookIcons();
+        updateCraftingResultUI();
+    }
+
+    loadingManager.onLoad = () => {
+        hotbarIcons = createHotbarIcons();
+        iconsReady = true;
+        while (iconReadyCallbacks.length > 0) {
+            const cb = iconReadyCallbacks.shift();
+            try {
+                cb();
+            } catch (err) {
+                console.warn('Icon ready callback failed', err);
+            }
+        }
+        refreshAllItemIcons();
+    };
+
     const HOTBAR_DRAG_MIME = 'application/x-voxel-item';
     const HOTBAR_STACK_LIMIT = 64;
-    const TOOL_TYPES = new Set(['axe']);
-    const ITEM_STACK_LIMITS = { axe: 1 };
+    const TOOL_TYPES = new Set(['axe', 'pickaxe']);
+    const ITEM_STACK_LIMITS = { axe: 1, pickaxe: 1 };
+    const PICKAXE_FAST_TYPES = new Set(['stone', 'iron', 'copper', 'ruby', 'diamond', 'coal', 'moss', 'glowstone']);
 
     function isHotbarAssignable(type) {
         return !!type && (blockMaterials[type] || TOOL_TYPES.has(type));
@@ -1714,7 +1655,11 @@ to better suit your requirements.
             slot.img.src = hotbarIcons[entry.type];
             slot.img.alt = blockNames[entry.type] || entry.type;
         } else {
+            if (!iconsReady) {
+                onIconsReady(() => updateCraftingSlot(index));
+            }
             slot.img.style.display = 'none';
+            slot.img.removeAttribute('src');
         }
         slot.countSpan.textContent = entry.count > 1 ? entry.count.toString() : (entry.count === 1 ? '1' : '');
     }
@@ -1744,6 +1689,33 @@ to better suit your requirements.
             craftingGridState[index] = null;
         }
         updateCraftingSlot(index);
+    }
+
+    function evaluatePickaxeRecipe() {
+        const required = [
+            { index: 0, type: 'wood' },
+            { index: 1, type: 'wood' },
+            { index: 2, type: 'wood' },
+            { index: 4, type: 'stick' },
+            { index: 7, type: 'stick' }
+        ];
+        for (const req of required) {
+            const entry = craftingGridState[req.index];
+            if (!entry || entry.type !== req.type || entry.count < 1) {
+                return null;
+            }
+        }
+        for (let i = 0; i < craftingGridState.length; i++) {
+            if (required.some((req) => req.index === i)) continue;
+            if (craftingGridState[i]) return null;
+        }
+        const existing = inventory['pickaxe'] || 0;
+        if (existing >= getStackLimit('pickaxe')) return null;
+        return {
+            type: 'pickaxe',
+            count: 1,
+            consumes: required.map((req) => ({ index: req.index, count: 1 }))
+        };
     }
 
     function evaluateAxeRecipe() {
@@ -1806,11 +1778,16 @@ to better suit your requirements.
     }
 
     function recalculateCraftingResult() {
-        const axe = evaluateAxeRecipe();
-        if (axe) {
-            currentCraftingResult = axe;
+        const pickaxe = evaluatePickaxeRecipe();
+        if (pickaxe) {
+            currentCraftingResult = pickaxe;
         } else {
-            currentCraftingResult = evaluateStickRecipe();
+            const axe = evaluateAxeRecipe();
+            if (axe) {
+                currentCraftingResult = axe;
+            } else {
+                currentCraftingResult = evaluateStickRecipe();
+            }
         }
         updateCraftingResultUI();
     }
@@ -1832,6 +1809,12 @@ to better suit your requirements.
             img.style.display = 'block';
             img.src = hotbarIcons[currentCraftingResult.type];
             img.alt = blockNames[currentCraftingResult.type] || currentCraftingResult.type;
+        } else if (img) {
+            if (!iconsReady) {
+                onIconsReady(() => updateCraftingResultUI());
+            }
+            img.style.display = 'none';
+            img.removeAttribute('src');
         }
         if (countSpan) {
             countSpan.textContent = currentCraftingResult.count > 1 ? currentCraftingResult.count.toString() : '';
@@ -1875,7 +1858,8 @@ to better suit your requirements.
         glowstone: 'Glowstone',
         cactus: 'Cactus',
         stick: 'Sticks',
-        axe: 'Wooden Axe'
+        axe: 'Wooden Axe',
+        pickaxe: 'Wooden Pickaxe'
     };
     const BLOCK_TYPE_ORDER = Object.keys(blockNames);
 
@@ -1916,6 +1900,24 @@ to better suit your requirements.
                 'Take the axe from the result slot to equip it.'
             ],
             note: 'The wooden axe destroys logs twice as fast but is slower on other block types.'
+        },
+        {
+            id: 'pickaxe',
+            name: 'Wooden Pickaxe',
+            result: { type: 'pickaxe', label: 'Creates one wooden pickaxe', shortLabel: '×1' },
+            listLabel: '×1',
+            summary: 'Carve a basic pickaxe that mines stone and ores far quicker than fists or axes.',
+            pattern: [
+                ['wood', 'wood', 'wood'],
+                [null, 'stick', null],
+                [null, 'stick', null]
+            ],
+            steps: [
+                'Lay three logs across the entire top row of the crafting grid.',
+                'Place a stick in the centre of the middle row and another directly beneath it.',
+                'Collect the wooden pickaxe from the output slot to start mining stone efficiently.'
+            ],
+            note: 'Wooden pickaxes are ideal for early stone and ore gathering but still slow on wood blocks.'
         }
     ];
     let activeRecipeId = null;
@@ -1969,6 +1971,9 @@ to better suit your requirements.
             icon.src = iconSrc;
         } else {
             icon.style.display = 'none';
+            if (!iconsReady) {
+                onIconsReady(() => setRecipeBookActive(recipeId));
+            }
         }
         icon.alt = recipe.result && recipe.result.type ? (blockNames[recipe.result.type] || recipe.result.type) : recipe.name;
         iconWrap.appendChild(icon);
@@ -2015,6 +2020,9 @@ to better suit your requirements.
                             cell.appendChild(img);
                         } else {
                             cell.textContent = blockNames[type] || type;
+                            if (!iconsReady) {
+                                onIconsReady(() => setRecipeBookActive(recipeId));
+                            }
                         }
                     } else {
                         cell.classList.add('empty');
@@ -2037,6 +2045,8 @@ to better suit your requirements.
                 resultIcon.alt = blockNames[recipe.result.type] || recipe.result.type;
                 resultIcon.draggable = false;
                 resultWrap.appendChild(resultIcon);
+            } else if (recipe.result && recipe.result.type && !iconsReady) {
+                onIconsReady(() => setRecipeBookActive(recipeId));
             }
             if (recipe.result && recipe.result.shortLabel) {
                 const count = document.createElement('div');
@@ -2095,6 +2105,9 @@ to better suit your requirements.
                 icon.src = hotbarIcons[recipe.result.type];
             } else {
                 icon.style.display = 'none';
+                if (!iconsReady) {
+                    onIconsReady(() => refreshRecipeBookIcons());
+                }
             }
             icon.alt = recipe.result && recipe.result.type ? (blockNames[recipe.result.type] || recipe.result.type) : recipe.name;
             iconWrap.appendChild(icon);
@@ -2129,6 +2142,30 @@ to better suit your requirements.
                 setRecipeBookActive(recipeBookEntries[0].id);
             }
         });
+    }
+
+    function refreshRecipeBookIcons() {
+        const list = document.getElementById('recipeBookList');
+        if (list) {
+            list.querySelectorAll('.recipe-entry').forEach((btn) => {
+                const recipeId = btn.dataset.recipeId;
+                const recipe = recipeBookEntries.find((entry) => entry.id === recipeId);
+                if (!recipe) return;
+                const img = btn.querySelector('.recipe-entry-icon img');
+                if (!img) return;
+                if (recipe.result && recipe.result.type && hotbarIcons[recipe.result.type]) {
+                    img.style.display = 'block';
+                    img.src = hotbarIcons[recipe.result.type];
+                    img.alt = blockNames[recipe.result.type] || recipe.result.type;
+                } else {
+                    img.style.display = 'none';
+                    img.removeAttribute('src');
+                }
+            });
+        }
+        if (activeRecipeId) {
+            setRecipeBookActive(activeRecipeId);
+        }
     }
 
     // Tooltip element shown above the selected hotbar slot.  The element
@@ -3092,7 +3129,9 @@ to better suit your requirements.
         handGroup = new THREE.Group();
         handGroup.add(handBlock);
         const axeMesh = createAxeMesh();
-        axeMesh.position.set(0.12, -0.12, -0.2);
+        axeMesh.position.set(0.24, -0.2, -0.34);
+        axeMesh.rotation.set(-1.18, 0.92, 0.32);
+        axeMesh.scale.setScalar(1.08);
         axeMesh.visible = false;
         handGroup.add(axeMesh);
         handItemMeshes.axe = axeMesh;
@@ -3101,6 +3140,13 @@ to better suit your requirements.
         stickMesh.visible = false;
         handGroup.add(stickMesh);
         handItemMeshes.stick = stickMesh;
+        const pickaxeMesh = createPickaxeMesh();
+        pickaxeMesh.position.set(0.18, -0.16, -0.38);
+        pickaxeMesh.rotation.set(-1.12, 0.76, -0.28);
+        pickaxeMesh.scale.setScalar(1.04);
+        pickaxeMesh.visible = false;
+        handGroup.add(pickaxeMesh);
+        handItemMeshes.pickaxe = pickaxeMesh;
         // Position the held item group relative to the camera so it sits clearly
         // in view on the right-hand side.  The group is brought a little
         // closer to the lens so items appear substantial without clipping into
@@ -3165,6 +3211,12 @@ to better suit your requirements.
                 else bar.classList.remove('visible');
                 if (inventoryOpen) bar.classList.add('interactive');
                 else bar.classList.remove('interactive');
+            }
+            if (!pointerLocked) {
+                leftMouseDown = false;
+                rightMouseDown = false;
+                placeHoldCooldown = 0;
+                cancelBreaking();
             }
             // Start background music when the user first locks the pointer
             if (pointerLocked && !musicStarted) {
@@ -3324,21 +3376,26 @@ to better suit your requirements.
         renderer.domElement.addEventListener('mousedown', (e) => {
             if (!pointerLocked) return;
             if (e.button === 0) {
-                // Left click begins breaking the targeted block
+                leftMouseDown = true;
                 startBreaking();
             } else if (e.button === 2) {
-                // Right click places a block adjacent to the targeted block
                 e.preventDefault();
-                tryPlaceBlock();
+                rightMouseDown = true;
+                if (tryPlaceBlock()) {
+                    placeHoldCooldown = PLACE_REPEAT_INTERVAL;
+                } else {
+                    placeHoldCooldown = PLACE_REPEAT_INTERVAL * 0.5;
+                }
             }
         });
-        // Do not cancel breaking on mouse up.  The break timer runs
-        // independent of the mouse button state and is cancelled only if
-        // the targeted block changes or the player starts a new break.  This
-        // makes breaking more forgiving – you don't need to hold the button
-        // continuously for the full duration.
         renderer.domElement.addEventListener('mouseup', (e) => {
-            // Left mouse release no longer cancels breaking.
+            if (e.button === 0) {
+                leftMouseDown = false;
+                cancelBreaking();
+            } else if (e.button === 2) {
+                rightMouseDown = false;
+                placeHoldCooldown = 0;
+            }
         });
         renderer.domElement.addEventListener('contextmenu', (e) => {
             e.preventDefault();
@@ -3370,8 +3427,8 @@ to better suit your requirements.
         const entry = voxelMap.get(`${x},${y},${z}`);
         if (!entry) return false;
         const t = entry.type;
-        // water and leaves are non-solid; everything else is solid
-        return (t !== 'water' && t !== 'leaves' && t !== 'lava');
+        // Water and lava remain non-solid; everything else (including leaves) is solid.
+        return (t !== 'water' && t !== 'lava');
     }
 
     // Find the highest solid block at the given column that is at or below maxY.
@@ -3439,7 +3496,7 @@ to better suit your requirements.
             // Only consider solid blocks (skip water and leaves).  Hidden
             // blocks remain pickable so that the player can break through
             // dirt and stone layers even when they are not yet exposed.
-            if (entry && entry.type !== 'water' && entry.type !== 'leaves') {
+            if (entry && entry.type !== 'water' && entry.type !== 'lava') {
                 // Determine face normal based on last stepped axis
                 let normal;
                 if (lastAxis === 'x') normal = new THREE.Vector3(-stepX, 0, 0);
@@ -3675,12 +3732,15 @@ to better suit your requirements.
             cracksMesh.visible = false;
         }
         if (isBreaking) {
-            // Cancel breaking if looking at a different block or no block
             if (!hit || hit.x !== breakTarget.x || hit.y !== breakTarget.y || hit.z !== breakTarget.z) {
                 cancelBreaking();
             } else {
+                breakSoundElapsed += delta;
+                if (breakSoundElapsed >= breakSoundDelay) {
+                    playRandomDigSound(breakTarget.type);
+                    resetBreakSoundTimer();
+                }
                 const elapsed = time - breakStartTime;
-                // Update cracks overlay material and position based on break progress
                 if (cracksMesh) {
                     const duration = currentBreakDuration || BREAK_DURATION;
                     let stage = Math.floor((elapsed / duration) * 10);
@@ -3690,13 +3750,30 @@ to better suit your requirements.
                     cracksMesh.position.set(breakTarget.x + 0.5, breakTarget.y + 0.5, breakTarget.z + 0.5);
                 }
                 if (elapsed >= currentBreakDuration) {
-                    // break complete
                     removeVoxel(breakTarget.x, breakTarget.y, breakTarget.z);
                     spawnDebris(breakTarget.x, breakTarget.y, breakTarget.z, breakTarget.type);
                     playRandomDigSound(breakTarget.type);
                     cancelBreaking();
                 }
             }
+        }
+        if (leftMouseDown && !isBreaking) {
+            startBreaking();
+        }
+        if (pointerLocked && !inventoryOpen && rightMouseDown) {
+            placeHoldCooldown -= delta;
+            if (placeHoldCooldown <= 0) {
+                if (tryPlaceBlock()) {
+                    placeHoldCooldown = PLACE_REPEAT_INTERVAL;
+                } else {
+                    placeHoldCooldown = PLACE_REPEAT_INTERVAL * 0.5;
+                }
+            }
+        } else if (!rightMouseDown) {
+            placeHoldCooldown = 0;
+        }
+        if (leafDecayQueue.length > 0) {
+            processLeafDecay(delta);
         }
         // Animate hand when placing or breaking.  A short animation moves
         // the hand forward/back or rotates it downward, similar to
@@ -3710,22 +3787,39 @@ to better suit your requirements.
                 handGroup.rotation.copy(handBaseRotation);
             } else {
                 if (handAnimType) {
-                    const animDuration = 0.3;
+                    const animDuration = handAnimType === 'break' ? 0.36 : 0.28;
                     handAnimTime += delta / animDuration;
                     const t = Math.min(handAnimTime, 1);
                     handFinalPosition.copy(handBobPosition);
                     handFinalRotation.copy(handBobRotation);
                     if (handAnimType === 'break') {
-                        const angle = Math.sin(t * Math.PI) * 0.6;
+                        const angle = Math.sin(t * Math.PI) * 0.68;
                         handFinalRotation.x -= angle;
+                        handFinalRotation.y += Math.sin(t * Math.PI * 0.5) * 0.12;
+                        if (handAnimTime >= 1) {
+                            if (leftMouseDown && isBreaking) {
+                                handAnimTime = 0;
+                            } else {
+                                handAnimTime = 0;
+                                handAnimType = null;
+                            }
+                        }
                     } else if (handAnimType === 'place') {
-                        const offset = Math.sin(t * Math.PI) * 0.4;
+                        const offset = Math.sin(t * Math.PI) * 0.42;
                         handFinalPosition.z -= offset;
+                        handFinalRotation.x += Math.sin(t * Math.PI) * 0.25;
+                        if (handAnimTime >= 1) {
+                            if (rightMouseDown && pointerLocked && !inventoryOpen) {
+                                handAnimTime = 0;
+                            } else {
+                                handAnimTime = 0;
+                                handAnimType = null;
+                            }
+                        }
                     }
-                    if (handAnimTime >= 1) {
-                        handAnimTime = 0;
-                        handAnimType = null;
-                    }
+                } else {
+                    handFinalPosition.copy(handBobPosition);
+                    handFinalRotation.copy(handBobRotation);
                 }
                 handGroup.position.copy(handFinalPosition);
                 handGroup.rotation.copy(handFinalRotation);
@@ -3849,8 +3943,16 @@ to better suit your requirements.
         }
         if (!handMaterialCache.has(type)) {
             const mat = blockMaterials[type].clone();
-            mat.depthTest = false;
-            mat.depthWrite = false;
+            if (type === 'leaves') {
+                mat.depthTest = false;
+                mat.depthWrite = false;
+                mat.transparent = true;
+                mat.alphaTest = 0.5;
+                mat.side = THREE.DoubleSide;
+            } else {
+                mat.depthTest = false;
+                mat.depthWrite = false;
+            }
             handMaterialCache.set(type, mat);
         }
         return handMaterialCache.get(type);
@@ -3898,40 +4000,42 @@ to better suit your requirements.
         }
     }
 
-    function createAxeMesh() {
+    function createAxeMesh(options = {}) {
+        const { forIcon = false } = options;
         const group = new THREE.Group();
         const handleMaterial = new THREE.MeshStandardMaterial({ color: 0x8d5e2c, roughness: 0.68, metalness: 0.18, flatShading: true });
         const gripMaterial = new THREE.MeshStandardMaterial({ color: 0x2f1b0c, roughness: 0.82, metalness: 0.08, flatShading: true });
         const headCoreMaterial = new THREE.MeshStandardMaterial({ color: 0x2fa7c3, roughness: 0.35, metalness: 0.9, emissive: 0x0e4a5b, emissiveIntensity: 0.25, flatShading: true });
         const headPlateMaterial = new THREE.MeshStandardMaterial({ color: 0x5fe9ff, roughness: 0.18, metalness: 0.95, emissive: 0x1a6f80, emissiveIntensity: 0.28, flatShading: true });
         const edgeMaterial = new THREE.MeshStandardMaterial({ color: 0xe8faff, roughness: 0.06, metalness: 1.0, flatShading: true });
+        const shouldDepthTest = !!forIcon;
         [handleMaterial, gripMaterial, headCoreMaterial, headPlateMaterial, edgeMaterial].forEach((mat) => {
-            mat.depthTest = false;
-            mat.depthWrite = false;
+            mat.depthTest = shouldDepthTest;
+            mat.depthWrite = shouldDepthTest;
         });
 
         const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.74, 0.09), handleMaterial);
-        shaft.position.set(-0.06, -0.02, 0);
-        shaft.rotation.z = THREE.MathUtils.degToRad(4);
+        shaft.position.set(-0.05, -0.02, 0);
+        shaft.rotation.z = THREE.MathUtils.degToRad(6);
         const grip = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.2, 0.1), gripMaterial);
-        grip.position.set(-0.06, -0.34, 0);
+        grip.position.set(-0.05, -0.34, -0.005);
         const pommel = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 0.12), gripMaterial);
-        pommel.position.set(-0.06, -0.42, 0);
+        pommel.position.set(-0.05, -0.42, 0.01);
 
         const headBase = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.28, 0.18), headCoreMaterial);
-        headBase.position.set(0.22, 0.24, 0);
+        headBase.position.set(0.22, 0.26, 0);
         const headInset = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.18, 0.2), headPlateMaterial);
-        headInset.position.set(0.38, 0.3, 0);
+        headInset.position.set(0.36, 0.32, 0);
         const blade = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.3, 0.26), headPlateMaterial);
-        blade.position.set(0.54, 0.24, 0);
+        blade.position.set(0.54, 0.26, 0);
         const bladeEdge = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.3, 0.28), edgeMaterial);
-        bladeEdge.position.set(0.62, 0.24, 0);
+        bladeEdge.position.set(0.62, 0.26, 0);
         const lowerNotch = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.12, 0.2), headCoreMaterial.clone());
         lowerNotch.position.set(0.18, 0.06, 0);
         lowerNotch.rotation.z = -Math.PI / 6;
 
         group.add(shaft, grip, pommel, headBase, headInset, blade, bladeEdge, lowerNotch);
-        group.rotation.set(-Math.PI / 3.25, Math.PI / 4.4, Math.PI / 12);
+        group.rotation.set(-Math.PI / 3.1, Math.PI / 3.9, Math.PI / 10);
         group.traverse((child) => {
             if (child.isMesh) {
                 child.renderOrder = 31;
@@ -3942,13 +4046,15 @@ to better suit your requirements.
         return group;
     }
 
-    function createStickMesh() {
+    function createStickMesh(options = {}) {
+        const { forIcon = false } = options;
         const group = new THREE.Group();
         const coreMaterial = new THREE.MeshStandardMaterial({ color: 0x9f6b36, roughness: 0.7, metalness: 0.12, flatShading: true });
         const highlightMaterial = new THREE.MeshStandardMaterial({ color: 0xcb9451, roughness: 0.6, metalness: 0.15, flatShading: true });
+        const shouldDepthTest = !!forIcon;
         [coreMaterial, highlightMaterial].forEach((mat) => {
-            mat.depthTest = false;
-            mat.depthWrite = false;
+            mat.depthTest = shouldDepthTest;
+            mat.depthWrite = shouldDepthTest;
         });
 
         const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.62, 0.06), coreMaterial);
@@ -3969,6 +4075,64 @@ to better suit your requirements.
         return group;
     }
 
+    function createPickaxeMesh(options = {}) {
+        const { forIcon = false } = options;
+        const group = new THREE.Group();
+        const handleMaterial = new THREE.MeshStandardMaterial({ color: 0x84532a, roughness: 0.68, metalness: 0.18, flatShading: true });
+        const wrapMaterial = new THREE.MeshStandardMaterial({ color: 0x3b2616, roughness: 0.82, metalness: 0.08, flatShading: true });
+        const headCoreMaterial = new THREE.MeshStandardMaterial({ color: 0x3d8bd0, roughness: 0.3, metalness: 0.92, emissive: 0x123a5e, emissiveIntensity: 0.22, flatShading: true });
+        const headPlateMaterial = new THREE.MeshStandardMaterial({ color: 0x8fc5ff, roughness: 0.18, metalness: 0.95, emissive: 0x1c5f9c, emissiveIntensity: 0.26, flatShading: true });
+        const tipMaterial = new THREE.MeshStandardMaterial({ color: 0xf3fbff, roughness: 0.08, metalness: 1.0, flatShading: true });
+        const shouldDepthTest = !!forIcon;
+        [handleMaterial, wrapMaterial, headCoreMaterial, headPlateMaterial, tipMaterial].forEach((mat) => {
+            mat.depthTest = shouldDepthTest;
+            mat.depthWrite = shouldDepthTest;
+        });
+
+        const haft = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.82, 0.085), handleMaterial);
+        haft.rotation.z = THREE.MathUtils.degToRad(8);
+        haft.position.set(-0.06, -0.05, 0);
+        const gripWrap = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.22, 0.1), wrapMaterial);
+        gripWrap.position.set(-0.06, -0.34, 0.01);
+        const pommelCap = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 0.12), wrapMaterial);
+        pommelCap.position.set(-0.06, -0.41, 0.02);
+
+        const headBridge = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.14, 0.2), headCoreMaterial);
+        headBridge.position.set(0.28, 0.32, 0);
+        const headFace = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.12, 0.26), headPlateMaterial);
+        headFace.position.set(0.3, 0.34, 0);
+        const leftProng = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.12, 0.24), headPlateMaterial);
+        leftProng.position.set(-0.02, 0.34, 0);
+        leftProng.rotation.z = THREE.MathUtils.degToRad(14);
+        const rightProng = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.12, 0.24), headPlateMaterial);
+        rightProng.position.set(0.52, 0.34, 0);
+        rightProng.rotation.z = THREE.MathUtils.degToRad(-10);
+        const leftTip = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.1, 0.2), tipMaterial);
+        leftTip.position.set(-0.14, 0.36, 0);
+        leftTip.rotation.z = THREE.MathUtils.degToRad(20);
+        const rightTip = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.1, 0.22), tipMaterial);
+        rightTip.position.set(0.74, 0.32, 0);
+        rightTip.rotation.z = THREE.MathUtils.degToRad(-18);
+
+        group.add(haft, gripWrap, pommelCap, headBridge, headFace, leftProng, rightProng, leftTip, rightTip);
+        group.rotation.set(-Math.PI / 3.4, Math.PI / 4.1, -Math.PI / 16);
+        group.traverse((child) => {
+            if (child.isMesh) {
+                child.renderOrder = 31;
+                child.castShadow = false;
+                child.receiveShadow = false;
+            }
+        });
+        return group;
+    }
+
+    function refreshAllHotbarSlots() {
+        if (!hotbarSlots || hotbarSlots.length === 0) return;
+        for (let i = 0; i < hotbarSlots.length; i++) {
+            refreshHotbarSlot(i);
+        }
+    }
+
     function refreshHotbarSlot(index) {
         const slot = hotbarSlots[index];
         if (!slot) return;
@@ -3979,8 +4143,12 @@ to better suit your requirements.
         if (img) {
             if (type && hotbarIcons[type]) {
                 img.src = hotbarIcons[type];
+                img.alt = blockNames[type] || type;
                 img.style.display = 'block';
             } else {
+                if (type && !iconsReady) {
+                    onIconsReady(() => refreshHotbarSlot(index));
+                }
                 img.removeAttribute('src');
                 img.style.display = 'none';
             }
@@ -4228,11 +4396,23 @@ to better suit your requirements.
 
         slot.dataset.type = type;
         slot.draggable = true;
-        img.src = hotbarIcons[type] || '';
+        if (hotbarIcons[type]) {
+            img.src = hotbarIcons[type];
+        } else if (!iconsReady) {
+            onIconsReady(() => {
+                if (hotbarIcons[type]) {
+                    img.src = hotbarIcons[type];
+                    img.style.display = 'block';
+                }
+            });
+        }
         img.alt = blockNames[type] || type;
         img.draggable = false;
         img.style.pointerEvents = 'none';
         img.addEventListener('dragstart', (event) => event.preventDefault());
+        if (!hotbarIcons[type]) {
+            img.style.display = 'none';
+        }
 
         slot.addEventListener('click', () => {
             const idx = selectableTypes.indexOf(type);
@@ -4319,6 +4499,10 @@ to better suit your requirements.
         const overlay = document.getElementById('inventoryOverlay');
         const bar = document.getElementById('hotbar');
         if (!overlay) return;
+        leftMouseDown = false;
+        rightMouseDown = false;
+        placeHoldCooldown = 0;
+        cancelBreaking();
         if (!inventoryOpen) {
             inventoryOpen = true;
             overlay.classList.add('open');
@@ -4491,24 +4675,31 @@ to better suit your requirements.
     // Begin breaking the block currently under the crosshair.  The break
     // target is stored and a timer is started.  Unbreakable blocks (such
     // as bedrock) are ignored.  If no block is targeted nothing happens.
+    function resetBreakSoundTimer() {
+        breakSoundElapsed = 0;
+        breakSoundDelay = BREAK_SOUND_MIN + Math.random() * (BREAK_SOUND_MAX - BREAK_SOUND_MIN);
+    }
+
     function startBreaking() {
-        if (isBreaking) return;
+        if (isBreaking) return false;
+        if (!pointerLocked || inventoryOpen) return false;
         const hit = pickBlock();
-        if (!hit) return;
-        // bedrock is unbreakable
-        if (hit.type === 'bedrock') return;
+        if (!hit || hit.type === 'bedrock') return false;
         isBreaking = true;
         breakTarget = hit;
         currentBreakDuration = computeBreakDuration(hit.type);
         breakStartTime = performance.now();
+        resetBreakSoundTimer();
+        breakSoundElapsed = 0;
         handAnimTime = 0;
         handAnimType = 'break';
-        // Show cracks overlay at the targeted block and reset to stage 0
+        playRandomDigSound(hit.type);
         if (cracksMesh) {
             cracksMesh.visible = true;
             cracksMesh.position.set(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5);
             cracksMesh.material = destroyMaterials[0];
         }
+        return true;
     }
 
     // Cancel the current breaking action, if any.
@@ -4517,6 +4708,8 @@ to better suit your requirements.
         breakTarget = null;
         breakStartTime = 0;
         currentBreakDuration = BREAK_DURATION;
+        breakSoundElapsed = 0;
+        breakSoundDelay = BREAK_SOUND_MAX;
         // Hide cracks overlay when breaking stops
         if (cracksMesh) {
             cracksMesh.visible = false;
@@ -4527,29 +4720,39 @@ to better suit your requirements.
         let duration = BREAK_DURATION;
         const heldType = selectableTypes[selectedIndex];
         const heldCount = heldType ? (inventory[heldType] || 0) : 0;
+        if (targetType === 'leaves') {
+            duration = Math.min(duration, 80);
+        }
         if (heldType === 'axe' && heldCount > 0) {
             if (targetType === 'wood') {
                 duration *= 0.5;
             } else {
-                duration *= 1.4;
+                duration *= 1.35;
+            }
+        } else if (heldType === 'pickaxe' && heldCount > 0) {
+            if (PICKAXE_FAST_TYPES.has(targetType)) {
+                duration *= 0.45;
+            } else {
+                duration *= 1.35;
             }
         }
-        return Math.max(250, duration);
+        return Math.max(80, duration);
     }
 
     // Attempt to place a block adjacent to the currently targeted block.  The
     // new block is placed on the face indicated by the hit normal.  If the
     // destination is occupied or would intersect the player, nothing happens.
     function tryPlaceBlock() {
+        if (inventoryOpen) return false;
         const hit = pickBlock();
-        if (!hit) return;
+        if (!hit) return false;
         const px = hit.x + hit.normal.x;
         const py = hit.y + hit.normal.y;
         const pz = hit.z + hit.normal.z;
         const key = `${px},${py},${pz}`;
-        if (voxelMap.has(key)) return;
+        if (voxelMap.has(key)) return false;
         // Don't place into the world outside of bounds (negative y) or above limit
-        if (py < 0 || py >= CHUNK_HEIGHT) return;
+        if (py < 0 || py >= CHUNK_HEIGHT) return false;
         // Prevent placing inside player's bounding box
         const playerBottom = player.position.y - PLAYER_HEIGHT/2;
         const playerTop    = player.position.y + PLAYER_HEIGHT/2;
@@ -4557,11 +4760,11 @@ to better suit your requirements.
         const by = py + 0.5;
         const bz = pz + 0.5;
         if (Math.abs(bx - player.position.x) < 0.4 && Math.abs(bz - player.position.z) < 0.4 && by + 0.5 > playerBottom && py < playerTop) {
-            return;
+            return false;
         }
         const type = selectableTypes[selectedIndex];
-        if (!type || !blockMaterials[type]) return;
-        if (!inventory[type] || inventory[type] <= 0) return;
+        if (!type || !blockMaterials[type]) return false;
+        if (!inventory[type] || inventory[type] <= 0) return false;
         placeVoxel(px, py, pz, type);
         // Play a placement sound using the same dig sound categories.  This
         // provides audio feedback when blocks are placed, similar to
@@ -4572,6 +4775,76 @@ to better suit your requirements.
         handAnimTime = 0;
         handAnimType = 'place';
         removeItemFromInventory(type, 1);
+        return true;
+    }
+
+    function hasSupportingLog(x, y, z) {
+        for (let dx = -LEAF_DECAY_RADIUS; dx <= LEAF_DECAY_RADIUS; dx++) {
+            for (let dy = -LEAF_DECAY_RADIUS; dy <= LEAF_DECAY_RADIUS; dy++) {
+                for (let dz = -LEAF_DECAY_RADIUS; dz <= LEAF_DECAY_RADIUS; dz++) {
+                    const distSq = dx * dx + dy * dy + dz * dz;
+                    if (distSq > LEAF_DECAY_RADIUS * LEAF_DECAY_RADIUS) continue;
+                    const entry = voxelMap.get(`${x + dx},${y + dy},${z + dz}`);
+                    if (entry && entry.type === 'wood') {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    function scheduleLeafDecay(x, y, z, delayOffset = 0) {
+        const key = `${x},${y},${z}`;
+        if (leafDecayScheduled.has(key)) return;
+        const entry = voxelMap.get(key);
+        if (!entry || entry.type !== 'leaves') return;
+        const timer = 0.35 + Math.random() * 0.3 + delayOffset;
+        const record = { x, y, z, timer };
+        leafDecayScheduled.set(key, record);
+        leafDecayQueue.push(record);
+    }
+
+    function scheduleLeavesAround(x, y, z) {
+        let index = 0;
+        for (let dx = -LEAF_DECAY_RADIUS; dx <= LEAF_DECAY_RADIUS; dx++) {
+            for (let dy = -LEAF_DECAY_RADIUS; dy <= LEAF_DECAY_RADIUS; dy++) {
+                for (let dz = -LEAF_DECAY_RADIUS; dz <= LEAF_DECAY_RADIUS; dz++) {
+                    const distSq = dx * dx + dy * dy + dz * dz;
+                    if (distSq > LEAF_DECAY_RADIUS * LEAF_DECAY_RADIUS) continue;
+                    const lx = x + dx;
+                    const ly = y + dy;
+                    const lz = z + dz;
+                    const entry = voxelMap.get(`${lx},${ly},${lz}`);
+                    if (!entry || entry.type !== 'leaves') continue;
+                    if (hasSupportingLog(lx, ly, lz)) continue;
+                    scheduleLeafDecay(lx, ly, lz, index * 0.08);
+                    index++;
+                }
+            }
+        }
+    }
+
+    function processLeafDecay(delta) {
+        for (let i = leafDecayQueue.length - 1; i >= 0; i--) {
+            const entry = leafDecayQueue[i];
+            entry.timer -= delta;
+            if (entry.timer > 0) continue;
+            const key = `${entry.x},${entry.y},${entry.z}`;
+            const current = voxelMap.get(key);
+            if (!current || current.type !== 'leaves') {
+                leafDecayQueue.splice(i, 1);
+                leafDecayScheduled.delete(key);
+                continue;
+            }
+            if (hasSupportingLog(entry.x, entry.y, entry.z)) {
+                entry.timer = 0.45 + Math.random() * 0.3;
+                continue;
+            }
+            leafDecayQueue.splice(i, 1);
+            leafDecayScheduled.delete(key);
+            removeVoxel(entry.x, entry.y, entry.z);
+        }
     }
 
     function dropSelectedBlock() {
@@ -4610,7 +4883,7 @@ to better suit your requirements.
         // Update heightMap if this is the new highest solid block in the column.
         // Non‑solid blocks like water and leaves do not count towards the
         // height map because they should not support the player.
-        if (type !== 'water' && type !== 'leaves') {
+        if (type !== 'water' && type !== 'leaves' && type !== 'lava') {
             const colKey = `${x},${z}`;
             if (heightMap[colKey] === undefined || y > heightMap[colKey]) {
                 heightMap[colKey] = y;
@@ -4697,7 +4970,18 @@ to better suit your requirements.
         // Remove the voxel from the map before spawning a drop so
         // that collision checks treat the space as empty.  Store
         // the type for later use.
+        if (oldEntry.type === 'leaves') {
+            const scheduled = leafDecayScheduled.get(key);
+            if (scheduled) {
+                const idx = leafDecayQueue.indexOf(scheduled);
+                if (idx >= 0) leafDecayQueue.splice(idx, 1);
+                leafDecayScheduled.delete(key);
+            }
+        }
         voxelMap.delete(key);
+        if (oldEntry.type === 'wood') {
+            scheduleLeavesAround(x, y, z);
+        }
         // Update heightMap if needed
         const colKey = `${x},${z}`;
         if (heightMap[colKey] !== undefined && y >= heightMap[colKey]) {
@@ -4705,7 +4989,7 @@ to better suit your requirements.
             let newH = -Infinity;
             for (let yy = y - 1; yy >= 0; yy--) {
                 const e = voxelMap.get(`${x},${yy},${z}`);
-                if (e && e.type !== 'water' && e.type !== 'leaves') {
+                if (e && e.type !== 'water' && e.type !== 'leaves' && e.type !== 'lava') {
                     newH = yy;
                     break;
                 }
