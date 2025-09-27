@@ -77,6 +77,16 @@ to better suit your requirements.
             pointer-events: none;
             display: none;
         }
+        .hotbar-count {
+            position: absolute;
+            bottom: 2px;
+            right: 4px;
+            font-size: 0.7rem;
+            color: #fff;
+            text-shadow: 0 0 3px #000;
+            pointer-events: none;
+            user-select: none;
+        }
         .hotbar-slot.selected {
             border-color: #ffff00;
             box-shadow: 0 0 6px #ffffaa;
@@ -85,6 +95,7 @@ to better suit your requirements.
             background: rgba(255, 255, 255, 0.05);
             border-style: dashed;
             border-color: rgba(255, 255, 255, 0.2);
+            color: rgba(255, 255, 255, 0.5);
         }
         .hotbar-slot.drag-over {
             border-color: #7fffda;
@@ -1014,6 +1025,7 @@ to better suit your requirements.
         cactus:  'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect fill="%232f9b57" width="16" height="16"/><path stroke="%2343b86d" stroke-width="2" d="M4 2v12M8 1v14M12 3v10"/></svg>'
     };
     const HOTBAR_DRAG_MIME = 'application/x-voxel-item';
+    const HOTBAR_STACK_LIMIT = 64;
 
     // Human readable names for each block type.  These are used in the
     // selection tooltip shown when switching slots.
@@ -1982,8 +1994,9 @@ to better suit your requirements.
         // block type.
         const initialType = selectableTypes[selectedIndex];
         const initialMaterial = (initialType && blockMaterials[initialType]) ? blockMaterials[initialType] : emptyHandMaterial;
+        const initialCount = initialType ? (inventory[initialType] || 0) : 0;
         handBlock = new THREE.Mesh(cubeGeometry, initialMaterial);
-        handBlock.visible = !!initialType;
+        handBlock.visible = !!initialType && initialCount > 0;
         handBlock.scale.set(0.4, 0.4, 0.4);
         // Group the arm and block for animation.  The group itself is
         // positioned relative to the camera, while the children are
@@ -2116,6 +2129,12 @@ to better suit your requirements.
                 toggleInventory();
                 break;
             }
+            case 'KeyQ':
+                if (pointerLocked && !inventoryOpen) {
+                    e.preventDefault();
+                    dropSelectedBlock();
+                }
+                break;
                 // Number keys 1–9 change the selected block type for placement
                 case 'Digit1':
                 case 'Digit2':
@@ -2629,7 +2648,8 @@ to better suit your requirements.
     function updateHandBlockMaterial() {
         if (!handBlock) return;
         const type = selectableTypes[selectedIndex];
-        if (type && blockMaterials[type]) {
+        const available = type ? (inventory[type] || 0) : 0;
+        if (type && blockMaterials[type] && available > 0) {
             handBlock.material = blockMaterials[type];
             handBlock.visible = true;
         } else {
@@ -2639,7 +2659,7 @@ to better suit your requirements.
         // Update the hotbar highlight when the selection changes
         if (typeof updateHotbarSelection === 'function') updateHotbarSelection();
         // Show a tooltip indicating the block name and key number
-        if (type && typeof showSelectionTooltip === 'function') {
+        if (type && available > 0 && typeof showSelectionTooltip === 'function') {
             showSelectionTooltip(type, selectedIndex);
         } else if (selectionTooltip) {
             selectionTooltip.classList.remove('visible');
@@ -2650,7 +2670,9 @@ to better suit your requirements.
         const slot = hotbarSlots[index];
         if (!slot) return;
         const img = slot.querySelector('img');
+        const countLabel = slot.querySelector('.hotbar-count');
         const type = selectableTypes[index];
+        const count = type ? Math.min(inventory[type] || 0, HOTBAR_STACK_LIMIT) : 0;
         if (img) {
             if (type && hotbarIcons[type]) {
                 img.src = hotbarIcons[type];
@@ -2661,7 +2683,17 @@ to better suit your requirements.
             }
         }
         slot.dataset.type = type || '';
-        slot.classList.toggle('empty', !type);
+        slot.dataset.count = count;
+        if (countLabel) {
+            countLabel.textContent = count > 0 ? count.toString() : '';
+        }
+        slot.classList.toggle('empty', !type || count <= 0);
+    }
+
+    function refreshHotbarSlotForType(type) {
+        if (!type) return;
+        const idx = selectableTypes.indexOf(type);
+        if (idx >= 0) refreshHotbarSlot(idx);
     }
 
     function assignHotbarSlot(index, type) {
@@ -2670,11 +2702,12 @@ to better suit your requirements.
         const previousSelectedType = selectableTypes[selectedIndex];
         selectableTypes[index] = normalizedType;
         refreshHotbarSlot(index);
-        if (normalizedType && (!previousSelectedType || selectedIndex === index)) {
+        const available = normalizedType ? (inventory[normalizedType] || 0) : 0;
+        if (normalizedType && available > 0 && (!previousSelectedType || selectedIndex === index)) {
             selectedIndex = index;
             updateHandBlockMaterial();
         } else if (!normalizedType && index === selectedIndex) {
-            const nextFilled = selectableTypes.findIndex((value) => !!value);
+            const nextFilled = selectableTypes.findIndex((value) => value && (inventory[value] || 0) > 0);
             if (nextFilled >= 0) {
                 selectedIndex = nextFilled;
             }
@@ -2684,6 +2717,20 @@ to better suit your requirements.
         } else {
             updateHotbarSelection();
         }
+    }
+
+    function ensureHotbarHasType(type) {
+        if (!type) return -1;
+        let idx = selectableTypes.indexOf(type);
+        if (idx === -1) {
+            idx = selectableTypes.indexOf(null);
+            if (idx !== -1) {
+                assignHotbarSlot(idx, type);
+            }
+        } else {
+            refreshHotbarSlot(idx);
+        }
+        return idx;
     }
 
     function canAcceptDraggedItem(event) {
@@ -2726,6 +2773,9 @@ to better suit your requirements.
             img.alt = '';
             img.draggable = false;
             slot.appendChild(img);
+            const count = document.createElement('span');
+            count.className = 'hotbar-count';
+            slot.appendChild(count);
 
             slot.addEventListener('dragover', (event) => {
                 if (!canAcceptDraggedItem(event)) return;
@@ -2887,7 +2937,8 @@ to better suit your requirements.
             const type = slot.dataset.type;
             const countLabel = slot.querySelector('.inv-count');
             const count = inventory[type] || 0;
-            countLabel.textContent = (count > 0) ? count.toString() : '';
+            const displayCount = Math.min(count, HOTBAR_STACK_LIMIT);
+            countLabel.textContent = (displayCount > 0) ? displayCount.toString() : '';
             // Show or hide based on search query
             if (!query || blockNames[type].toLowerCase().includes(query)) {
                 slot.style.display = '';
@@ -3116,6 +3167,7 @@ to better suit your requirements.
         }
         const type = selectableTypes[selectedIndex];
         if (!type || !blockMaterials[type]) return;
+        if (!inventory[type] || inventory[type] <= 0) return;
         placeVoxel(px, py, pz, type);
         // Play a placement sound using the same dig sound categories.  This
         // provides audio feedback when blocks are placed, similar to
@@ -3125,6 +3177,26 @@ to better suit your requirements.
         // Start place animation
         handAnimTime = 0;
         handAnimType = 'place';
+        removeItemFromInventory(type, 1);
+    }
+
+    function dropSelectedBlock() {
+        const type = selectableTypes[selectedIndex];
+        if (!type || !blockMaterials[type]) return;
+        if (type === 'water' || type === 'lava' || type === 'bedrock' || type === 'leaves') return;
+        if (!inventory[type] || inventory[type] <= 0) return;
+        const removed = removeItemFromInventory(type, 1);
+        if (removed <= 0) return;
+        const forward = new THREE.Vector3(0, 0, -1).applyEuler(camera.rotation).normalize();
+        const spawnPos = camera.position.clone().add(forward.clone().multiplyScalar(0.8));
+        spawnPos.y -= 0.2;
+        const velocity = forward.multiplyScalar(2);
+        velocity.y += 1;
+        spawnDroppedItem(type, Math.floor(spawnPos.x), Math.floor(spawnPos.y), Math.floor(spawnPos.z), {
+            worldPosition: spawnPos,
+            velocity,
+            pickupDelay: 0.4
+        });
     }
 
     // Place a voxel of the given type at the specified coordinates.  A
@@ -3247,27 +3319,76 @@ to better suit your requirements.
     // random initial velocity is assigned to give the item a slight
     // bounce.  The item will fall under gravity until it reaches the
     // ground and can then be collected by the player.
-    function spawnDroppedItem(type, x, y, z) {
+    function spawnDroppedItem(type, x, y, z, options = {}) {
         // Do not drop items for water, leaves or fluids; bedrock also drops nothing.
         if (type === 'water' || type === 'leaves' || type === 'lava' || type === 'bedrock') return;
         const geom = new THREE.BoxBufferGeometry(0.4, 0.4, 0.4);
         const mat  = blockMaterials[type] || new THREE.MeshStandardMaterial({ color: 0xffffff });
         const mesh = new THREE.Mesh(geom, mat);
-        const highest = getHighestBlockY(x + 0.5, z + 0.5);
-        const surfaceY = (highest !== -Infinity) ? highest + 1 + DROP_HALF_SIZE : y + 0.6;
-        mesh.position.set(x + 0.5, surfaceY, z + 0.5);
-        const vx = (Math.random() - 0.5) * 0.3;
-        const vz = (Math.random() - 0.5) * 0.3;
-        const vy = 0.3 + Math.random() * 0.3;
-        droppedItems.push({ mesh: mesh, type: type, velocity: new THREE.Vector3(vx, vy, vz), grounded: false });
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        if (options.worldPosition) {
+            mesh.position.copy(options.worldPosition);
+        } else {
+            const highest = getHighestBlockY(x + 0.5, z + 0.5);
+            const surfaceY = (highest !== -Infinity) ? highest + 1 + DROP_HALF_SIZE : y + 0.6;
+            mesh.position.set(x + 0.5, surfaceY, z + 0.5);
+        }
+        mesh.rotation.y = Math.random() * Math.PI * 2;
+        const velocity = options.velocity ? options.velocity.clone() : new THREE.Vector3(
+            (Math.random() - 0.5) * 0.3,
+            0.3 + Math.random() * 0.3,
+            (Math.random() - 0.5) * 0.3
+        );
+        const spinSpeed = options.spinSpeed || (2 + Math.random() * 2);
+        const pickupDelay = (typeof options.pickupDelay === 'number') ? options.pickupDelay : 0.25;
+        const floatPhase = Math.random() * Math.PI * 2;
+        droppedItems.push({
+            mesh: mesh,
+            type: type,
+            velocity: velocity,
+            grounded: false,
+            spinSpeed,
+            floatPhase,
+            hoverTime: 0,
+            restingY: mesh.position.y,
+            pickupCooldown: pickupDelay
+        });
         scene.add(mesh);
     }
 
     // Add an item to the player's inventory.  Creates a new entry if needed.
     function addItemToInventory(type, count = 1) {
+        if (!type || count <= 0) return 0;
         if (!inventory[type]) inventory[type] = 0;
-        inventory[type] += count;
+        const current = inventory[type];
+        const space = HOTBAR_STACK_LIMIT - current;
+        if (space <= 0) return 0;
+        const added = Math.min(space, count);
+        inventory[type] = current + added;
+        ensureHotbarHasType(type);
+        refreshHotbarSlotForType(type);
         if (inventoryOpen) updateInventoryUI();
+        if (selectableTypes[selectedIndex] === type) updateHandBlockMaterial();
+        return added;
+    }
+
+    function removeItemFromInventory(type, count = 1) {
+        if (!type || count <= 0) return 0;
+        if (!inventory[type]) return 0;
+        const removed = Math.min(count, inventory[type]);
+        if (removed <= 0) return 0;
+        inventory[type] -= removed;
+        if (inventory[type] <= 0) {
+            delete inventory[type];
+            const idx = selectableTypes.indexOf(type);
+            if (idx >= 0) assignHotbarSlot(idx, null);
+        } else {
+            refreshHotbarSlotForType(type);
+            if (selectableTypes[selectedIndex] === type) updateHandBlockMaterial();
+        }
+        if (inventoryOpen) updateInventoryUI();
+        return removed;
     }
 
     // Update dropped item positions and handle pickup.  Items fall under
@@ -3277,10 +3398,21 @@ to better suit your requirements.
         if (droppedItems.length === 0) return;
         const gravity = -9.8;
         const pickRadius = 1.0;
+        const bobAmplitude = 0.07;
         const toRemove = [];
         let collectedCount = 0;
         for (let i = 0; i < droppedItems.length; i++) {
             const item = droppedItems[i];
+            item.hoverTime = (item.hoverTime || 0) + delta;
+            if (item.pickupCooldown && item.pickupCooldown > 0) {
+                item.pickupCooldown = Math.max(0, item.pickupCooldown - delta);
+            }
+            const spin = item.spinSpeed || 0;
+            if (spin !== 0) {
+                item.mesh.rotation.y += spin * delta;
+            }
+            item.mesh.rotation.x = 0.4 + Math.sin(item.hoverTime * 2 + (item.floatPhase || 0)) * 0.1;
+            item.mesh.rotation.z = Math.cos(item.hoverTime * 1.6 + (item.floatPhase || 0)) * 0.08;
             // Apply gravity each frame so items begin falling immediately if their support disappears.
             item.velocity.y += gravity * delta;
             item.mesh.position.addScaledVector(item.velocity, delta);
@@ -3292,6 +3424,7 @@ to better suit your requirements.
                     item.mesh.position.y = restingY;
                     item.velocity.y = 0;
                     item.grounded = true;
+                    item.restingY = restingY;
                 } else {
                     item.grounded = false;
                 }
@@ -3306,15 +3439,23 @@ to better suit your requirements.
                 item.velocity.z *= damping;
                 if (Math.abs(item.velocity.x) < 0.01) item.velocity.x = 0;
                 if (Math.abs(item.velocity.z) < 0.01) item.velocity.z = 0;
+                const hoverOffset = Math.sin(item.hoverTime * 4 + (item.floatPhase || 0)) * bobAmplitude;
+                item.mesh.position.y = (item.restingY !== undefined ? item.restingY : item.mesh.position.y) + hoverOffset;
+            } else {
+                item.restingY = item.mesh.position.y;
             }
             // Check for pickup
             const dx = item.mesh.position.x - camera.position.x;
             const dy = item.mesh.position.y - camera.position.y;
             const dz = item.mesh.position.z - camera.position.z;
-            if (dx*dx + dy*dy + dz*dz < pickRadius * pickRadius) {
-                addItemToInventory(item.type, 1);
-                toRemove.push(item);
-                collectedCount++;
+            if (dx*dx + dy*dy + dz*dz < pickRadius * pickRadius && (!item.pickupCooldown || item.pickupCooldown <= 0)) {
+                const added = addItemToInventory(item.type, 1);
+                if (added > 0) {
+                    toRemove.push(item);
+                    collectedCount += added;
+                } else {
+                    item.pickupCooldown = 0.4;
+                }
             }
         }
         // Play pickup sound if any collected
