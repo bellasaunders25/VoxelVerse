@@ -1044,6 +1044,17 @@ to better suit your requirements.
     const JUMP_VELOCITY = 7;       // upward velocity when jumping
     const GRAVITY = 20;            // downward acceleration (units/s^2)
     const STEP_MAX = 1.0;          // maximum step height between neighbouring columns
+    const SWIM_SPEED = 4.5;        // horizontal swim speed while submerged
+    const SWIM_ASCEND_SPEED = 3.2; // upward swim velocity when rising
+    const SWIM_SINK_SPEED = 1.2;   // downward swim velocity when idle
+    const WATER_DRAG = 4.2;        // damping applied to swim velocity transitions
+    const UNDERWATER_BOB_SPEED = 1.8;   // bob frequency when floating at the surface
+    const UNDERWATER_BOB_AMPLITUDE = 0.08; // camera bob amplitude while treading water
+    const UNDERWATER_MUSIC_ATTENUATION = 0.55;
+    const UNDERWATER_SFX_ATTENUATION = 0.65;
+    const UNDERWATER_HTML_ATTENUATION = 0.6;
+    const UNDERWATER_SFX_PITCH = 0.92;
+    const UNDERWATER_MUSIC_PITCH = 0.95;
 
     // Step sound configuration.  These URLs point to the Minecraft grass step
     // sound effects hosted on the public mcasset.cloud CDN.  The game will
@@ -1399,6 +1410,12 @@ to better suit your requirements.
     // process a few cells to spread water to adjacent empty blocks.
     const fluidQueue = [];
 
+    let swimBobTime = 0;
+    let swimBobOffset = 0;
+    let underwaterAudioActive = false;
+    let musicUnderwaterFilter = null;
+    const underwaterSfxFilters = new WeakMap();
+
     // Simple inventory data structure.  Keys are block types and values
     // are counts.  When items are picked up they are added here.  When
     // placing blocks the count is decremented.  The inventory UI will
@@ -1453,13 +1470,15 @@ to better suit your requirements.
         }
         // In‑game background music uses Three.js Audio objects
         if (typeof music !== 'undefined' && music) {
-            music.setVolume(mVol * muVol);
+            const musicScale = underwaterAudioActive ? UNDERWATER_MUSIC_ATTENUATION : 1;
+            music.setVolume(mVol * muVol * musicScale);
         }
         // Step sounds
         if (Array.isArray(stepSounds)) {
             stepSounds.forEach((s) => {
                 if (s && typeof s.setVolume === 'function') {
-                    s.setVolume(0.5 * mVol * sfVol);
+                    const sfxScale = underwaterAudioActive ? UNDERWATER_SFX_ATTENUATION : 1;
+                    s.setVolume(0.5 * mVol * sfVol * sfxScale);
                 }
             });
         }
@@ -1468,7 +1487,8 @@ to better suit your requirements.
             Object.keys(digSounds).forEach((cat) => {
                 digSounds[cat].forEach((s) => {
                     if (s && typeof s.setVolume === 'function') {
-                        s.setVolume(0.5 * mVol * sfVol);
+                        const sfxScale = underwaterAudioActive ? UNDERWATER_SFX_ATTENUATION : 1;
+                        s.setVolume(0.5 * mVol * sfVol * sfxScale);
                     }
                 });
             });
@@ -3265,6 +3285,8 @@ to better suit your requirements.
         isSprinting: false,
         isCrouching: false,
         crouchOffset: 0,
+        inWater: false,
+        headSubmerged: false,
     };
     let pointerLocked = false;
 
@@ -3724,6 +3746,50 @@ to better suit your requirements.
         return (t !== 'water' && t !== 'lava');
     }
 
+    function getVoxelType(x, y, z) {
+        if (y < 0 || y >= CHUNK_HEIGHT) return null;
+        const entry = voxelMap.get(`${x},${y},${z}`);
+        return entry ? entry.type : null;
+    }
+
+    function isWaterVoxel(x, y, z) {
+        return getVoxelType(x, y, z) === 'water';
+    }
+
+    function sampleWaterState(px, py, pz) {
+        const offsets = [
+            [0, 0],
+            [0.3, 0.3],
+            [-0.3, 0.3],
+            [0.3, -0.3],
+            [-0.3, -0.3]
+        ];
+        let inWater = false;
+        let headSubmerged = false;
+        let surfaceY = null;
+        const head = py + PLAYER_HEIGHT / 2 - 0.05;
+        const chest = py;
+        const feet = py - PLAYER_HEIGHT / 2 + 0.05;
+        for (const [ox, oz] of offsets) {
+            const x = Math.floor(px + ox);
+            const z = Math.floor(pz + oz);
+            const headCell = Math.floor(head);
+            const chestCell = Math.floor(chest);
+            const feetCell = Math.floor(feet);
+            const headWater = isWaterVoxel(x, headCell, z);
+            const chestWater = isWaterVoxel(x, chestCell, z);
+            const feetWater = isWaterVoxel(x, feetCell, z);
+            if (!(headWater || chestWater || feetWater)) continue;
+            inWater = true;
+            if (headWater) headSubmerged = true;
+            let y = headWater ? headCell : (chestWater ? chestCell : feetCell);
+            while (isWaterVoxel(x, y + 1, z)) y++;
+            const candidateSurface = y + 1;
+            surfaceY = (surfaceY === null) ? candidateSurface : Math.max(surfaceY, candidateSurface);
+        }
+        return { inWater, headSubmerged, surfaceY };
+    }
+
     // Find the highest solid block at the given column that is at or below maxY.
     // Returns the integer y coordinate of the supporting block, or -Infinity
     // if no solid block exists at or below that height.
@@ -3865,10 +3931,14 @@ to better suit your requirements.
         if (player.moveLeft)    moveDir.add(right.clone().multiplyScalar(-1));
         const moving = (moveDir.lengthSq() > 0);
         if (moving) moveDir.normalize();
-        // Proposed new horizontal position.  Apply sprint multiplier
-        const speedMult = player.isSprinting ? 1.6 : 1.0;
-        const newX = player.position.x + moveDir.x * MOVE_SPEED * speedMult * delta;
-        const newZ = player.position.z + moveDir.z * MOVE_SPEED * speedMult * delta;
+        let waterState = sampleWaterState(player.position.x, player.position.y, player.position.z);
+        let waterSurfaceY = waterState.surfaceY;
+        player.inWater = waterState.inWater;
+        player.headSubmerged = waterState.headSubmerged;
+        const baseSpeed = waterState.inWater ? SWIM_SPEED : MOVE_SPEED;
+        const speedMult = player.isSprinting ? (waterState.inWater ? 1.25 : 1.6) : 1.0;
+        const newX = player.position.x + moveDir.x * baseSpeed * speedMult * delta;
+        const newZ = player.position.z + moveDir.z * baseSpeed * speedMult * delta;
         // Determine highest block columns for step check
         const curCol = getHighestBlockY(player.position.x, player.position.z);
         const newCol = getHighestBlockY(newX, newZ);
@@ -3898,17 +3968,40 @@ to better suit your requirements.
             player.position.x = newX;
             player.position.z = newZ;
         }
-        // Apply gravity
-        player.velocityY -= GRAVITY * delta;
-        let newY = player.position.y + player.velocityY * delta;
+        waterState = sampleWaterState(player.position.x, player.position.y, player.position.z);
+        waterSurfaceY = waterState.surfaceY;
+        player.inWater = waterState.inWater;
+        player.headSubmerged = waterState.headSubmerged;
+        let newY = player.position.y;
+        if (waterState.inWater) {
+            const ascendHeld = player.moveLeft;
+            const descendHeld = player.isCrouching && !ascendHeld;
+            const bobVelocity = (!waterState.headSubmerged && waterSurfaceY !== null)
+                ? Math.sin(swimBobTime * UNDERWATER_BOB_SPEED * Math.PI * 2) * (SWIM_ASCEND_SPEED * 0.3)
+                : 0;
+            let targetVel;
+            if (ascendHeld) targetVel = SWIM_ASCEND_SPEED;
+            else if (descendHeld) targetVel = -SWIM_ASCEND_SPEED;
+            else if (!waterState.headSubmerged && waterSurfaceY !== null) targetVel = bobVelocity;
+            else targetVel = -SWIM_SINK_SPEED;
+            const lerpFactor = 1 - Math.exp(-delta * WATER_DRAG);
+            player.velocityY = THREE.MathUtils.lerp(player.velocityY, targetVel, lerpFactor);
+            player.velocityY = THREE.MathUtils.clamp(player.velocityY, -SWIM_ASCEND_SPEED, SWIM_ASCEND_SPEED);
+            newY += player.velocityY * delta;
+        } else {
+            player.velocityY -= GRAVITY * delta;
+            newY += player.velocityY * delta;
+        }
         // Determine ground surface (centre position to stand on top of highest block)
         const highestBelow = getHighestBlockY(player.position.x, player.position.z);
         const groundHeight = (highestBelow + 1) + PLAYER_HEIGHT/2;
         // Handle ground collision
         if (newY <= groundHeight) {
             newY = groundHeight;
-            player.velocityY = 0;
-            player.canJump = true;
+            if (player.velocityY < 0) player.velocityY = 0;
+            if (!waterState.inWater) player.canJump = true;
+        } else if (!waterState.inWater) {
+            player.canJump = false;
         }
         // Handle collision when head hits a solid block above
         const headY = newY + PLAYER_HEIGHT/2;
@@ -3922,8 +4015,25 @@ to better suit your requirements.
             if (player.velocityY > 0) player.velocityY = 0;
         }
         player.position.y = newY;
+        waterState = sampleWaterState(player.position.x, player.position.y, player.position.z);
+        waterSurfaceY = waterState.surfaceY;
+        player.inWater = waterState.inWater;
+        player.headSubmerged = waterState.headSubmerged;
+        if (player.inWater) {
+            fallDistance = 0;
+            player.canJump = false;
+        }
+        if (player.inWater && !player.headSubmerged && waterSurfaceY !== null) {
+            swimBobTime += delta;
+            const targetOffset = Math.sin(swimBobTime * UNDERWATER_BOB_SPEED * Math.PI * 2) * UNDERWATER_BOB_AMPLITUDE;
+            swimBobOffset = THREE.MathUtils.lerp(swimBobOffset, targetOffset, Math.min(1, delta * 6));
+        } else {
+            swimBobTime = 0;
+            swimBobOffset = THREE.MathUtils.lerp(swimBobOffset, 0, Math.min(1, delta * 6));
+        }
+        updateUnderwaterAudioState(player.headSubmerged);
         // Determine whether player is currently on the ground
-        const onGround = (player.velocityY === 0 && player.canJump);
+        const onGround = (!player.inWater && player.velocityY === 0 && player.canJump);
 
         if (handGroup) {
             const isVisible = handGroup.visible;
@@ -4007,6 +4117,7 @@ to better suit your requirements.
         // continues to work correctly.
         camera.position.copy(player.position);
         camera.position.y -= player.crouchOffset;
+        camera.position.y += swimBobOffset;
         // Update highlight position based on current look direction.  We
         // raycast into the world to find the targeted block.  If a solid
         // block is hit, position and show the highlight mesh; otherwise
@@ -4953,7 +5064,9 @@ to better suit your requirements.
             const idx = Math.floor(Math.random() * damageSounds.length);
             try {
                 damageSounds[idx].currentTime = 0;
-                damageSounds[idx].volume = 0.6 * masterVolume * sfxVolume;
+                const sfxScale = underwaterAudioActive ? UNDERWATER_HTML_ATTENUATION : 1;
+                damageSounds[idx].volume = 0.6 * masterVolume * sfxVolume * sfxScale;
+                damageSounds[idx].playbackRate = underwaterAudioActive ? UNDERWATER_SFX_PITCH : 1;
                 damageSounds[idx].play();
             } catch (e) {}
         }
@@ -4971,7 +5084,9 @@ to better suit your requirements.
         if (deathSound) {
             try {
                 deathSound.currentTime = 0;
-                deathSound.volume = 0.7 * masterVolume * sfxVolume;
+                const sfxScale = underwaterAudioActive ? UNDERWATER_HTML_ATTENUATION : 1;
+                deathSound.volume = 0.7 * masterVolume * sfxVolume * sfxScale;
+                deathSound.playbackRate = underwaterAudioActive ? UNDERWATER_SFX_PITCH : 1;
                 deathSound.play();
             } catch (e) {}
         }
@@ -5131,7 +5246,8 @@ to better suit your requirements.
         const py = hit.y + hit.normal.y;
         const pz = hit.z + hit.normal.z;
         const key = `${px},${py},${pz}`;
-        if (voxelMap.has(key)) return false;
+        const existing = voxelMap.get(key);
+        if (existing && existing.type !== 'water') return false;
         // Don't place into the world outside of bounds (negative y) or above limit
         if (py < 0 || py >= CHUNK_HEIGHT) return false;
         // Prevent placing inside player's bounding box
@@ -5146,6 +5262,9 @@ to better suit your requirements.
         const type = selectableTypes[selectedIndex];
         if (!type || !blockMaterials[type]) return false;
         if (!inventory[type] || inventory[type] <= 0) return false;
+        if (existing && existing.type === 'water') {
+            removeVoxel(px, py, pz);
+        }
         placeVoxel(px, py, pz, type);
         // Play a placement sound using the same dig sound categories.  This
         // provides audio feedback when blocks are placed, similar to
@@ -5417,6 +5536,71 @@ to better suit your requirements.
         if (!s.buffer) return;
         if (s.isPlaying) s.stop();
         s.play();
+    }
+
+    function applyUnderwaterFilter(sound, active) {
+        if (!sound || typeof sound.setFilter !== 'function') return;
+        if (active) {
+            let filter = underwaterSfxFilters.get(sound);
+            if (!filter && audioListener && audioListener.context) {
+                filter = audioListener.context.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.frequency.setValueAtTime(1100, audioListener.context.currentTime);
+                filter.Q.value = 0.7;
+                underwaterSfxFilters.set(sound, filter);
+            }
+            if (filter) sound.setFilter(filter);
+            if (typeof sound.setPlaybackRate === 'function') {
+                sound.setPlaybackRate(UNDERWATER_SFX_PITCH);
+            }
+        } else {
+            sound.setFilter(null);
+            if (typeof sound.setPlaybackRate === 'function') {
+                sound.setPlaybackRate(1);
+            }
+        }
+    }
+
+    function updateUnderwaterAudioState(active) {
+        if (underwaterAudioActive === active) return;
+        underwaterAudioActive = active;
+        if (music) {
+            if (active) {
+                if (!musicUnderwaterFilter && audioListener && audioListener.context) {
+                    const filter = audioListener.context.createBiquadFilter();
+                    filter.type = 'lowpass';
+                    filter.frequency.setValueAtTime(900, audioListener.context.currentTime);
+                    filter.Q.value = 1.05;
+                    musicUnderwaterFilter = filter;
+                }
+                if (musicUnderwaterFilter) music.setFilter(musicUnderwaterFilter);
+                if (typeof music.setPlaybackRate === 'function') {
+                    music.setPlaybackRate(UNDERWATER_MUSIC_PITCH);
+                }
+            } else {
+                music.setFilter(null);
+                if (typeof music.setPlaybackRate === 'function') {
+                    music.setPlaybackRate(1);
+                }
+            }
+        }
+        if (Array.isArray(stepSounds)) {
+            stepSounds.forEach((sound) => applyUnderwaterFilter(sound, active));
+        }
+        Object.keys(digSounds).forEach((cat) => {
+            digSounds[cat].forEach((sound) => applyUnderwaterFilter(sound, active));
+        });
+        if (damageSounds.length) {
+            damageSounds.forEach((clip) => {
+                clip.playbackRate = active ? UNDERWATER_SFX_PITCH : 1;
+            });
+        }
+        if (deathSound) {
+            deathSound.playbackRate = active ? UNDERWATER_SFX_PITCH : 1;
+        }
+        if (typeof applyVolumeSettings === 'function') {
+            applyVolumeSettings();
+        }
     }
 
     // Spawn a dropped item at the given world coordinates.  The item
