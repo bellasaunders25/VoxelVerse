@@ -313,6 +313,212 @@ to better suit your requirements.
             letter-spacing: 0.08em;
             color: rgba(228, 235, 252, 0.82);
         }
+        .inventory-section-heading {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
+        .recipe-book-button {
+            background: linear-gradient(180deg, rgba(82, 92, 112, 0.85), rgba(54, 62, 78, 0.9));
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            border-radius: 6px;
+            color: rgba(240, 244, 255, 0.92);
+            cursor: pointer;
+            font-size: 1.1rem;
+            line-height: 1;
+            padding: 6px 10px;
+            transition: transform 0.15s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+        }
+        .recipe-book-button:hover {
+            border-color: rgba(127, 206, 255, 0.55);
+            box-shadow: 0 0 10px rgba(120, 195, 255, 0.35);
+        }
+        .recipe-book-button.active {
+            border-color: rgba(163, 230, 255, 0.75);
+            box-shadow: 0 0 14px rgba(140, 215, 255, 0.45);
+            transform: translateY(-1px);
+        }
+        .recipe-book-panel {
+            display: none;
+            grid-template-columns: 170px 1fr;
+            gap: 16px;
+            background: linear-gradient(180deg, rgba(40, 45, 56, 0.92), rgba(32, 36, 44, 0.9));
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            padding: 14px 16px;
+            margin-bottom: 16px;
+        }
+        .recipe-book-panel.open {
+            display: grid;
+        }
+        .recipe-book-list {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            max-height: 220px;
+            overflow-y: auto;
+            padding-right: 6px;
+        }
+        .recipe-entry {
+            display: grid;
+            grid-template-columns: 40px 1fr auto;
+            align-items: center;
+            gap: 10px;
+            background: rgba(24, 28, 36, 0.65);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 6px;
+            color: rgba(228, 235, 252, 0.9);
+            cursor: pointer;
+            font-size: 0.9rem;
+            padding: 6px 8px;
+            text-align: left;
+            transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+        }
+        .recipe-entry:hover {
+            border-color: rgba(127, 206, 255, 0.5);
+            background: rgba(34, 41, 52, 0.8);
+        }
+        .recipe-entry.active {
+            border-color: rgba(163, 230, 255, 0.75);
+            background: rgba(40, 54, 70, 0.9);
+            box-shadow: 0 0 12px rgba(120, 195, 255, 0.35);
+        }
+        .recipe-entry-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 4px;
+            background: rgba(15, 18, 24, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .recipe-entry-icon img {
+            width: 30px;
+            height: 30px;
+            pointer-events: none;
+        }
+        .recipe-entry-name {
+            font-weight: 600;
+        }
+        .recipe-entry-output {
+            font-size: 0.8rem;
+            color: rgba(172, 206, 255, 0.85);
+        }
+        .recipe-book-detail {
+            background: rgba(20, 24, 32, 0.55);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 6px;
+            padding: 12px 14px;
+            font-size: 0.9rem;
+            color: rgba(220, 229, 248, 0.88);
+            min-height: 180px;
+        }
+        .recipe-book-detail.empty {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            color: rgba(170, 186, 210, 0.75);
+        }
+        .recipe-detail-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
+        .recipe-detail-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 6px;
+            background: rgba(12, 16, 22, 0.65);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .recipe-detail-icon img {
+            width: 34px;
+            height: 34px;
+            pointer-events: none;
+        }
+        .recipe-detail-title {
+            font-weight: 700;
+            color: rgba(235, 242, 255, 0.95);
+        }
+        .recipe-detail-output {
+            font-size: 0.82rem;
+            color: rgba(173, 206, 255, 0.85);
+        }
+        .recipe-detail-summary {
+            margin: 6px 0 10px;
+            color: rgba(205, 220, 247, 0.85);
+        }
+        .recipe-pattern-visual {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin: 10px 0 12px;
+        }
+        .recipe-pattern-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 38px);
+            gap: 6px;
+        }
+        .recipe-cell {
+            width: 38px;
+            height: 38px;
+            border-radius: 4px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(18, 22, 30, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .recipe-cell.empty {
+            border-style: dashed;
+            opacity: 0.2;
+        }
+        .recipe-cell img {
+            width: 30px;
+            height: 30px;
+            pointer-events: none;
+        }
+        .recipe-arrow {
+            font-size: 1.6rem;
+            color: rgba(180, 215, 255, 0.85);
+            text-shadow: 0 0 12px rgba(120, 195, 255, 0.45);
+        }
+        .recipe-result {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+        }
+        .recipe-result img {
+            width: 40px;
+            height: 40px;
+            pointer-events: none;
+        }
+        .recipe-result-count {
+            font-size: 0.78rem;
+            color: rgba(199, 228, 255, 0.75);
+        }
+        .recipe-steps {
+            margin: 10px 0 0 18px;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        .recipe-steps li {
+            margin-left: 6px;
+        }
+        .recipe-detail-note {
+            margin-top: 10px;
+            font-size: 0.84rem;
+            color: rgba(170, 198, 232, 0.8);
+        }
         .crafting-area {
             display: flex;
             align-items: center;
@@ -631,7 +837,16 @@ to better suit your requirements.
                     <div id="inventoryGrid" class="inventory-grid search-grid"></div>
                 </div>
                 <div id="inventoryBackpackView" class="inventory-view">
-                    <div class="inventory-section-title">Crafting</div>
+                    <div class="inventory-section-heading">
+                        <div class="inventory-section-title">Crafting</div>
+                        <button id="recipeBookToggle" class="recipe-book-button" type="button" title="Open recipe book" aria-controls="recipeBookPanel" aria-expanded="false">
+                            📖
+                        </button>
+                    </div>
+                    <div id="recipeBookPanel" class="recipe-book-panel" hidden>
+                        <div id="recipeBookList" class="recipe-book-list"></div>
+                        <div id="recipeBookDetail" class="recipe-book-detail empty">Select a recipe to view crafting steps.</div>
+                    </div>
                     <div class="crafting-area">
                         <div id="craftingGrid" class="crafting-grid"></div>
                         <div class="crafting-arrow">➜</div>
@@ -1502,6 +1717,258 @@ to better suit your requirements.
         axe: 'Wooden Axe'
     };
     const BLOCK_TYPE_ORDER = Object.keys(blockNames);
+
+    const recipeBookEntries = [
+        {
+            id: 'stick',
+            name: 'Stick Bundle',
+            result: { type: 'stick', label: 'Makes 4 sticks per log', shortLabel: '×4' },
+            listLabel: '×4',
+            summary: 'Split raw logs into sticks ready for future crafting recipes.',
+            pattern: [
+                ['wood', null, null],
+                ['wood', null, null],
+                [null, null, null]
+            ],
+            patternNote: 'Logs can be placed in any slot; each log converts into four sticks (two logs yield eight).',
+            steps: [
+                'Place one log into any crafting grid slot.',
+                'Collect four sticks from the result slot.',
+                'Add a second log before collecting to craft eight sticks at once.'
+            ],
+            note: 'Keep a reserve of sticks for tools, torches, and other recipes.'
+        },
+        {
+            id: 'axe',
+            name: 'Wooden Axe',
+            result: { type: 'axe', label: 'Creates one wooden axe', shortLabel: '×1' },
+            listLabel: '×1',
+            summary: 'Shape a basic axe that chops trees much faster than using your hands.',
+            pattern: [
+                ['wood', 'wood', null],
+                ['wood', 'stick', null],
+                [null, 'stick', null]
+            ],
+            steps: [
+                'Arrange three logs in an L shape across the top-left of the grid.',
+                'Stack two sticks vertically beneath the right-most log.',
+                'Take the axe from the result slot to equip it.'
+            ],
+            note: 'The wooden axe destroys logs twice as fast but is slower on other block types.'
+        }
+    ];
+    let activeRecipeId = null;
+
+    function setRecipeBookOpen(open) {
+        const panel = document.getElementById('recipeBookPanel');
+        const toggle = document.getElementById('recipeBookToggle');
+        if (!panel || !toggle) return;
+        if (open) {
+            panel.classList.add('open');
+            panel.hidden = false;
+            toggle.classList.add('active');
+            toggle.setAttribute('aria-expanded', 'true');
+        } else {
+            panel.classList.remove('open');
+            panel.hidden = true;
+            toggle.classList.remove('active');
+            toggle.setAttribute('aria-expanded', 'false');
+        }
+    }
+
+    function setRecipeBookActive(recipeId) {
+        const list = document.getElementById('recipeBookList');
+        const detail = document.getElementById('recipeBookDetail');
+        if (!list || !detail) return;
+        if (!recipeId) {
+            activeRecipeId = null;
+            detail.classList.add('empty');
+            detail.textContent = 'Select a recipe to view crafting steps.';
+            list.querySelectorAll('.recipe-entry').forEach((btn) => btn.classList.remove('active'));
+            return;
+        }
+        const recipe = recipeBookEntries.find((entry) => entry.id === recipeId);
+        if (!recipe) return;
+        activeRecipeId = recipeId;
+        list.querySelectorAll('.recipe-entry').forEach((btn) => {
+            btn.classList.toggle('active', btn.dataset.recipeId === recipeId);
+        });
+        detail.classList.remove('empty');
+        detail.innerHTML = '';
+
+        const header = document.createElement('div');
+        header.className = 'recipe-detail-header';
+
+        const iconWrap = document.createElement('div');
+        iconWrap.className = 'recipe-detail-icon';
+        const icon = document.createElement('img');
+        icon.draggable = false;
+        const iconSrc = recipe.result && recipe.result.type ? hotbarIcons[recipe.result.type] : '';
+        if (iconSrc) {
+            icon.src = iconSrc;
+        } else {
+            icon.style.display = 'none';
+        }
+        icon.alt = recipe.result && recipe.result.type ? (blockNames[recipe.result.type] || recipe.result.type) : recipe.name;
+        iconWrap.appendChild(icon);
+        header.appendChild(iconWrap);
+
+        const headerText = document.createElement('div');
+        headerText.className = 'recipe-detail-text';
+        const title = document.createElement('div');
+        title.className = 'recipe-detail-title';
+        title.textContent = recipe.name;
+        headerText.appendChild(title);
+        if (recipe.result && recipe.result.label) {
+            const output = document.createElement('div');
+            output.className = 'recipe-detail-output';
+            output.textContent = recipe.result.label;
+            headerText.appendChild(output);
+        }
+        header.appendChild(headerText);
+        detail.appendChild(header);
+
+        if (recipe.summary) {
+            const summary = document.createElement('p');
+            summary.className = 'recipe-detail-summary';
+            summary.textContent = recipe.summary;
+            detail.appendChild(summary);
+        }
+
+        if (recipe.pattern) {
+            const visual = document.createElement('div');
+            visual.className = 'recipe-pattern-visual';
+            const grid = document.createElement('div');
+            grid.className = 'recipe-pattern-grid';
+            for (let row = 0; row < 3; row++) {
+                for (let col = 0; col < 3; col++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'recipe-cell';
+                    const type = recipe.pattern[row] ? recipe.pattern[row][col] : null;
+                    if (type) {
+                        if (hotbarIcons[type]) {
+                            const img = document.createElement('img');
+                            img.src = hotbarIcons[type];
+                            img.alt = blockNames[type] || type;
+                            img.draggable = false;
+                            cell.appendChild(img);
+                        } else {
+                            cell.textContent = blockNames[type] || type;
+                        }
+                    } else {
+                        cell.classList.add('empty');
+                    }
+                    grid.appendChild(cell);
+                }
+            }
+            visual.appendChild(grid);
+
+            const arrow = document.createElement('div');
+            arrow.className = 'recipe-arrow';
+            arrow.textContent = '➜';
+            visual.appendChild(arrow);
+
+            const resultWrap = document.createElement('div');
+            resultWrap.className = 'recipe-result';
+            if (recipe.result && recipe.result.type && hotbarIcons[recipe.result.type]) {
+                const resultIcon = document.createElement('img');
+                resultIcon.src = hotbarIcons[recipe.result.type];
+                resultIcon.alt = blockNames[recipe.result.type] || recipe.result.type;
+                resultIcon.draggable = false;
+                resultWrap.appendChild(resultIcon);
+            }
+            if (recipe.result && recipe.result.shortLabel) {
+                const count = document.createElement('div');
+                count.className = 'recipe-result-count';
+                count.textContent = recipe.result.shortLabel;
+                resultWrap.appendChild(count);
+            }
+            visual.appendChild(resultWrap);
+            detail.appendChild(visual);
+
+            if (recipe.patternNote) {
+                const patternNote = document.createElement('p');
+                patternNote.className = 'recipe-detail-note';
+                patternNote.textContent = recipe.patternNote;
+                detail.appendChild(patternNote);
+            }
+        }
+
+        if (recipe.steps && recipe.steps.length > 0) {
+            const stepsList = document.createElement('ol');
+            stepsList.className = 'recipe-steps';
+            recipe.steps.forEach((step) => {
+                const li = document.createElement('li');
+                li.textContent = step;
+                stepsList.appendChild(li);
+            });
+            detail.appendChild(stepsList);
+        }
+
+        if (recipe.note) {
+            const note = document.createElement('p');
+            note.className = 'recipe-detail-note';
+            note.textContent = recipe.note;
+            detail.appendChild(note);
+        }
+    }
+
+    function initRecipeBookUI() {
+        const list = document.getElementById('recipeBookList');
+        const toggle = document.getElementById('recipeBookToggle');
+        const panel = document.getElementById('recipeBookPanel');
+        if (!list || !toggle || !panel) return;
+
+        list.innerHTML = '';
+        recipeBookEntries.forEach((recipe) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'recipe-entry';
+            button.dataset.recipeId = recipe.id;
+
+            const iconWrap = document.createElement('span');
+            iconWrap.className = 'recipe-entry-icon';
+            const icon = document.createElement('img');
+            icon.draggable = false;
+            if (recipe.result && recipe.result.type && hotbarIcons[recipe.result.type]) {
+                icon.src = hotbarIcons[recipe.result.type];
+            } else {
+                icon.style.display = 'none';
+            }
+            icon.alt = recipe.result && recipe.result.type ? (blockNames[recipe.result.type] || recipe.result.type) : recipe.name;
+            iconWrap.appendChild(icon);
+            button.appendChild(iconWrap);
+
+            const name = document.createElement('span');
+            name.className = 'recipe-entry-name';
+            name.textContent = recipe.name;
+            button.appendChild(name);
+
+            if (recipe.listLabel) {
+                const output = document.createElement('span');
+                output.className = 'recipe-entry-output';
+                output.textContent = recipe.listLabel;
+                button.appendChild(output);
+            }
+
+            button.addEventListener('click', () => {
+                setRecipeBookActive(recipe.id);
+            });
+
+            list.appendChild(button);
+        });
+
+        setRecipeBookOpen(false);
+        setRecipeBookActive(null);
+
+        toggle.addEventListener('click', () => {
+            const willOpen = !panel.classList.contains('open');
+            setRecipeBookOpen(willOpen);
+            if (willOpen && !activeRecipeId && recipeBookEntries.length > 0) {
+                setRecipeBookActive(recipeBookEntries[0].id);
+            }
+        });
+    }
 
     // Tooltip element shown above the selected hotbar slot.  The element
     // itself is created in the HTML; we reference it here and control its
@@ -2568,12 +3035,47 @@ to better suit your requirements.
         });
         // key handling
         document.addEventListener('keydown', (e) => {
+            const targetTag = e.target && e.target.tagName ? e.target.tagName.toUpperCase() : '';
+            const typing = targetTag === 'INPUT' || targetTag === 'TEXTAREA';
+            if (typing && e.code !== 'Escape') return;
             switch (e.code) {
-                case 'KeyW': case 'ArrowUp': player.moveForward = true; break;
-                case 'KeyS': case 'ArrowDown': player.moveBackward = true; break;
-                case 'KeyA': case 'ArrowLeft': player.moveLeft = true; break;
-                case 'KeyD': case 'ArrowRight': player.moveRight = true; break;
+                case 'KeyW':
+                case 'ArrowUp':
+                    if (inventoryOpen) {
+                        e.preventDefault();
+                        break;
+                    }
+                    player.moveForward = true;
+                    break;
+                case 'KeyS':
+                case 'ArrowDown':
+                    if (inventoryOpen) {
+                        e.preventDefault();
+                        break;
+                    }
+                    player.moveBackward = true;
+                    break;
+                case 'KeyA':
+                case 'ArrowLeft':
+                    if (inventoryOpen) {
+                        e.preventDefault();
+                        break;
+                    }
+                    player.moveLeft = true;
+                    break;
+                case 'KeyD':
+                case 'ArrowRight':
+                    if (inventoryOpen) {
+                        e.preventDefault();
+                        break;
+                    }
+                    player.moveRight = true;
+                    break;
                 case 'Space':
+                    if (inventoryOpen) {
+                        e.preventDefault();
+                        break;
+                    }
                     if (player.canJump) {
                         // Initiate jump and trigger a step sound on jump
                         player.velocityY = JUMP_VELOCITY;
@@ -2583,29 +3085,37 @@ to better suit your requirements.
                     break;
                 case 'ShiftLeft':
                 case 'ShiftRight':
+                    if (inventoryOpen) {
+                        e.preventDefault();
+                        break;
+                    }
                     player.isSprinting = true;
                     break;
-            case 'ControlLeft':
-            case 'ControlRight':
-                player.isCrouching = true;
-                player.crouchOffset = 0.5;
-                break;
-            case 'KeyE': {
-                // Open or close the inventory overlay.  Prevent default
-                // behaviour to avoid triggering browser search or other
-                // actions.  Toggling inventory unlocks pointer and
-                // pauses/resumes the game accordingly.  Do not toggle
-                // when pointer lock is not yet acquired (e.g. menu).
-                e.preventDefault();
-                toggleInventory();
-                break;
-            }
-            case 'KeyQ':
-                if (pointerLocked && !inventoryOpen) {
+                case 'ControlLeft':
+                case 'ControlRight':
+                    if (inventoryOpen) {
+                        e.preventDefault();
+                        break;
+                    }
+                    player.isCrouching = true;
+                    player.crouchOffset = 0.5;
+                    break;
+                case 'KeyE': {
+                    // Open or close the inventory overlay.  Prevent default
+                    // behaviour to avoid triggering browser search or other
+                    // actions.  Toggling inventory unlocks pointer and
+                    // pauses/resumes the game accordingly.  Do not toggle
+                    // when pointer lock is not yet acquired (e.g. menu).
                     e.preventDefault();
-                    dropSelectedBlock();
+                    toggleInventory();
+                    break;
                 }
-                break;
+                case 'KeyQ':
+                    if (pointerLocked && !inventoryOpen) {
+                        e.preventDefault();
+                        dropSelectedBlock();
+                    }
+                    break;
                 // Number keys 1–9 change the selected block type for placement
                 case 'Digit1':
                 case 'Digit2':
@@ -2627,20 +3137,35 @@ to better suit your requirements.
             }
         });
         document.addEventListener('keyup', (e) => {
+            const targetTag = e.target && e.target.tagName ? e.target.tagName.toUpperCase() : '';
+            const typing = targetTag === 'INPUT' || targetTag === 'TEXTAREA';
+            if (typing && e.code !== 'Escape') return;
             switch (e.code) {
-                case 'KeyW': case 'ArrowUp': player.moveForward = false; break;
-                case 'KeyS': case 'ArrowDown': player.moveBackward = false; break;
-                case 'KeyA': case 'ArrowLeft': player.moveLeft = false; break;
-                case 'KeyD': case 'ArrowRight': player.moveRight = false; break;
+                case 'KeyW':
+                case 'ArrowUp':
+                    player.moveForward = false;
+                    break;
+                case 'KeyS':
+                case 'ArrowDown':
+                    player.moveBackward = false;
+                    break;
+                case 'KeyA':
+                case 'ArrowLeft':
+                    player.moveLeft = false;
+                    break;
+                case 'KeyD':
+                case 'ArrowRight':
+                    player.moveRight = false;
+                    break;
                 case 'ShiftLeft':
                 case 'ShiftRight':
                     player.isSprinting = false;
                     break;
-            case 'ControlLeft':
-            case 'ControlRight':
-                player.isCrouching = false;
-                player.crouchOffset = 0;
-                break;
+                case 'ControlLeft':
+                case 'ControlRight':
+                    player.isCrouching = false;
+                    player.crouchOffset = 0;
+                    break;
             }
         });
 
@@ -3404,6 +3929,7 @@ to better suit your requirements.
             }
         });
         initCraftingUI();
+        initRecipeBookUI();
         setInventoryView(activeInventoryView);
         updateInventoryUI();
     }
@@ -3524,6 +4050,15 @@ to better suit your requirements.
             overlay.classList.add('open');
             setInventoryView('search');
             updateInventoryUI();
+            setRecipeBookOpen(false);
+            setRecipeBookActive(null);
+            player.moveForward = false;
+            player.moveBackward = false;
+            player.moveLeft = false;
+            player.moveRight = false;
+            player.isSprinting = false;
+            player.isCrouching = false;
+            player.crouchOffset = 0;
             if (bar) {
                 bar.classList.add('visible');
                 bar.classList.add('interactive');
@@ -3540,6 +4075,8 @@ to better suit your requirements.
         } else {
             inventoryOpen = false;
             overlay.classList.remove('open');
+            setRecipeBookOpen(false);
+            setRecipeBookActive(null);
             if (bar) {
                 bar.classList.remove('interactive');
                 if (pointerLocked) bar.classList.add('visible');
