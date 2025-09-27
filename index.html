@@ -1231,6 +1231,7 @@ to better suit your requirements.
     // so that they can be animated together.
     let handBlock;
     let handGroup;
+    let handMesh;
     const toolMeshes = {};
     let activeHandTool = null;
     // Base hand position and rotation.  These will be captured after the
@@ -1238,6 +1239,12 @@ to better suit your requirements.
     // hand will return to these defaults.
     let handBasePosition;
     let handBaseRotation;
+    let handBobTime = 0;
+    let handBobStrength = 0;
+    const handBobPosition = new THREE.Vector3();
+    const handBobRotation = new THREE.Euler();
+    const handFinalPosition = new THREE.Vector3();
+    const handFinalRotation = new THREE.Euler();
     // Hand animation state: when placing or breaking we animate the hand for
     // a short duration.  handAnimTime tracks the progress (0..1) and
     // handAnimType is 'place' or 'break'.
@@ -2912,17 +2919,22 @@ to better suit your requirements.
         }
         // Create a simple visible arm and block attached to the camera.  We
         // group them so that animations can be applied to both together.
-        const sleeveMaterial = new THREE.MeshStandardMaterial({ color: 0x3c7fd1, roughness: 0.55, metalness: 0.12 });
-        const skinMaterial = new THREE.MeshStandardMaterial({ color: 0xffd7b5, roughness: 0.75, metalness: 0.05 });
-        const handMaterial = new THREE.MeshStandardMaterial({ color: 0xf5c999, roughness: 0.7, metalness: 0.04 });
+        const sleeveMaterial = new THREE.MeshStandardMaterial({ color: 0x426dba, roughness: 0.52, metalness: 0.1 });
+        const skinMaterial = new THREE.MeshStandardMaterial({ color: 0xffe1c0, roughness: 0.72, metalness: 0.03 });
+        const palmMaterial = new THREE.MeshStandardMaterial({ color: 0xf9d5ad, roughness: 0.78, metalness: 0.02 });
         playerArm = new THREE.Group();
-        const sleeve = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.24, 0.32), sleeveMaterial);
-        sleeve.position.set(0, 0.24, 0);
-        const forearm = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.38, 0.28), skinMaterial);
-        forearm.position.set(0, -0.02, 0);
-        const handMesh = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.18, 0.26), handMaterial);
-        handMesh.position.set(0, -0.38, 0);
-        playerArm.add(sleeve, forearm, handMesh);
+        const sleeve = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.26, 0.34), sleeveMaterial);
+        sleeve.position.set(0, 0.28, 0);
+        const upperArm = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.32, 0.3), skinMaterial);
+        upperArm.position.set(0, 0.1, 0);
+        const cuff = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.1, 0.36), sleeveMaterial);
+        cuff.position.set(0, 0.06, 0);
+        const lowerArm = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.36, 0.26), skinMaterial);
+        lowerArm.position.set(0, -0.12, 0);
+        handMesh = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.18, 0.24), palmMaterial);
+        handMesh.position.set(0, -0.38, 0.02);
+        handMesh.rotation.set(-Math.PI / 12, 0.12, 0.06);
+        playerArm.add(sleeve, upperArm, cuff, lowerArm, handMesh);
         // Create the block mesh that shows the currently selected block.  It
         // uses a smaller scale so it fits comfortably in view.  The
         // material will be updated whenever the player changes the selected
@@ -2933,6 +2945,7 @@ to better suit your requirements.
         handBlock = new THREE.Mesh(cubeGeometry, initialMaterial);
         handBlock.visible = !!initialType && initialCount > 0;
         handBlock.scale.set(0.4, 0.4, 0.4);
+        handBlock.rotation.set(-Math.PI / 6, Math.PI / 4, 0);
         // Group the arm and block for animation.  The group itself is
         // positioned relative to the camera, while the children are
         // positioned within the group.  This makes it easy to animate
@@ -2946,9 +2959,8 @@ to better suit your requirements.
         handGroup.add(axeMesh);
         toolMeshes.axe = axeMesh;
         // Position and orient the arm within the group
-        playerArm.position.set(0.5, -0.6, -0.6);
-        playerArm.rotation.x = -Math.PI / 3;
-        playerArm.rotation.y = Math.PI / 10;
+        playerArm.position.set(0.48, -0.58, -0.6);
+        playerArm.rotation.set(-Math.PI / 3.4, Math.PI / 8, Math.PI / 14);
         // Position the block slightly in front of the arm
         handBlock.position.set(0.8, -0.55, -0.7);
         // Position the hand group relative to the camera so it sits clearly in
@@ -2962,7 +2974,8 @@ to better suit your requirements.
         // view.  Adjust these coordinates to taste; the hand should be
         // visible on the right side of the screen.  A slightly closer z
         // makes the arm more prominent.
-        handGroup.position.set(0.6, -0.6, -0.9);
+        handGroup.position.set(0.72, -0.68, -0.86);
+        handGroup.rotation.set(-0.12, 0.22, 0.05);
         // Capture the base position and rotation for animations
         handBasePosition = handGroup.position.clone();
         handBaseRotation = handGroup.rotation.clone();
@@ -3429,6 +3442,35 @@ to better suit your requirements.
         // Determine whether player is currently on the ground
         const onGround = (player.velocityY === 0 && player.canJump);
 
+        if (handGroup) {
+            const bobbing = moving && onGround && pointerLocked && !inventoryOpen;
+            const targetStrength = bobbing ? 1 : 0;
+            const lerpSpeed = bobbing ? 10 : 6;
+            handBobStrength = THREE.MathUtils.lerp(handBobStrength, targetStrength, Math.min(1, delta * lerpSpeed));
+            const idleSpeed = 3.5;
+            const walkSpeed = player.isSprinting ? 12 : 9;
+            handBobTime += delta * (bobbing ? walkSpeed : idleSpeed);
+            const sinHalf = Math.sin(handBobTime * 0.5);
+            const sinFull = Math.sin(handBobTime);
+            const sway = sinHalf * 0.09 * handBobStrength;
+            const lift = Math.cos(handBobTime) * 0.05 * handBobStrength;
+            const push = sinFull * 0.04 * handBobStrength;
+
+            handBobPosition.copy(handBasePosition);
+            handBobPosition.x += sway;
+            handBobPosition.y += lift - 0.015 * handBobStrength;
+            handBobPosition.z += push * 0.6;
+
+            handBobRotation.set(
+                handBaseRotation.x + sinFull * 0.12 * handBobStrength,
+                handBaseRotation.y + Math.sin(handBobTime * 0.3) * 0.06 * handBobStrength,
+                handBaseRotation.z + Math.cos(handBobTime * 0.4) * 0.05 * handBobStrength
+            );
+
+            handFinalPosition.copy(handBobPosition);
+            handFinalRotation.copy(handBobRotation);
+        }
+
         // Track fall distance for damage calculation.  When the player is
         // descending, accumulate the vertical distance fallen.  When
         // ascending or standing on ground reset the fall distance.  If
@@ -3521,27 +3563,27 @@ to better suit your requirements.
         // the hand forward/back or rotates it downward, similar to
         // Minecraft.  handAnimTime runs from 0 to 1 over the course of
         // 0.3 seconds.  After completion the animation resets.
-        if (handAnimType) {
-            const animDuration = 0.3;
-            handAnimTime += delta / animDuration;
-            if (handAnimTime >= 1) {
-                handAnimTime = 0;
-                handAnimType = null;
-                // Reset to the default hand pose after animation
-                handGroup.rotation.copy(handBaseRotation);
-                handGroup.position.copy(handBasePosition);
-            } else {
-                const t = handAnimTime;
+        if (handGroup) {
+            if (handAnimType) {
+                const animDuration = 0.3;
+                handAnimTime += delta / animDuration;
+                const t = Math.min(handAnimTime, 1);
+                handFinalPosition.copy(handBobPosition);
+                handFinalRotation.copy(handBobRotation);
                 if (handAnimType === 'break') {
-                    // break animation: swing hand downward then return relative to base
                     const angle = Math.sin(t * Math.PI) * 0.6;
-                    handGroup.rotation.x = handBaseRotation.x - angle;
+                    handFinalRotation.x -= angle;
                 } else if (handAnimType === 'place') {
-                    // place animation: thrust forward and back relative to base position
                     const offset = Math.sin(t * Math.PI) * 0.4;
-                    handGroup.position.z = handBasePosition.z - offset;
+                    handFinalPosition.z -= offset;
+                }
+                if (handAnimTime >= 1) {
+                    handAnimTime = 0;
+                    handAnimType = null;
                 }
             }
+            handGroup.position.copy(handFinalPosition);
+            handGroup.rotation.copy(handFinalRotation);
         }
         // Update debris pieces: apply velocity and gravity, update life and
         // remove when expired.  A small gravity value is used here to
