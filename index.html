@@ -1,0 +1,3566 @@
+<!--
+This HTML/JavaScript file implements a simple voxel world using three.js.  It
+builds upon the original world generator by adding basic first‑person controls
+with walking, jumping and very simple collision detection.  The player moves
+around the world using the WASD keys and can jump with the space bar.  A
+rudimentary height‑map based collision system prevents the player from falling
+through the ground or climbing unnaturally high ledges.  Block types such as
+water and leaves are treated as non‑solid, while terrain blocks, logs and
+others are solid.  For brevity the code does not implement full swept‑volume
+collision against every voxel in the scene; instead it relies on the
+height‑map and step height checks to approximate block collisions.  Feel free
+to tweak the movement constants (speed, jump force, gravity and step height)
+to better suit your requirements.
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Chunked Voxel World – Walk &amp; Jump</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #1a1a1a; color: #eee; font-family: Inter, sans-serif; }
+        canvas { display: block; touch-action: none; }
+        /*
+         * Hotbar UI
+         *
+         * The hotbar is a strip of nine slots that appears at the bottom of the
+         * screen when the pointer is locked.  Each slot displays an icon for a
+         * block type that can be placed by the player.  The selected slot is
+         * highlighted with a glowing border.  A simple slide‑in animation
+         * brings the bar into view when entering pointer lock.
+         */
+        .hotbar {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translate(-50%, 100%);
+            display: flex;
+            gap: 6px;
+            z-index: 10;
+            pointer-events: none;
+            transition: transform 0.3s ease-out;
+        }
+        .hotbar.visible {
+            transform: translate(-50%, 0);
+        }
+        .hotbar-slot {
+            width: 48px;
+            height: 48px;
+            background: rgba(0,0,0,0.5);
+            border: 2px solid rgba(255,255,255,0.4);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .hotbar-slot img {
+            width: 90%;
+            height: 90%;
+            object-fit: cover;
+            pointer-events: none;
+        }
+        .hotbar-slot.selected {
+            border-color: #ffff00;
+            box-shadow: 0 0 6px #ffffaa;
+        }
+        /*
+         * Selection tooltip
+         *
+         * When the player switches hotbar slots, a small faded label appears
+         * above the selected slot for a brief moment.  It displays the
+         * human‑readable block name and the number key that selects it.
+         */
+        .hotbar-tooltip {
+            position: absolute;
+            color: #fff;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s ease-out;
+            white-space: nowrap;
+            z-index: 11;
+        }
+        .hotbar-tooltip.visible {
+            opacity: 1;
+        }
+        /* A simple crosshair when the pointer is locked */
+        #crosshair { position: absolute; top: 50%; left: 50%; width: 20px; height: 20px; margin-left: -10px; margin-top: -10px; pointer-events: none; opacity: 0.75; z-index: 5; }
+        #crosshair:before, #crosshair:after { content: ''; position: absolute; background: #fff; }
+        #crosshair:before { left: 50%; top: 0; width: 2px; height: 20px; margin-left: -1px; }
+        #crosshair:after { top: 50%; left: 0; width: 20px; height: 2px; margin-top: -1px; }
+
+        /* Hearts UI */
+        .hearts {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            display: flex;
+            z-index: 12;
+            pointer-events: none;
+        }
+        .hearts .heart {
+            font-size: 28px;
+            margin-right: 4px;
+            color: #e74c3c;
+        }
+        .hearts .heart.empty {
+            color: #444;
+        }
+
+        /* Inventory overlay styles */
+        .inventory-overlay {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .inventory-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+            gap: 8px;
+        }
+        .inv-slot {
+            position: relative;
+            width: 60px;
+            height: 60px;
+            background: #333;
+            border: 1px solid #555;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+        .inv-slot:hover {
+            background: #555;
+        }
+        .inv-slot img {
+            width: 48px;
+            height: 48px;
+            object-fit: contain;
+            pointer-events: none;
+        }
+        .inv-count {
+            position: absolute;
+            bottom: 2px;
+            right: 4px;
+            font-size: 0.7rem;
+            color: #fff;
+            text-shadow: 0 0 3px #000;
+        }
+
+        /*
+         * Main menu overlay
+         *
+         * The main menu appears when the page first loads.  It covers the
+         * entire viewport with a background image and a translucent panel on
+         * the right containing the game logo and menu buttons.  The Play
+         * button starts the game, while the remaining buttons are disabled
+         * and greyed out.  Disabled buttons show a not‑allowed cursor.
+         */
+        .main-menu {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: url('https://i.postimg.cc/R0pTSf4G/image.png');
+            background-size: cover;
+            background-position: center;
+            display: flex;
+            justify-content: flex-end;
+            z-index: 100;
+            /* Slowly pan and zoom the menu background to give it life */
+            animation: menuBgAnim 30s ease-in-out infinite alternate;
+        }
+        .menu-panel {
+            width: 28%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 60px 20px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            box-sizing: border-box;
+        }
+        .menu-logo {
+            width: 140px;
+            height: auto;
+            margin-bottom: 40px;
+        }
+        .menu-buttons {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+        }
+        .menu-btn {
+            width: 80%;
+            padding: 14px 10px;
+            font-size: 1rem;
+            color: #fff;
+            background: rgba(0, 0, 0, 0.7);
+            border: 2px solid #555;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .menu-btn:hover:not(.disabled) {
+            background: rgba(100, 100, 100, 0.8);
+        }
+        .menu-btn.play-btn {
+            background: #4a93ff;
+            border-color: #4a93ff;
+        }
+        .menu-btn.play-btn:hover {
+            background: #3a83ee;
+        }
+        .menu-btn.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
+        /* Version text displayed on the bottom left of the main menu */
+        .version-text {
+            position: absolute;
+            bottom: 8px;
+            left: 12px;
+            color: rgba(255,255,255,0.7);
+            font-size: 0.8rem;
+            z-index: 101;
+            pointer-events: none;
+        }
+
+        /* Animation for the main menu background: slowly pan horizontally and zoom */
+        @keyframes menuBgAnim {
+            0%   { background-size: 110% 110%; background-position: 48% 50%; }
+            50%  { background-size: 115% 115%; background-position: 52% 50%; }
+            100% { background-size: 110% 110%; background-position: 48% 50%; }
+        }
+
+        /* Footer row for bottom of the menu panel.  Contains share/discord
+           icons on the left and Realms/Quit buttons on the right. */
+        .menu-footer {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 20px;
+        }
+        .menu-footer-left, .menu-footer-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        /* Square icon buttons for share and Discord. */
+        .icon-btn {
+            width: 40px;
+            height: 40px;
+            background: rgba(0,0,0,0.7);
+            border: 2px solid #555;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .icon-btn:hover {
+            background: rgba(100,100,100,0.8);
+        }
+        .icon-btn img, .icon-btn svg {
+            width: 70%;
+            height: 70%;
+            object-fit: contain;
+            pointer-events: none;
+        }
+
+        /* Style for the loading screen overlay */
+        .loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+            z-index: 200;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 1s ease;
+        }
+        .loading-screen.visible {
+            opacity: 1;
+            pointer-events: all;
+        }
+        .loading-logo {
+            width: 180px;
+            height: auto;
+            margin-bottom: 20px;
+        }
+        .loading-bar {
+            width: 60%;
+            height: 8px;
+            background: rgba(255,255,255,0.3);
+            border-radius: 4px;
+            overflow: hidden;
+            position: relative;
+        }
+        .loading-bar::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -50%;
+            width: 50%;
+            height: 100%;
+            background: #4a93ff;
+            animation: loadingAnim 2s infinite;
+        }
+        .loading-text {
+            color: #fff;
+            font-size: 1.2rem;
+            margin-top: 12px;
+        }
+        @keyframes loadingAnim {
+            from { left: -50%; }
+            to   { left: 100%; }
+        }
+
+        /* Pause and options menu overlays.  These menus reuse the main menu
+           layout but do not include a background image.  They cover the
+           viewport with a translucent backdrop and slide in a panel from
+           the right. */
+        .pause-menu, .options-menu {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: none;
+            justify-content: flex-end;
+            align-items: stretch;
+            background: rgba(0, 0, 0, 0.4);
+            z-index: 150;
+        }
+        .pause-menu .menu-panel,
+        .options-menu .menu-panel {
+            width: 28%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 60px 20px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            box-sizing: border-box;
+        }
+        .options-menu .menu-panel {
+            justify-content: flex-start;
+        }
+        .options-menu .options-content {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .options-menu .option-row {
+            width: 80%;
+            color: #fff;
+            font-size: 0.9rem;
+            display: flex;
+            flex-direction: column;
+        }
+        .options-menu .option-row input[type=range] {
+            width: 100%;
+            margin-top: 6px;
+        }
+    </style>
+    <!-- three.js core and examples modules -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+    <!-- Crosshair remains visible in the centre of the screen when the pointer is locked. -->
+    <div id="crosshair"></div>
+    <!-- Hotbar: nine selectable slots for block placement.  The contents are
+         populated by the script in initHotbar(). -->
+    <div id="hotbar" class="hotbar"></div>
+    <!-- Tooltip displayed briefly above the selected hotbar slot when switching blocks -->
+    <div id="selectionTooltip" class="hotbar-tooltip"></div>
+
+    <!-- Hearts display for player health.  Five heart icons show the
+         player's remaining health.  Full hearts are red and empty hearts
+         are grey. -->
+    <div id="heartContainer" class="hearts"></div>
+
+    <!-- Death screen overlay.  When the player dies this overlay
+         appears on top of the game showing a message and buttons to
+         respawn or quit. -->
+    <div id="deathScreen" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:300; align-items:center; justify-content:center; flex-direction:column; color:#fff; font-size:2rem; text-align:center;">
+        <div>You Died</div>
+        <div style="margin-top:20px; display:flex; gap:20px;">
+            <button id="respawnButton" class="menu-btn play-btn" style="font-size:1.2rem;">Respawn</button>
+            <button id="quitButton" class="menu-btn" style="font-size:1.2rem;">Quit</button>
+        </div>
+    </div>
+
+    <!-- Inventory overlay.  Press E to toggle this overlay.  It shows a
+         searchable list of block types and your current inventory counts.
+         Clicking on an item will switch the hotbar selection to that
+         block type.  Close the inventory with the close button or by
+         pressing E again. -->
+    <div id="inventoryOverlay" class="inventory-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:350; background:rgba(0,0,0,0.6); align-items:center; justify-content:center;">
+        <div class="inventory-panel" style="background:rgba(30,30,30,0.95); padding:16px; border-radius:8px; display:flex; flex-direction:column; align-items:stretch; max-width:600px; width:90%;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+                <input id="inventorySearch" type="text" placeholder="Search blocks..." style="flex:1; margin-right:8px; padding:6px; background:#222; color:#fff; border:1px solid #555; border-radius:4px;" />
+                <button id="closeInventory" class="menu-btn" style="padding:6px 12px; font-size:0.9rem;">Close</button>
+            </div>
+            <div id="inventoryGrid" class="inventory-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(60px, 1fr)); gap:8px; max-height:50vh; overflow-y:auto;"></div>
+        </div>
+    </div>
+    <!-- Main menu overlay.  This full‑screen overlay is displayed on page load
+         and hides the game world until the player clicks the Play button.
+         The background image is set via CSS below.  The right‑hand panel
+         contains the logo and menu buttons. -->
+    <div id="mainMenu" class="main-menu">
+        <div class="menu-panel">
+            <img id="menuLogo" class="menu-logo" src="https://i.postimg.cc/brdvY1ty/logo.png" alt="Logo" />
+            <div class="menu-buttons">
+                <button id="playButton" class="menu-btn play-btn">Play</button>
+                <!-- Enable Options button on the main menu.  Assign an ID so it can
+                     open the options menu overlay.  The disabled attribute is
+                     removed so that the button is clickable. -->
+                <button id="mainOptionsButton" class="menu-btn">Options…</button>
+                <button class="menu-btn disabled" disabled>Mods</button>
+            </div>
+            <div class="menu-footer">
+                <div class="menu-footer-left">
+                    <button id="shareButton" class="icon-btn" title="Share">
+                        <img src="https://i.postimg.cc/6624FM3k/image-removebg-preview-4.png" alt="Share" />
+                    </button>
+                    <button id="discordButton" class="icon-btn" title="Discord">
+                        <img src="https://i.postimg.cc/SxpSTr2B/image.png" alt="Discord" />
+                    </button>
+                </div>
+                <div class="menu-footer-right">
+                    <button class="menu-btn disabled" disabled>Realms</button>
+                    <button class="menu-btn disabled" disabled>Quit</button>
+                </div>
+            </div>
+        </div>
+        <div id="versionText" class="version-text">VoxelVerse v0.1</div>
+    </div>
+
+    <!-- Pause menu overlay.  Appears when the game is paused via the Escape key. -->
+    <div id="pauseMenu" class="pause-menu">
+        <div class="menu-panel">
+            <img class="menu-logo" src="https://i.postimg.cc/brdvY1ty/logo.png" alt="Logo" />
+            <div class="menu-buttons">
+                <button id="resumeButton" class="menu-btn play-btn">Resume</button>
+                <button id="pauseOptionsButton" class="menu-btn">Options…</button>
+            </div>
+            <div class="menu-footer">
+                <div class="menu-footer-left">
+                    <button id="pauseShareButton" class="icon-btn" title="Share">
+                        <img src="https://i.postimg.cc/6624FM3k/image-removebg-preview-4.png" alt="Share" />
+                    </button>
+                    <button id="pauseDiscordButton" class="icon-btn" title="Discord">
+                        <img src="https://i.postimg.cc/SxpSTr2B/image.png" alt="Discord" />
+                    </button>
+                </div>
+                <div class="menu-footer-right">
+                    <button id="pauseQuitButton" class="menu-btn">Quit</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Options menu overlay.  Provides sliders for adjusting audio levels. -->
+    <div id="optionsMenu" class="options-menu">
+        <div class="menu-panel">
+            <img class="menu-logo" src="https://i.postimg.cc/brdvY1ty/logo.png" alt="Logo" />
+            <div class="options-content">
+                <div class="option-row">
+                    <label for="masterVolumeSlider">Master Volume</label>
+                    <input id="masterVolumeSlider" type="range" min="0" max="100" />
+                </div>
+                <div class="option-row">
+                    <label for="musicVolumeSlider">Music Volume</label>
+                    <input id="musicVolumeSlider" type="range" min="0" max="100" />
+                </div>
+                <div class="option-row">
+                    <label for="sfxVolumeSlider">Sound Effects Volume</label>
+                    <input id="sfxVolumeSlider" type="range" min="0" max="100" />
+                </div>
+            </div>
+            <div class="menu-footer">
+                <div class="menu-footer-left"></div>
+                <div class="menu-footer-right">
+                    <button id="optionsBackButton" class="menu-btn">Back</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading screen displayed during world generation -->
+    <div id="loadingScreen" class="loading-screen">
+        <img class="loading-logo" src="https://i.postimg.cc/brdvY1ty/logo.png" alt="VoxelVerse Logo" />
+        <div class="loading-bar"></div>
+        <div class="loading-text">Generating world…</div>
+    </div>
+
+<script>
+(() => {
+    // --- Config ---
+    const CHUNK_SIZE = 16;
+    // Increase the vertical build limit so players can construct taller
+    // structures.  Raising the chunk height also lifts the maximum
+    // generation height for terrain.  Previously this was 48.  It is
+    // now raised to 80 to allow higher builds and more vertical space.
+    // Increase the vertical build limit further.  Minecraft worlds allow
+    // players to build very high structures.  Raising this to 128 gives
+    // plenty of headroom while still being practical for rendering.  It
+    // effectively removes the low maximum height the user complained about.
+    const CHUNK_HEIGHT = 128;
+    // Define a global water level relative to the world height.  Water will
+    // fill up to this level in low areas.  Using a fraction of the world
+    // height ensures that water bodies appear at sensible elevations even
+    // when the chunk height changes.  You can adjust the multiplier to
+    // raise or lower the sea level globally.  For example 0.25 means the
+    // lowest quarter of the world is underwater.
+    const WATER_LEVEL = Math.floor(CHUNK_HEIGHT * 0.25);
+    const VIEW_DISTANCE_CHUNKS = 3;
+    const WORLD_FREQUENCY = 0.02;
+    const OCTAVES = 4;
+    const PERSISTENCE = 0.5;
+    // Day/night cycle configuration.  The time of day advances from 0 to 1
+    // over the course of DAY_DURATION seconds.  At 0.25 the sun rises, at
+    // 0.5 it reaches its highest point, at 0.75 it sets and at 1.0 it
+    // returns to midnight.  The sun and moon are positioned on a large
+    // circle around the origin at distance SUN_DISTANCE.  Star points are
+    // scattered on a sphere around the player and fade in at night.
+    const DAY_DURATION = 240; // seconds for a complete day/night cycle
+    // Distance from the world origin to the centre of the sun/moon orbit.  A
+    // smaller value brings the sun and moon closer to the camera so they
+    // appear larger and more prominent on the horizon.  Minecraft's
+    // celestial bodies are relatively close to the player, so a value of
+    // 300 works well for our needs.
+    const SUN_DISTANCE  = 300; // radius of sun/moon orbit
+    const STAR_COUNT    = 400;   // number of stars in the night sky
+    // Height above the ground at which the sun and moon orbit.  This is
+    // calculated relative to the chunk height so the celestial bodies
+    // appear near the horizon at the edge of the world.  A small offset
+    // above CHUNK_HEIGHT ensures they remain visible above terrain.
+    const SUN_HEIGHT    = CHUNK_HEIGHT + 10;
+    // Probability that a stone block deep underground will be carved out to
+    // create a cave.  A small value like 0.08 produces occasional open
+    // spaces in the stone layers.  Only stone below the dirt layers is
+    // eligible for carving.
+    const CAVE_PROBABILITY = 0.08;
+
+    // Cave entrance configuration.  A small chance per column on the surface
+    // produces an entrance that opens downward into the world.  Each
+    // entrance carves a circular hole with a given radius and depth, giving
+    // the player access to underground caves from the surface.
+    const ENTRANCE_CHANCE = 0.004;
+    const ENTRANCE_RADIUS = 2;
+    const ENTRANCE_DEPTH = 6;
+    // Terrain layering configuration.  We always place 3 layers of dirt
+    // directly beneath the top surface, and we want the top 10 layers of
+    // stone below those to be visible and selectable.  Deeper stone
+    // blocks remain hidden until exposed.  Adjust these constants to
+    // change how many layers of each material are visible.
+    const DIRT_LAYERS = 3;
+    const STONE_VISIBLE_LAYERS = 10;
+    // Player movement constants
+    // Height of the player in world units.  Each block in the world is one unit tall,
+    // so a two‑block tall player has a height of 2.
+    const PLAYER_HEIGHT = 2;
+    const MOVE_SPEED = 8;          // units per second
+    const JUMP_VELOCITY = 7;       // upward velocity when jumping
+    const GRAVITY = 20;            // downward acceleration (units/s^2)
+    const STEP_MAX = 1.0;          // maximum step height between neighbouring columns
+
+    // Step sound configuration.  These URLs point to the Minecraft grass step
+    // sound effects hosted on the public mcasset.cloud CDN.  The game will
+    // randomly pick one of these sounds when the player walks, jumps or lands.
+    const STEP_SOUND_INTERVAL = 0.35; // minimum time (in seconds) between step sounds while walking
+    const STEP_SOUND_URLS = [
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/step/grass1.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/step/grass2.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/step/grass3.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/step/grass4.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/step/grass5.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/step/grass6.ogg'
+    ];
+
+    // Dig/break sound configuration.  Different categories correspond to
+    // different block types.  When a block is broken a random sound from
+    // the appropriate category will be played.  These sounds are also
+    // hosted on mcasset.cloud.
+    const DIG_SOUND_URLS = {
+        grass: [
+            'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/dig/grass1.ogg',
+            'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/dig/grass2.ogg',
+            'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/dig/grass3.ogg',
+            'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/dig/grass4.ogg'
+        ],
+        stone: [
+            'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/dig/stone1.ogg',
+            'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/dig/stone2.ogg',
+            'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/dig/stone3.ogg',
+            'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/dig/stone4.ogg'
+        ],
+        wood: [
+            'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/dig/wood1.ogg',
+            'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/dig/wood2.ogg',
+            'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/dig/wood3.ogg',
+            'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/dig/wood4.ogg'
+        ]
+    };
+
+    // --- Shared block geometry & materials ---
+    const cubeGeometry = new THREE.BoxBufferGeometry(1,1,1);
+    // Prepare textures for certain block types.  We load these textures once
+    // up‑front so that they can be reused across all chunks.  Setting
+    // crossOrigin ensures that images hosted on external domains (like
+    // postimg.cc) load correctly in the browser.
+    const textureLoader = new THREE.TextureLoader();
+    if (textureLoader.setCrossOrigin) textureLoader.setCrossOrigin('anonymous');
+    // Grass texture – this replaces the solid green colour with the provided
+    // pixel art grass.  Using NearestFilter preserves the crisp pixels and
+    // prevents blurring when the texture is magnified.  The texture will
+    // automatically repeat on each cube face.
+    const grassTexture = textureLoader.load('https://i.postimg.cc/KzggQfJC/image.png');
+    // Use linear filtering and mipmaps to avoid excessive pixelation.  These
+    // settings smooth the texture when viewed at an angle or from a distance.
+    grassTexture.magFilter = THREE.LinearFilter;
+    grassTexture.minFilter = THREE.LinearMipmapLinearFilter;
+    // Enable a bit of anisotropy for better texture quality; a modest value
+    // improves clarity without being too expensive.
+    grassTexture.anisotropy = 4;
+    // Log (wood) texture – used for tree trunks.  The same filtering is
+    // applied to keep the pixels sharp.  Logs are opaque so no alphaTest is
+    // required on the material.
+    const woodTexture = textureLoader.load('https://i.postimg.cc/YqxLXhz2/image.png');
+    woodTexture.magFilter = THREE.LinearFilter;
+    woodTexture.minFilter = THREE.LinearMipmapLinearFilter;
+    woodTexture.anisotropy = 4;
+    // Leaves texture – contains transparency (alpha channel) so we enable
+    // transparency on the material and set an alphaTest to discard fully
+    // transparent pixels.  NearestFilter again maintains crisp edges.
+    const leavesTexture = textureLoader.load('https://i.postimg.cc/BnV6yDL3/image.png');
+    leavesTexture.magFilter = THREE.LinearFilter;
+    leavesTexture.minFilter = THREE.LinearMipmapLinearFilter;
+    leavesTexture.anisotropy = 4;
+    // Define block materials.  For terrain that doesn't require textures
+    // (dirt, stone, sand and water) we keep the existing solid colours.  For
+    // grass, wood and leaves we supply the loaded textures.  Leaves are
+    // semi‑transparent and rely on alphaTest to correctly discard fully
+    // transparent pixels, allowing you to see through the gaps in the foliage.
+    // Additional textures for dirt, stone and bedrock.  These textures
+    // replace the simple coloured materials used previously.  Like the
+    // existing textures, they use linear filtering and mipmaps to avoid
+    // aliasing at distance, with modest anisotropy for improved clarity.
+    const dirtTexture  = textureLoader.load('https://i.postimg.cc/pTMN7XPk/image.png');
+    dirtTexture.magFilter  = THREE.LinearFilter;
+    dirtTexture.minFilter  = THREE.LinearMipmapLinearFilter;
+    dirtTexture.anisotropy = 4;
+    const stoneTexture = textureLoader.load('https://i.postimg.cc/qqQ9zsyZ/image.png');
+    stoneTexture.magFilter  = THREE.LinearFilter;
+    stoneTexture.minFilter  = THREE.LinearMipmapLinearFilter;
+    stoneTexture.anisotropy = 4;
+    const bedrockTexture = textureLoader.load('https://i.postimg.cc/Wbh9Gcv4/image.png');
+    bedrockTexture.magFilter  = THREE.LinearFilter;
+    bedrockTexture.minFilter  = THREE.LinearMipmapLinearFilter;
+    bedrockTexture.anisotropy = 4;
+    const blockMaterials = {
+        grass: new THREE.MeshStandardMaterial({ map: grassTexture }),
+        dirt:  new THREE.MeshStandardMaterial({ map: dirtTexture }),
+        stone: new THREE.MeshStandardMaterial({ map: stoneTexture }),
+        sand:  new THREE.MeshStandardMaterial({ color: 0xe6d4a0 }),
+        water: new THREE.MeshStandardMaterial({ color: 0x4a7ad1, transparent: true, opacity: 0.6 }),
+        wood:  new THREE.MeshStandardMaterial({ map: woodTexture }),
+        leaves:new THREE.MeshStandardMaterial({ map: leavesTexture, transparent: true, alphaTest: 0.5 }),
+        bedrock: new THREE.MeshStandardMaterial({ map: bedrockTexture }),
+        // Ores and lava.  Ores are represented by coloured materials
+        // rather than textures for simplicity.  Lava is an emissive
+        // semi‑transparent material that glows.  These materials can be
+        // referenced by name in the voxel generation logic below.
+        iron:    new THREE.MeshStandardMaterial({ color: 0xd8d8d8 }),
+        copper:  new THREE.MeshStandardMaterial({ color: 0xb46c00 }),
+        ruby:    new THREE.MeshStandardMaterial({ color: 0xff3c44 }),
+        diamond: new THREE.MeshStandardMaterial({ color: 0x33ffe6 }),
+        coal:    new THREE.MeshStandardMaterial({ color: 0x222222 }),
+        lava:    new THREE.MeshStandardMaterial({ color: 0xff6600, emissive: 0xff4500, emissiveIntensity: 1.0, transparent: true, opacity: 0.85 })
+    };
+
+    // --- Block breaking crack textures ---
+    // Minecraft uses a set of destroy stage textures (0–9) to show cracks on a
+    // block as it is being broken.  We load these textures from mcasset.cloud
+    // once at startup.  Each texture is a 16×16 image containing only
+    // transparent cracks; they will be used as an overlay on the block being
+    // broken.  Nearest filtering preserves crisp pixels.
+    const destroyTextures = [];
+    const destroyMaterials = [];
+    for (let i = 0; i < 10; i++) {
+        const dt = textureLoader.load(`https://assets.mcasset.cloud/1.21.5/assets/minecraft/textures/block/destroy_stage_${i}.png`);
+        dt.magFilter = THREE.NearestFilter;
+        dt.minFilter = THREE.NearestFilter;
+        dt.anisotropy = 4;
+        destroyTextures.push(dt);
+        // Use a Lambert material for cracks so that lighting and shading
+        // contribute to the appearance of depth.  Set side to
+        // DoubleSide so the cracks texture renders on both sides of the
+        // faces.  Transparency ensures only the crack lines are visible.
+        destroyMaterials.push(new THREE.MeshLambertMaterial({ map: dt, transparent: true, side: THREE.DoubleSide }));
+    }
+    // Cracks overlay mesh.  This mesh will be placed over the targeted block
+    // during breaking and will display the appropriate crack stage.  It is
+    // created during init() and updated each frame when breaking.  To give
+    // the cracks a more three‑dimensional appearance we will generate a
+    // custom box geometry and slightly extrude its faces along their normals.
+    let cracksMesh;
+
+    // --- Three.js / world state ---
+    let scene, camera, renderer;
+    const chunkMap = new Map();
+    let seed = Math.floor(Math.random() * 1e9);
+    let perlinNoise;
+    // A global height map storing the highest solid block for each (x,z)
+    const heightMap = {};
+    // A map storing information about each voxel in the world.  The key is
+    // `${x},${y},${z}` and the value is an object `{ type: string, chunk: string }`.
+    // This allows us to determine the type of any block for collision, picking
+    // and modification.  When chunks are disposed the corresponding entries
+    // are removed.  Dynamically placed blocks use a special chunk key of
+    // 'mod'.
+    const voxelMap = new Map();
+    // A map linking world coordinates to their instanced mesh entry.  Each
+    // value is an object `{ mesh: InstancedMesh|Mesh, index: number, chunk: string, type: string }`.
+    // For base terrain this references instanced meshes, for dynamically
+    // placed blocks the mesh property refers to a standalone Mesh and the
+    // index is ignored.
+    const voxelInstances = new Map();
+    // A list of dynamically created block meshes (placed blocks) so we can
+    // remove them easily when breaking.  Each entry is a THREE.Mesh.
+    const modifiedMeshes = [];
+    // Selection state for placing blocks.  selectableTypes defines which
+    // materials the player can place.  selectedIndex indexes into this
+    // array.  Press number keys 1–4 to change selection.
+    // Selected block index and the list of selectable block types.  The
+    // hotbar presents nine slots corresponding to these types.  Players can
+    // select a slot with number keys 1–9.  Bedrock is unbreakable but can
+    // still be placed from the hotbar.  The last entry duplicates stone to
+    // fill the bar.
+    let selectedIndex = 0;
+    const selectableTypes = [
+        'grass',  // 1
+        'dirt',   // 2
+        'stone',  // 3
+        'wood',   // 4
+        'leaves', // 5
+        'sand',   // 6
+        'water',  // 7
+        'bedrock',// 8
+        'stone'   // 9 (duplicate to fill bar)
+    ];
+    // Hotbar DOM elements will be stored here after initialisation.  Each
+    // entry corresponds to a slot in the bar so that selection highlights
+    // can be easily toggled.
+    let hotbarSlots = [];
+    // Breaking state.  When the player holds the left mouse button on a
+    // block this timer counts up; after BREAK_DURATION milliseconds the
+    // targeted block is removed.  If the target changes or the mouse is
+    // released the timer resets.
+    // Duration (in milliseconds) to break a block.  Reduced from 5s to 3s
+    // per user request.  The cracks overlay and break logic use this
+    // constant to determine progress.
+    const BREAK_DURATION = 3000;
+    let isBreaking = false;
+    let breakTarget = null;
+    let breakStartTime = 0;
+    // Highlight mesh shown around the currently targeted block.  This will
+    // be created during init().
+    let highlightMesh;
+    // Hand and block meshes for the first‑person view.  handBlock shows
+    // the currently selected block type; handGroup groups the arm and block
+    // so that they can be animated together.
+    let handBlock;
+    let handGroup;
+    // Base hand position and rotation.  These will be captured after the
+    // hand group is positioned in init().  When animations end the
+    // hand will return to these defaults.
+    let handBasePosition;
+    let handBaseRotation;
+    // Hand animation state: when placing or breaking we animate the hand for
+    // a short duration.  handAnimTime tracks the progress (0..1) and
+    // handAnimType is 'place' or 'break'.
+    let handAnimTime = 0;
+    let handAnimType = null;
+
+    // Dig sound objects categorised by block type.  Populated during init().
+    const digSounds = {};
+
+    // --- Sky, sun, moon, stars and clouds ---
+    // The day/night cycle state.  dayTime advances from 0 to 1 over
+    // DAY_DURATION seconds.  A value of 0.25 corresponds to sunrise and
+    // 0.75 corresponds to sunset.
+    let dayTime = Math.random();
+    // Sprites and groups for the sky elements.  These will be
+    // initialised in initSky() and updated each frame in the animation
+    // loop.  cloudGroup holds billboards for clouds; sunMesh and
+    // moonMesh are small quads representing the sun and moon; stars is a
+    // Points object containing many faint points for the night sky.
+    let cloudGroup;
+    let sunMesh;
+    let moonMesh;
+    let stars;
+    // Light references for dynamic adjustment during the day/night cycle.
+    let ambientLight;
+    let sunLight;
+    // A texture for cloud sprites, generated procedurally at runtime.
+    let cloudTexture;
+
+    // Debris pieces spawned when a block breaks.  Each entry is an object
+    // containing a mesh, a velocity vector, and remaining life in seconds.
+    const debrisPieces = [];
+
+    // Dropped items that spawn when blocks are broken.  Each entry has a
+    // mesh (a small cube), the block type, and a velocity.  Items fall
+    // until they reach the ground, then can be picked up by the player.
+    const droppedItems = [];
+
+    // Queue of fluid cells to process for water flowing.  When water is
+    // placed or spawns, a record is added to this queue.  Each frame we
+    // process a few cells to spread water to adjacent empty blocks.
+    const fluidQueue = [];
+
+    // Simple inventory data structure.  Keys are block types and values
+    // are counts.  When items are picked up they are added here.  When
+    // placing blocks the count is decremented.  The inventory UI will
+    // display these counts.  New types are added dynamically as needed.
+    const inventory = {};
+
+    // Whether the inventory overlay is currently open.  Toggled with
+    // the 'E' key.  When open, pointer lock is released and game
+    // controls are paused.
+    let inventoryOpen = false;
+
+    // --- Audio volume settings ---
+    // Master, music and sound effect volumes range from 0 to 1.  These
+    // determine the overall loudness of all sounds in the game.  Values
+    // are persisted to localStorage and loaded on startup.
+    let masterVolume = 1.0;
+    let musicVolume  = 0.2;
+    let sfxVolume    = 0.5;
+    function loadVolumeSettings() {
+        const m  = parseFloat(localStorage.getItem('voxelverse_masterVolume'));
+        const mu = parseFloat(localStorage.getItem('voxelverse_musicVolume'));
+        const sf = parseFloat(localStorage.getItem('voxelverse_sfxVolume'));
+        if (!isNaN(m))  masterVolume = Math.min(Math.max(m, 0), 1);
+        if (!isNaN(mu)) musicVolume  = Math.min(Math.max(mu, 0), 1);
+        if (!isNaN(sf)) sfxVolume    = Math.min(Math.max(sf, 0), 1);
+    }
+    function saveVolumeSettings() {
+        localStorage.setItem('voxelverse_masterVolume', masterVolume.toString());
+        localStorage.setItem('voxelverse_musicVolume', musicVolume.toString());
+        localStorage.setItem('voxelverse_sfxVolume', sfxVolume.toString());
+    }
+    // Apply current volume settings to all audio objects.  Base volumes
+    // for various sound categories are multiplied by master and
+    // category volumes.
+    function applyVolumeSettings() {
+        // Read current volumes from the global window if available.  This
+        // allows the pause/options menu to update volumes outside this
+        // closure.  Fallback to local variables if the globals are not
+        // defined.
+        const mVol  = (typeof window.masterVolume === 'number') ? window.masterVolume : masterVolume;
+        const muVol = (typeof window.musicVolume  === 'number') ? window.musicVolume  : musicVolume;
+        const sfVol = (typeof window.sfxVolume    === 'number') ? window.sfxVolume    : sfxVolume;
+        // Menu music uses HTMLAudioElement volume property
+        if (typeof menuMusicAudio !== 'undefined' && menuMusicAudio) {
+            menuMusicAudio.volume = mVol * muVol;
+        }
+        // In‑game background music uses Three.js Audio objects
+        if (typeof music !== 'undefined' && music) {
+            music.setVolume(mVol * muVol);
+        }
+        // Step sounds
+        if (Array.isArray(stepSounds)) {
+            stepSounds.forEach((s) => {
+                if (s && typeof s.setVolume === 'function') {
+                    s.setVolume(0.5 * mVol * sfVol);
+                }
+            });
+        }
+        // Dig/break sounds
+        if (digSounds) {
+            Object.keys(digSounds).forEach((cat) => {
+                digSounds[cat].forEach((s) => {
+                    if (s && typeof s.setVolume === 'function') {
+                        s.setVolume(0.5 * mVol * sfVol);
+                    }
+                });
+            });
+        }
+        // UI sounds
+        if (typeof hoverSound !== 'undefined' && hoverSound) {
+            hoverSound.volume = 0.6 * mVol * sfVol;
+        }
+        if (typeof clickSound !== 'undefined' && clickSound) {
+            clickSound.volume = 0.7 * mVol * sfVol;
+        }
+    }
+    // Immediately load any saved volume settings when this script executes.
+    loadVolumeSettings();
+
+    // Expose volume settings and helpers on the global window so they
+    // can be accessed by the pause/options menu script.  Without this
+    // assignment the variables would be scoped inside this closure and
+    // unavailable to other scripts.
+    window.masterVolume = masterVolume;
+    window.musicVolume  = musicVolume;
+    window.sfxVolume    = sfxVolume;
+    window.loadVolumeSettings = loadVolumeSettings;
+    window.saveVolumeSettings = saveVolumeSettings;
+    window.applyVolumeSettings = applyVolumeSettings;
+
+    // --- Pause and options state ---
+    // Track whether the game is currently paused.  These variables are
+    // defined outside of any inner functions so that they live for the
+    // lifetime of the main game script.  We also expose them on the
+    // global window so that the pause/options overlay script can
+    // determine whether the pause menu is visible or not without
+    // referencing variables that are scoped to this closure.  When
+    // showPauseMenu/hidePauseMenu are called the values of isPaused,
+    // pauseMenuElement and optionsMenuElement are updated on the
+    // window object.  See the pause/options script for how these
+    // variables are consumed.
+    let isPaused = false;
+    let pauseMenuElement;
+    let optionsMenuElement;
+    // Expose pause state and menu element references on the global
+    // window.  These assignments will be kept in sync whenever the
+    // pause menu is shown or hidden below.
+    window.isPaused = isPaused;
+    window.pauseMenuElement = pauseMenuElement;
+    window.optionsMenuElement = optionsMenuElement;
+
+    // Icon URLs for the hotbar slots.  These images are reused from the
+    // textures loaded for the block materials.  Where a dedicated texture
+    // isn't available (such as sand and water) a similar placeholder is
+    // chosen.  Feel free to replace these URLs with other images if
+    // preferred.
+    const hotbarIcons = {
+        grass:   'https://i.postimg.cc/KzggQfJC/image.png',
+        dirt:    'https://i.postimg.cc/pTMN7XPk/image.png',
+        stone:   'https://i.postimg.cc/qqQ9zsyZ/image.png',
+        wood:    'https://i.postimg.cc/YqxLXhz2/image.png',
+        leaves:  'https://i.postimg.cc/BnV6yDL3/image.png',
+        sand:    'https://i.postimg.cc/pTMN7XPk/image.png',
+        water:   'https://i.postimg.cc/pTMN7XPk/image.png',
+        bedrock: 'https://i.postimg.cc/Wbh9Gcv4/image.png'
+    };
+
+    // Human readable names for each block type.  These are used in the
+    // selection tooltip shown when switching slots.
+    const blockNames = {
+        grass: 'Grass',
+        dirt: 'Dirt',
+        stone: 'Stone',
+        wood: 'Wood',
+        leaves: 'Leaves',
+        sand: 'Sand',
+        water: 'Water',
+        bedrock: 'Bedrock'
+    };
+
+    // Tooltip element shown above the selected hotbar slot.  The element
+    // itself is created in the HTML; we reference it here and control its
+    // visibility and position.  A timeout ID is stored to hide the
+    // tooltip after a delay.
+    let selectionTooltip;
+    let tooltipTimeout = null;
+
+    // --- Audio and step sound state ---
+    // A listener is attached to the camera so that positional audio (if desired) will
+    // follow the player's head.  Step sounds are loaded and stored in this
+    // array.  lastStepSoundTime tracks when the last step sound was played so
+    // that we don't spam sounds while the player is moving.  wasOnGround
+    // remembers whether the player was previously grounded so we can detect
+    // landing events.  playerArm will hold the visible arm mesh attached to
+    // the camera.
+    let audioListener;
+    const stepSounds = [];
+    let lastStepSoundTime = 0;
+    let wasOnGround = true;
+    let playerArm;
+
+    // --- Health and damage state ---
+    // The player has a finite amount of health represented by hearts.  Five
+    // hearts correspond to five hit points.  Health is decreased when
+    // falling from a height or when in contact with lava.  When health
+    // reaches zero the player dies and a death screen appears.  fallDistance
+    // accumulates the distance fallen since the last time the player was on
+    // the ground.  lastY stores the player's height from the previous
+    // frame.  Damage sounds are loaded in init().
+    let maxHealth = 5;
+    let health = maxHealth;
+    let fallDistance = 0;
+    let lastYPosition = 0;
+    const damageSounds = [];
+    let deathSound;
+    // Accumulator for lava damage.  When the player stands in lava this
+    // value increases with time and triggers periodic damage.  It resets
+    // when the player leaves lava.
+    let lavaAccumulator = 0;
+
+    // Music playback state.  The tracks listed here are the Minecraft in‑game
+    // music tracks that will play in a random order.  music and musicLoader
+    // hold the audio objects used for background music.  musicStarted
+    // ensures that music begins playing only once after user interaction.
+    const MUSIC_TRACKS = [
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/endless.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/a_familiar_room.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/an_ordinary_day.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/ancestry.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/bromeliad.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/clark.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/comforting_memories.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/crescent_dunes.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/danny.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/deeper.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/dry_hands.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/echo_in_the_wind.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/eld_unknown.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/featherfall.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/floating_dream.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/haggstrom.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/infinite_amethyst.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/key.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/komorebi.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/left_to_bloom.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/yakusoku.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/wet_hands.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/wending.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/watcher.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/sweden.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/subwoofer_lullaby.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/stand_tall.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/puzzlebox.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/pokopoko.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/oxygene.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/one_more_day.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/minecraft.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/mice_on_venus.ogg',
+        'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/music/game/living_mice.ogg'
+    ];
+    let music;
+    let musicLoader;
+    let musicStarted = false;
+
+    // --- RNG + Perlin noise (unchanged) ---
+    function mulberry32(a) {
+        return function() {
+            let t = a += 0x6D2B79F5;
+            t = Math.imul(t ^ (t >>> 15), t | 1);
+            t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        }
+    }
+    function createPerlin(seedValue) {
+        const rand = mulberry32(seedValue | 0);
+        const p = new Uint8Array(512);
+        const permutation = new Uint8Array(256);
+        for (let i = 0; i < 256; i++) permutation[i] = i;
+        for (let i = 255; i > 0; i--) {
+            const j = Math.floor(rand() * (i + 1));
+            const tmp = permutation[i];
+            permutation[i] = permutation[j];
+            permutation[j] = tmp;
+        }
+        for (let i = 0; i < 512; i++) p[i] = permutation[i & 255];
+        function fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+        function lerp(t, a, b) { return a + t * (b - a); }
+        function grad(hash, x, y, z) {
+            const h = hash & 15;
+            const u = h < 8 ? x : y;
+            const v = h < 4 ? y : (h === 12 || h === 14 ? x : z);
+            return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
+        }
+        function rawNoise(x, y, z) {
+            let X = Math.floor(x) & 255;
+            let Y = Math.floor(y) & 255;
+            let Z = Math.floor(z) & 255;
+            x -= Math.floor(x);
+            y -= Math.floor(y);
+            z -= Math.floor(z);
+            const u = fade(x), v = fade(y), w = fade(z);
+            const A = p[X] + Y, AA = p[A] + Z, AB = p[A + 1] + Z;
+            const B = p[X + 1] + Y, BA = p[B] + Z, BB = p[B + 1] + Z;
+            return lerp(w,
+                lerp(v,
+                    lerp(u, grad(p[AA], x, y, z), grad(p[BA], x - 1, y, z)),
+                    lerp(u, grad(p[AB], x, y - 1, z), grad(p[BB], x - 1, y - 1, z))
+                ),
+                lerp(v,
+                    lerp(u, grad(p[AA + 1], x, y, z - 1), grad(p[BA + 1], x - 1, y, z - 1)),
+                    lerp(u, grad(p[AB + 1], x, y - 1, z - 1), grad(p[BB + 1], x - 1, y - 1, z - 1))
+                )
+            );
+        }
+        return function(x, z, octaves = OCTAVES, persistence = PERSISTENCE, frequency = WORLD_FREQUENCY) {
+            let total = 0, amplitude = 1, maxValue = 0, freq = frequency;
+            for (let i = 0; i < octaves; i++) {
+                total += rawNoise(x * freq, 0, z * freq) * amplitude;
+                maxValue += amplitude;
+                amplitude *= persistence;
+                freq *= 2;
+            }
+            return total / maxValue;
+        };
+    }
+    // Deterministic helper for tree placement
+    function coordSeededRand(cx, cz, wx, wz) {
+        const s = (seed ^ (cx*73856093) ^ (cz*19349663) ^ (wx*83492791) ^ (wz*1234567)) >>> 0;
+        return mulberry32(s);
+    }
+
+    // --- Chunk generation ---
+    function generateChunk(cx, cz) {
+        const chunkKeyString = `${cx},${cz}`;
+        const heights = {};
+        const worldX0 = cx * CHUNK_SIZE;
+        const worldZ0 = cz * CHUNK_SIZE;
+        // Compute height map for this chunk (with border for neighbours)
+        for (let dx = -1; dx <= CHUNK_SIZE; dx++) {
+            for (let dz = -1; dz <= CHUNK_SIZE; dz++) {
+                const wx = worldX0 + dx;
+                const wz = worldZ0 + dz;
+                const n = perlinNoise(wx, wz);
+                const normalized = (n + 1) / 2;
+                let h = Math.floor(normalized * (CHUNK_HEIGHT - 8)) + 2;
+                h = Math.max(0, Math.min(CHUNK_HEIGHT - 1, h));
+                heights[`${wx},${wz}`] = h;
+                // Update global height map if this column is higher than previous
+                const key = `${wx},${wz}`;
+                if (heightMap[key] === undefined || h > heightMap[key]) {
+                    heightMap[key] = h;
+                }
+            }
+        }
+        // Determine cave entrances for this chunk.  A small chance per column
+        // spawns an entrance centre; a circular area around the centre is
+        // carved out to form the opening.  Entrance cells are stored in a
+        // set keyed by "x,z".  We update the global height map to reflect
+        // the lowered surface at these locations so the player can fall
+        // naturally into the hole.
+        const entranceCells = new Set();
+        for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+            for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+                const wx = worldX0 + lx;
+                const wz = worldZ0 + lz;
+                const colKey = `${wx},${wz}`;
+                const colHeight = heights[colKey];
+                // Only spawn entrances on columns that are sufficiently above the water level.
+                // Use the constant 4 (default water level) directly here because
+                // waterLevel has not yet been defined in this scope at runtime.
+                if (colHeight > 4 + 2) {
+                    const rSeed = (seed ^ (wx * 897689) ^ (wz * 354331) ^ 0xCAFEBABE) >>> 0;
+                    const rng = mulberry32(rSeed);
+                    if (rng() < ENTRANCE_CHANCE) {
+                        for (let dx = -ENTRANCE_RADIUS; dx <= ENTRANCE_RADIUS; dx++) {
+                            for (let dz = -ENTRANCE_RADIUS; dz <= ENTRANCE_RADIUS; dz++) {
+                                if (dx*dx + dz*dz <= ENTRANCE_RADIUS * ENTRANCE_RADIUS) {
+                                    const ex = wx + dx;
+                                    const ez = wz + dz;
+                                    entranceCells.add(`${ex},${ez}`);
+                                    // Reduce the heightMap for the entrance cell so the
+                                    // player can fall down.  Ensure we don't drop below 0.
+                                    const eKey = `${ex},${ez}`;
+                                    const hVal = heights[eKey];
+                                    if (hVal !== undefined) {
+                                        const newH = Math.max(0, hVal - ENTRANCE_DEPTH);
+                                        // Only update if this column is part of this chunk; heightMap
+                                        // is keyed by world x,z and updated here.
+                                        if (heightMap[eKey] === undefined || heightMap[eKey] > newH) {
+                                            heightMap[eKey] = newH;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Matrix lists and world coordinate lists for instanced meshes
+        // Each block type gets its own array of matrices and positions.  Be sure to
+        // include entries for all possible block types, including ores and
+        // lava, otherwise pushes into undefined arrays will throw errors.
+        const matrices = {
+            grass: [], dirt: [], stone: [], sand: [], water: [], wood: [], leaves: [], bedrock: [],
+            iron: [], copper: [], ruby: [], diamond: [], coal: [], lava: []
+        };
+        const positionsByType = {
+            grass: [], dirt: [], stone: [], sand: [], water: [], wood: [], leaves: [], bedrock: [],
+            iron: [], copper: [], ruby: [], diamond: [], coal: [], lava: []
+        };
+        // Use the global WATER_LEVEL constant instead of a hardcoded value.
+        const waterLevel = WATER_LEVEL;
+        // For each column generate terrain, trees, water and bedrock
+        for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+            for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+                const wx = worldX0 + lx;
+                const wz = worldZ0 + lz;
+                const columnHeight = heights[`${wx},${wz}`];
+                // Determine the lowest y coordinate at which we want to make stone visible.
+                // The visible stone layers start just below the dirt layers.  For example,
+                // if columnHeight = 20, DIRT_LAYERS = 3 and STONE_VISIBLE_LAYERS = 10,
+                // then startStoneVisible = 20 - 3 - 10 + 1 = 8.  We clamp to 1 so
+                // that we never draw below bedrock.  Any stone block at y >= startStoneVisible
+                // will be drawn even if not exposed.
+                const startStoneVisible = Math.max(1, columnHeight - DIRT_LAYERS - STONE_VISIBLE_LAYERS + 1);
+                // Always place bedrock at y=0
+                {
+                    const m = new THREE.Matrix4();
+                    m.makeTranslation(wx + 0.5, 0 + 0.5, wz + 0.5);
+                    matrices.bedrock.push(m);
+                    positionsByType.bedrock.push({ x: wx, y: 0, z: wz });
+                    // store bedrock in voxelMap (unbreakable)
+                    voxelMap.set(`${wx},0,${wz}`, { type: 'bedrock', chunk: chunkKeyString });
+                }
+                // Terrain generation loop.  Start at y=1 because y=0 is reserved
+                // for bedrock.  Without this guard, a terrain block placed at
+                // y=0 would overwrite the bedrock entry in voxelMap and
+                // result in an unbreakable invisible block beneath the dirt.
+                for (let y = 1; y <= columnHeight; y++) {
+                    // Determine if block is exposed (visible) to avoid drawing hidden blocks
+                    // We'll still record voxels for collision and picking even if hidden.  For
+                    // simplicity, we keep the previous visibility test but still add the
+                    // voxelMap entry.
+                    const neighbourCoords = [[wx+1,wz],[wx-1,wz],[wx,wz+1],[wx,wz-1],[wx,wz]];
+                    let exposed = false;
+                    for (const [nx,nz] of neighbourCoords) {
+                        const nh = heights[`${nx},${nz}`];
+                        if (nh === undefined || nh < y+1) { exposed = true; break; }
+                    }
+                    // Skip blocks that lie within a cave entrance.  Entrance cells
+                    // remove the top ENTRANCE_DEPTH layers of the column, creating
+                    // a hole down into the world.  Continue to the next y if
+                    // this position lies inside an entrance.
+                    const cellKey = `${wx},${wz}`;
+                    if (entranceCells.has(cellKey) && y > columnHeight - ENTRANCE_DEPTH) {
+                        continue;
+                    }
+                    // Determine block type.  Surface blocks become grass (or sand below the
+                    // water level), the next DIRT_LAYERS blocks become dirt, and
+                    // everything below becomes stone.
+                    let matKey;
+                    if (y === columnHeight) {
+                        matKey = (columnHeight < waterLevel) ? 'sand' : 'grass';
+                    } else if (y >= columnHeight - DIRT_LAYERS) {
+                        matKey = 'dirt';
+                    } else {
+                        matKey = 'stone';
+                        // Introduce ores in deeper stone layers.  Use a
+                        // deterministic random seed based on world
+                        // coordinates and depth so ores align across
+                        // chunk boundaries.  Only generate ores below
+                        // the dirt layers to avoid ores appearing on
+                        // the surface.
+                        if (y <= columnHeight - DIRT_LAYERS) {
+                            const oreSeed = (seed ^ (wx * 912373) ^ (y * 190713) ^ (wz * 827927)) >>> 0;
+                            const oreRng  = mulberry32(oreSeed)();
+                            if (oreRng < 0.0007) {
+                                matKey = 'diamond';
+                            } else if (oreRng < 0.0015) {
+                                matKey = 'ruby';
+                            } else if (oreRng < 0.004) {
+                                matKey = 'copper';
+                            } else if (oreRng < 0.008) {
+                                matKey = 'iron';
+                            } else if (oreRng < 0.015) {
+                                matKey = 'coal';
+                            } else {
+                                // At very deep depths occasionally spawn lava instead of stone.
+                                if (y <= 6) {
+                                    // Use a secondary RNG for lava chance
+                                    const lavSeed = (oreSeed ^ 0x1234) >>> 0;
+                                    const lavRand = mulberry32(lavSeed)();
+                                if (lavRand < 0.02) {
+                                        matKey = 'lava';
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // Carve caves out of stone below the dirt layers.  A small
+                    // probability determines whether the current stone block is
+                    // removed entirely.  The random value is derived from the
+                    // global seed and the world coordinates, ensuring deterministic
+                    // caves that line up across chunk boundaries.
+                    let carved = false;
+                    if (matKey === 'stone' && y <= columnHeight - DIRT_LAYERS) {
+                        const rSeed = (seed ^ (wx * 92837111) ^ (y * 689287) ^ (wz * 1234567)) >>> 0;
+                        const rng = mulberry32(rSeed);
+                        if (rng() < CAVE_PROBABILITY) {
+                            carved = true;
+                        }
+                    }
+                    if (carved) {
+                        // Skip carved blocks completely
+                        continue;
+                    }
+                    // Record voxel in voxelMap irrespective of visibility
+                    voxelMap.set(`${wx},${y},${wz}`, { type: matKey, chunk: chunkKeyString });
+                    // Determine whether to draw this block.  Previously we
+                    // avoided drawing hidden blocks to improve performance, but
+                    // this resulted in "invisible" solid blocks that the player
+                    // could stand on but not see.  To fix that we now draw
+                    // every terrain block except those carved out to form
+                    // caves.  This eliminates the issue where invisible
+                    // collisions remain after terrain generation.  If you wish
+                    // to optimise further you could reintroduce the exposed
+                    // check here, but ensure that hidden voxels are also
+                    // considered non‑solid.
+                    let draw = true;
+                    // Keep support for optional exposure checks; in case
+                    // exposed is true we still draw, otherwise still true.
+                    // draw remains true regardless, so all blocks are drawn.
+                    if (!draw) continue;
+                    const m = new THREE.Matrix4();
+                    m.makeTranslation(wx + 0.5, y + 0.5, wz + 0.5);
+                    matrices[matKey].push(m);
+                    positionsByType[matKey].push({ x: wx, y, z: wz });
+                }
+                // Water generation loop
+                if (columnHeight < waterLevel) {
+                    for (let y = columnHeight + 1; y <= waterLevel; y++) {
+                        voxelMap.set(`${wx},${y},${wz}`, { type: 'water', chunk: chunkKeyString });
+                        const m = new THREE.Matrix4();
+                        m.makeTranslation(wx + 0.5, y + 0.5, wz + 0.5);
+                        matrices.water.push(m);
+                        positionsByType.water.push({ x: wx, y, z: wz });
+                    }
+                }
+                // Tree generation (only on ground above water level)
+                if (columnHeight > waterLevel + 1) {
+                    const rand = coordSeededRand(cx, cz, wx, wz)();
+                    if (rand < 0.02) {
+                        const trunkH = 3 + Math.floor(coordSeededRand(cx, cz, wx+1, wz)() * 3);
+                        for (let t = 1; t <= trunkH; t++) {
+                            const sy = columnHeight + t;
+                            voxelMap.set(`${wx},${sy},${wz}`, { type: 'wood', chunk: chunkKeyString });
+                            const tm = new THREE.Matrix4();
+                            tm.makeTranslation(wx + 0.5, sy + 0.5, wz + 0.5);
+                            matrices.wood.push(tm);
+                            positionsByType.wood.push({ x: wx, y: sy, z: wz });
+                        }
+                        const topY = columnHeight + trunkH;
+                        for (let lx2 = -1; lx2 <= 1; lx2++) {
+                            for (let lz2 = -1; lz2 <= 1; lz2++) {
+                                for (let ly2 = 0; ly2 <= 2; ly2++) {
+                                    if (Math.abs(lx2) === 1 && Math.abs(lz2) === 1 && ly2 === 2) continue;
+                                    const leafX = wx + lx2;
+                                    const leafY = topY + ly2;
+                                    const leafZ = wz + lz2;
+                                    voxelMap.set(`${leafX},${leafY},${leafZ}`, { type: 'leaves', chunk: chunkKeyString });
+                                    const lm = new THREE.Matrix4();
+                                    lm.makeTranslation(leafX + 0.5, leafY + 0.5, leafZ + 0.5);
+                                    matrices.leaves.push(lm);
+                                    positionsByType.leaves.push({ x: leafX, y: leafY, z: leafZ });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Create instanced meshes for each block type
+        const group = new THREE.Group();
+        group.position.set(0,0,0);
+        const instancedMeshes = [];
+        // For each type create instanced mesh and record mapping to voxelInstances
+        for (const key of Object.keys(matrices)) {
+            const mats = matrices[key];
+            if (mats.length === 0) continue;
+            const mat = blockMaterials[key];
+            const inst = new THREE.InstancedMesh(cubeGeometry, mat, mats.length);
+            inst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+            for (let i = 0; i < mats.length; i++) {
+                inst.setMatrixAt(i, mats[i]);
+            }
+            inst.matrixAutoUpdate = false;
+            group.add(inst);
+            instancedMeshes.push(inst);
+            // Register instance indices in voxelInstances
+            const positions = positionsByType[key];
+            for (let i = 0; i < positions.length; i++) {
+                const { x, y, z } = positions[i];
+                const globalKey = `${x},${y},${z}`;
+                voxelInstances.set(globalKey, { mesh: inst, index: i, chunk: chunkKeyString, type: key });
+            }
+        }
+        return { cx, cz, group, instancedMeshes };
+    }
+    // Dispose chunk
+    function disposeChunk(chunk) {
+        if (!chunk) return;
+        scene.remove(chunk.group);
+        for (const inst of chunk.instancedMeshes) {
+            if (inst.material) inst.material.dispose();
+        }
+        // Remove any voxel instance mappings belonging to this chunk and
+        // corresponding voxelMap entries.  The chunkKey is derived from the
+        // chunk's coordinates.  Dynamically placed blocks (chunk 'mod') are
+        // unaffected here.
+        const ck = `${chunk.cx},${chunk.cz}`;
+        for (const [key, info] of Array.from(voxelInstances.entries())) {
+            if (info.chunk === ck) {
+                voxelInstances.delete(key);
+                voxelMap.delete(key);
+            }
+        }
+    }
+    function clearAllChunks() {
+        for (const chunk of chunkMap.values()) disposeChunk(chunk);
+        chunkMap.clear();
+        // Remove all voxel entries associated with chunks
+        voxelMap.clear();
+        voxelInstances.clear();
+        // Remove any dynamically placed blocks from the scene
+        for (const mesh of modifiedMeshes) {
+            scene.remove(mesh);
+        }
+        modifiedMeshes.length = 0;
+    }
+    function cameraToChunkCoord(pos) {
+        const cx = Math.floor(pos.x / CHUNK_SIZE);
+        const cz = Math.floor(pos.z / CHUNK_SIZE);
+        return { cx, cz };
+    }
+    function updateVisibleChunks(force = false) {
+        const { cx: camCx, cz: camCz } = cameraToChunkCoord(camera.position);
+        const needed = new Set();
+        for (let dz = -VIEW_DISTANCE_CHUNKS; dz <= VIEW_DISTANCE_CHUNKS; dz++) {
+            for (let dx = -VIEW_DISTANCE_CHUNKS; dx <= VIEW_DISTANCE_CHUNKS; dx++) {
+                const cx = camCx + dx;
+                const cz = camCz + dz;
+                const key = `${cx},${cz}`;
+                needed.add(key);
+                if (!chunkMap.has(key) || force) {
+                    const chunk = generateChunk(cx, cz);
+                    chunkMap.set(key, chunk);
+                    scene.add(chunk.group);
+                }
+            }
+        }
+        for (const key of Array.from(chunkMap.keys())) {
+            if (!needed.has(key)) {
+                const chunk = chunkMap.get(key);
+                disposeChunk(chunk);
+                chunkMap.delete(key);
+            }
+        }
+    }
+
+    // --- Player state ---
+    const player = {
+        position: new THREE.Vector3(0, 10, 80),
+        velocityY: 0,
+        yaw: 0,
+        pitch: 0,
+        moveForward: false,
+        moveBackward: false,
+        moveLeft: false,
+        moveRight: false,
+        canJump: false,
+        isSprinting: false,
+        isCrouching: false,
+        crouchOffset: 0,
+    };
+    let pointerLocked = false;
+
+    // --- Init three.js and world ---
+    function init() {
+        scene = new THREE.Scene();
+        // Set an initial sky colour and fog – these will be updated in the
+        // day/night cycle.  The colour chosen here does not matter much
+        // because updateSky() will override it on the first frame.
+        scene.background = new THREE.Color(0x87ceeb);
+        scene.fog = new THREE.Fog(0x87ceeb, 150, 400);
+        camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 2000);
+        camera.position.copy(player.position);
+
+        // Initialize lastYPosition for fall damage calculations with the
+        // player's starting height.
+        lastYPosition = player.position.y;
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setPixelRatio(window.devicePixelRatio || 1);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+        // Initialise the sky elements including clouds, sun, moon, stars and
+        // dynamic lights.  initSky() will add its own lights; the old
+        // ambient and directional lights are no longer created here.
+        initSky();
+
+        // Audio listener and sound initialization
+        audioListener = new THREE.AudioListener();
+        camera.add(audioListener);
+        // Loader for step sounds
+        const audioLoader = new THREE.AudioLoader();
+        if (audioLoader.setCrossOrigin) audioLoader.setCrossOrigin('anonymous');
+        STEP_SOUND_URLS.forEach((url) => {
+            const sound = new THREE.Audio(audioListener);
+            audioLoader.load(url, (buffer) => {
+                sound.setBuffer(buffer);
+                sound.setVolume(0.5);
+            }, undefined, (err) => {
+                console.warn('Failed to load sound', url, err);
+            });
+            stepSounds.push(sound);
+        });
+        // Load dig/break sounds into separate arrays for each category.  A
+        // single AudioLoader instance can be reused for all sounds.  We set
+        // volume slightly lower to avoid overpowering the ambient music.
+        const digCategories = Object.keys(DIG_SOUND_URLS);
+        digCategories.forEach((cat) => {
+            digSounds[cat] = [];
+            DIG_SOUND_URLS[cat].forEach((url) => {
+                const s = new THREE.Audio(audioListener);
+                audioLoader.load(url, (buffer) => {
+                    s.setBuffer(buffer);
+                    s.setVolume(0.5);
+                }, undefined, (err) => {
+                    console.warn('Failed to load dig sound', url, err);
+                });
+                digSounds[cat].push(s);
+            });
+        });
+
+        // Load damage and death sounds.  Damage sounds play when the
+        // player takes damage (e.g. from falling or lava).  The death
+        // sound plays when health reaches zero.  These are loaded as
+        // HTMLAudioElements to allow easy volume control and playback.
+        const damageUrls = [
+            'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/damage/hit1.ogg',
+            'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/damage/hit2.ogg',
+            'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/damage/hit3.ogg'
+        ];
+        damageUrls.forEach((url) => {
+            const a = new Audio(url);
+            a.volume = 0.6 * masterVolume * sfxVolume;
+            damageSounds.push(a);
+        });
+        // Use hit3 as the death sound
+        deathSound = new Audio('https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/damage/hit3.ogg');
+        deathSound.volume = 0.7 * masterVolume * sfxVolume;
+        // Loader and audio object for background music
+        music = new THREE.Audio(audioListener);
+        musicLoader = new THREE.AudioLoader();
+        if (musicLoader.setCrossOrigin) musicLoader.setCrossOrigin('anonymous');
+        // Create a highlight mesh that outlines the targeted block.  It is
+        // invisible by default and will be positioned each frame when a block
+        // is under the crosshair.  The slight size increase (1.02) makes
+        // the outline visible around the block faces.
+        {
+            // Use EdgesGeometry to draw only the outer edges of the box.  This
+            // avoids the diagonal lines across the faces that appear when
+            // rendering a box in wireframe mode.  The slight size
+            // enlargement ensures the outline is visible around the
+            // targeted block.
+            const boxGeo = new THREE.BoxGeometry(1.02, 1.02, 1.02);
+            const edgesGeo = new THREE.EdgesGeometry(boxGeo);
+            const lineMat = new THREE.LineBasicMaterial({ color: 0xffff00, transparent: true, opacity: 0.9 });
+            highlightMesh = new THREE.LineSegments(edgesGeo, lineMat);
+            highlightMesh.visible = false;
+            scene.add(highlightMesh);
+        }
+
+        // Create a mesh to display block break cracks.  Minecraft shows
+        // progressive cracking as a block is being broken.  We predefine a
+        // slightly larger cube to avoid z‑fighting with the block surface.
+        // The material will be swapped each frame according to the break
+        // progress.  Initially invisible.
+        {
+            // Create a cracks mesh using a simple box geometry.  The box
+            // is slightly larger than a block (1.02 units) to prevent
+            // z‑fighting with the underlying voxel.  Unlike the previous
+            // implementation, no extrusion or random offsets are applied.
+            // This gives a flat overlay similar to Minecraft's crack
+            // texture, which appears as a 2D pattern on the block faces.
+            const cGeo = new THREE.BoxGeometry(1.02, 1.02, 1.02);
+            cracksMesh = new THREE.Mesh(cGeo, destroyMaterials[0]);
+            cracksMesh.visible = false;
+            scene.add(cracksMesh);
+        }
+        // Create a simple visible arm and block attached to the camera.  We
+        // group them so that animations can be applied to both together.
+        const armGeometry = new THREE.BoxBufferGeometry(0.3, 0.7, 0.3);
+        const armMaterial = new THREE.MeshStandardMaterial({ color: 0xffe0bd });
+        playerArm = new THREE.Mesh(armGeometry, armMaterial);
+        // Create the block mesh that shows the currently selected block.  It
+        // uses a smaller scale so it fits comfortably in view.  The
+        // material will be updated whenever the player changes the selected
+        // block type.
+        handBlock = new THREE.Mesh(cubeGeometry, blockMaterials[selectableTypes[selectedIndex]]);
+        handBlock.scale.set(0.4, 0.4, 0.4);
+        // Group the arm and block for animation.  The group itself is
+        // positioned relative to the camera, while the children are
+        // positioned within the group.  This makes it easy to animate
+        // rotations of the entire hand on place/break actions.
+        handGroup = new THREE.Group();
+        handGroup.add(playerArm);
+        handGroup.add(handBlock);
+        // Position and orient the arm within the group
+        playerArm.position.set(0.5, -0.6, -0.6);
+        playerArm.rotation.x = -Math.PI / 3;
+        playerArm.rotation.y = Math.PI / 10;
+        // Position the block slightly in front of the arm
+        handBlock.position.set(0.8, -0.55, -0.7);
+        // Position the hand group relative to the camera so it sits clearly in
+        // view.  Without setting a position, the group defaults to the
+        // camera's local origin which can place the arm outside the view frustum.
+        // Adjust these coordinates to taste; negative z moves the hand in
+        // front of the camera, positive x shifts it to the right and
+        // negative y lowers it slightly.  These values were tuned to
+        // approximate Minecraft's first-person arm placement.
+        // Position the hand group relative to the camera so it sits clearly in
+        // view.  Adjust these coordinates to taste; the hand should be
+        // visible on the right side of the screen.  A slightly closer z
+        // makes the arm more prominent.
+        handGroup.position.set(0.6, -0.6, -0.9);
+        // Capture the base position and rotation for animations
+        handBasePosition = handGroup.position.clone();
+        handBaseRotation = handGroup.rotation.clone();
+        // Attach the group to the camera
+        camera.add(handGroup);
+        // handle resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        // The legacy UI buttons have been removed.  World regeneration and
+        // repositioning can still be triggered via the exposed _voxelWorld
+        // helpers in the console if needed, but no clickable UI is present.
+        // Initialize the hotbar UI once the DOM is ready.  The bar is hidden
+        // until pointer lock is acquired.
+        initHotbar();
+
+        // Initialise the inventory overlay and its UI elements.  This
+        // creates slots for each block type and sets up search and
+        // click handlers.  The inventory is hidden by default until
+        // toggled with the E key.
+        initInventoryUI();
+
+        // Initialize hearts UI and display full health at the start
+        updateHearts();
+
+        // initialize noise and chunks
+        perlinNoise = createPerlin(seed);
+        updateVisibleChunks(true);
+        // Apply volume settings now that audio objects have been created.  This
+        // call ensures that in‑game music and sound effects respect the
+        // saved master/music/SFX volumes from localStorage.
+        if (typeof applyVolumeSettings === 'function') applyVolumeSettings();
+        // pointer lock handling
+        renderer.domElement.addEventListener('click', () => {
+            if (!pointerLocked) {
+                renderer.domElement.requestPointerLock();
+            }
+        });
+        document.addEventListener('pointerlockchange', () => {
+            pointerLocked = document.pointerLockElement === renderer.domElement;
+            // show/hide crosshair
+            document.getElementById('crosshair').style.display = pointerLocked ? 'block' : 'none';
+            // slide the hotbar into view when pointer is locked
+            const bar = document.getElementById('hotbar');
+            if (bar) {
+                if (pointerLocked) bar.classList.add('visible');
+                else bar.classList.remove('visible');
+            }
+            // Start background music when the user first locks the pointer
+            if (pointerLocked && !musicStarted) {
+                musicStarted = true;
+                playRandomMusic();
+            }
+        });
+        document.addEventListener('mousemove', (event) => {
+            if (!pointerLocked) return;
+            const sensitivity = 0.002;
+            player.yaw   -= event.movementX * sensitivity;
+            player.pitch -= event.movementY * sensitivity;
+            // clamp pitch to avoid flipping over (approx +/- 90 deg)
+            const maxPitch = Math.PI / 2 - 0.1;
+            player.pitch = Math.max(-maxPitch, Math.min(maxPitch, player.pitch));
+        });
+        // key handling
+        document.addEventListener('keydown', (e) => {
+            switch (e.code) {
+                case 'KeyW': case 'ArrowUp': player.moveForward = true; break;
+                case 'KeyS': case 'ArrowDown': player.moveBackward = true; break;
+                case 'KeyA': case 'ArrowLeft': player.moveLeft = true; break;
+                case 'KeyD': case 'ArrowRight': player.moveRight = true; break;
+                case 'Space':
+                    if (player.canJump) {
+                        // Initiate jump and trigger a step sound on jump
+                        player.velocityY = JUMP_VELOCITY;
+                        player.canJump = false;
+                        playRandomStepSound();
+                    }
+                    break;
+                case 'ShiftLeft':
+                case 'ShiftRight':
+                    player.isSprinting = true;
+                    break;
+            case 'ControlLeft':
+            case 'ControlRight':
+                player.isCrouching = true;
+                player.crouchOffset = 0.5;
+                break;
+            case 'KeyE': {
+                // Open or close the inventory overlay.  Prevent default
+                // behaviour to avoid triggering browser search or other
+                // actions.  Toggling inventory unlocks pointer and
+                // pauses/resumes the game accordingly.  Do not toggle
+                // when pointer lock is not yet acquired (e.g. menu).
+                e.preventDefault();
+                toggleInventory();
+                break;
+            }
+                // Number keys 1–9 change the selected block type for placement
+                case 'Digit1':
+                case 'Digit2':
+                case 'Digit3':
+                case 'Digit4':
+                case 'Digit5':
+                case 'Digit6':
+                case 'Digit7':
+                case 'Digit8':
+                case 'Digit9': {
+                    // Convert the last character of the code to an index (0‑based)
+                    const idx = parseInt(e.code.substr(5)) - 1;
+                    if (idx >= 0 && idx < selectableTypes.length) {
+                        selectedIndex = idx;
+                        updateHandBlockMaterial();
+                    }
+                    break;
+                }
+            }
+        });
+        document.addEventListener('keyup', (e) => {
+            switch (e.code) {
+                case 'KeyW': case 'ArrowUp': player.moveForward = false; break;
+                case 'KeyS': case 'ArrowDown': player.moveBackward = false; break;
+                case 'KeyA': case 'ArrowLeft': player.moveLeft = false; break;
+                case 'KeyD': case 'ArrowRight': player.moveRight = false; break;
+                case 'ShiftLeft':
+                case 'ShiftRight':
+                    player.isSprinting = false;
+                    break;
+            case 'ControlLeft':
+            case 'ControlRight':
+                player.isCrouching = false;
+                player.crouchOffset = 0;
+                break;
+            }
+        });
+
+        // Mouse input for breaking and placing blocks.  Listen on the
+        // renderer's DOM element to avoid receiving events when the pointer
+        // is not locked.  Right click placement uses contextmenu
+        // prevention.
+        renderer.domElement.addEventListener('mousedown', (e) => {
+            if (!pointerLocked) return;
+            if (e.button === 0) {
+                // Left click begins breaking the targeted block
+                startBreaking();
+            } else if (e.button === 2) {
+                // Right click places a block adjacent to the targeted block
+                e.preventDefault();
+                tryPlaceBlock();
+            }
+        });
+        // Do not cancel breaking on mouse up.  The break timer runs
+        // independent of the mouse button state and is cancelled only if
+        // the targeted block changes or the player starts a new break.  This
+        // makes breaking more forgiving – you don't need to hold the button
+        // continuously for the full duration.
+        renderer.domElement.addEventListener('mouseup', (e) => {
+            // Left mouse release no longer cancels breaking.
+        });
+        renderer.domElement.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+        });
+        // update visible chunks periodically based on player's chunk
+        let lastCamChunk = cameraToChunkCoord(player.position);
+        setInterval(() => {
+            const curr = cameraToChunkCoord(player.position);
+            if (curr.cx !== lastCamChunk.cx || curr.cz !== lastCamChunk.cz) {
+                lastCamChunk = curr;
+                updateVisibleChunks();
+            }
+        }, 500);
+    }
+    // Helper: get the highest solid block Y at world (x,z).  Returns the
+    // integer y coordinate of the highest block at the given column.  If no
+    // blocks have been generated at that column, return -Infinity.  This
+    // function is used for collision detection and to determine the ground
+    // surface; the player's centre should be positioned at (highest + 1 +
+    // PLAYER_HEIGHT/2) to stand on top of the block.
+    function getHighestBlockY(x, z) {
+        const ix = Math.floor(x);
+        const iz = Math.floor(z);
+        const key = `${ix},${iz}`;
+        return (heightMap[key] !== undefined) ? heightMap[key] : -Infinity;
+    }
+    // Helper: test if there is a solid voxel at integer (x,y,z)
+    function isSolid(x, y, z) {
+        const entry = voxelMap.get(`${x},${y},${z}`);
+        if (!entry) return false;
+        const t = entry.type;
+        // water and leaves are non-solid; everything else is solid
+        return (t !== 'water' && t !== 'leaves' && t !== 'lava');
+    }
+
+    // Cast a ray from the camera forward into the world to find the first
+    // voxel that intersects the ray.  Returns an object with the voxel
+    // coordinates { x, y, z }, the type of voxel, and the face normal of
+    // the intersection.  If no block is hit within maxDist the function
+    // returns null.  This uses a 3D DDA algorithm for efficiency.
+    function pickBlock(maxDist = 6) {
+        // Starting position and direction from the camera
+        const origin = camera.position.clone();
+        const dir = new THREE.Vector3(0,0,-1).applyEuler(camera.rotation).normalize();
+        // Initialize voxel coordinates
+        let x = Math.floor(origin.x);
+        let y = Math.floor(origin.y);
+        let z = Math.floor(origin.z);
+        // Determine the step direction and initial tMax and tDelta values
+        const stepX = (dir.x > 0) ? 1 : (dir.x < 0 ? -1 : 0);
+        const stepY = (dir.y > 0) ? 1 : (dir.y < 0 ? -1 : 0);
+        const stepZ = (dir.z > 0) ? 1 : (dir.z < 0 ? -1 : 0);
+        const tDeltaX = (dir.x !== 0) ? Math.abs(1 / dir.x) : Infinity;
+        const tDeltaY = (dir.y !== 0) ? Math.abs(1 / dir.y) : Infinity;
+        const tDeltaZ = (dir.z !== 0) ? Math.abs(1 / dir.z) : Infinity;
+        // Compute initial distances to the first voxel boundary
+        let tMaxX, tMaxY, tMaxZ;
+        if (dir.x > 0) {
+            tMaxX = ((x + 1) - origin.x) / dir.x;
+        } else if (dir.x < 0) {
+            tMaxX = (origin.x - x) / -dir.x;
+        } else {
+            tMaxX = Infinity;
+        }
+        if (dir.y > 0) {
+            tMaxY = ((y + 1) - origin.y) / dir.y;
+        } else if (dir.y < 0) {
+            tMaxY = (origin.y - y) / -dir.y;
+        } else {
+            tMaxY = Infinity;
+        }
+        if (dir.z > 0) {
+            tMaxZ = ((z + 1) - origin.z) / dir.z;
+        } else if (dir.z < 0) {
+            tMaxZ = (origin.z - z) / -dir.z;
+        } else {
+            tMaxZ = Infinity;
+        }
+        let dist = 0;
+        let lastAxis = null;
+        while (dist <= maxDist) {
+            // Check current voxel
+            const key = `${x},${y},${z}`;
+            const entry = voxelMap.get(key);
+            // Only consider solid blocks (skip water and leaves).  Hidden
+            // blocks remain pickable so that the player can break through
+            // dirt and stone layers even when they are not yet exposed.
+            if (entry && entry.type !== 'water' && entry.type !== 'leaves') {
+                // Determine face normal based on last stepped axis
+                let normal;
+                if (lastAxis === 'x') normal = new THREE.Vector3(-stepX, 0, 0);
+                else if (lastAxis === 'y') normal = new THREE.Vector3(0, -stepY, 0);
+                else if (lastAxis === 'z') normal = new THREE.Vector3(0, 0, -stepZ);
+                else normal = new THREE.Vector3(0,0,0);
+                return { x, y, z, type: entry.type, normal };
+            }
+            // Step to next voxel along the ray
+            if (tMaxX < tMaxY) {
+                if (tMaxX < tMaxZ) {
+                    x += stepX;
+                    dist = tMaxX;
+                    tMaxX += tDeltaX;
+                    lastAxis = 'x';
+                } else {
+                    z += stepZ;
+                    dist = tMaxZ;
+                    tMaxZ += tDeltaZ;
+                    lastAxis = 'z';
+                }
+            } else {
+                if (tMaxY < tMaxZ) {
+                    y += stepY;
+                    dist = tMaxY;
+                    tMaxY += tDeltaY;
+                    lastAxis = 'y';
+                } else {
+                    z += stepZ;
+                    dist = tMaxZ;
+                    tMaxZ += tDeltaZ;
+                    lastAxis = 'z';
+                }
+            }
+        }
+        return null;
+    }
+    // Update player movement & physics
+    let prevTime = performance.now();
+    function animate() {
+        requestAnimationFrame(animate);
+        const time = performance.now();
+        const delta = (time - prevTime) / 1000;
+        prevTime = time;
+        // If the game is paused, render the scene without updating the world.
+        if (isPaused) {
+            renderer.render(scene, camera);
+            return;
+        }
+        // only update if pointer is locked (for orientation) but always move
+        // Update camera orientation from player yaw/pitch
+        camera.rotation.order = 'YXZ';
+        camera.rotation.y = player.yaw;
+        camera.rotation.x = player.pitch;
+
+        // Update day/night cycle and cloud movement.  These functions
+        // adjust the sky colours, sun and moon positions, star opacity,
+        // lighting intensities and reposition clouds relative to the
+        // camera.  They rely on delta time and the current camera
+        // position.
+        updateSky(delta);
+        updateClouds(delta);
+        // Determine movement direction on the XZ plane
+        const forward = new THREE.Vector3(0,0,-1).applyAxisAngle(new THREE.Vector3(0,1,0), player.yaw);
+        const right  = new THREE.Vector3(1,0,0).applyAxisAngle(new THREE.Vector3(0,1,0), player.yaw);
+        let moveDir = new THREE.Vector3();
+        if (player.moveForward) moveDir.add(forward);
+        if (player.moveBackward) moveDir.add(forward.clone().multiplyScalar(-1));
+        if (player.moveRight)   moveDir.add(right);
+        if (player.moveLeft)    moveDir.add(right.clone().multiplyScalar(-1));
+        const moving = (moveDir.lengthSq() > 0);
+        if (moving) moveDir.normalize();
+        // Proposed new horizontal position.  Apply sprint multiplier
+        const speedMult = player.isSprinting ? 1.6 : 1.0;
+        const newX = player.position.x + moveDir.x * MOVE_SPEED * speedMult * delta;
+        const newZ = player.position.z + moveDir.z * MOVE_SPEED * speedMult * delta;
+        // Determine highest block columns for step check
+        const curCol = getHighestBlockY(player.position.x, player.position.z);
+        const newCol = getHighestBlockY(newX, newZ);
+        let allowMove = true;
+        // Disallow stepping up too high
+        if (newCol - curCol > STEP_MAX) {
+            allowMove = false;
+        }
+        // Horizontal collision detection with solid voxels (trees etc.)
+        let blocked = false;
+        const floorCurX = Math.floor(player.position.x);
+        const floorCurZ = Math.floor(player.position.z);
+        const floorNewX = Math.floor(newX);
+        const floorNewZ = Math.floor(newZ);
+        if ((floorNewX !== floorCurX) || (floorNewZ !== floorCurZ)) {
+            // Vertical range excluding the ground block
+            const yStart = Math.floor((player.position.y - PLAYER_HEIGHT/2) + 0.001) + 1;
+            const yEnd   = Math.floor((player.position.y + PLAYER_HEIGHT/2) - 0.001);
+            for (let y = yStart; y <= yEnd; y++) {
+                if (isSolid(floorNewX, y, floorNewZ)) {
+                    blocked = true;
+                    break;
+                }
+            }
+        }
+        if (!blocked && allowMove) {
+            player.position.x = newX;
+            player.position.z = newZ;
+        }
+        // Apply gravity
+        player.velocityY -= GRAVITY * delta;
+        let newY = player.position.y + player.velocityY * delta;
+        // Determine ground surface (centre position to stand on top of highest block)
+        const highestBelow = getHighestBlockY(player.position.x, player.position.z);
+        const groundHeight = (highestBelow + 1) + PLAYER_HEIGHT/2;
+        // Handle ground collision
+        if (newY <= groundHeight) {
+            newY = groundHeight;
+            player.velocityY = 0;
+            player.canJump = true;
+        }
+        // Handle collision when head hits a solid block above
+        const headY = newY + PLAYER_HEIGHT/2;
+        const headCellY = Math.floor(headY);
+        const cellX = Math.floor(player.position.x);
+        const cellZ = Math.floor(player.position.z);
+        if (isSolid(cellX, headCellY, cellZ)) {
+            // Player hit the bottom of a block – clamp position just below it
+            newY = headCellY - PLAYER_HEIGHT/2 - 0.001;
+            // Invert upward velocity
+            if (player.velocityY > 0) player.velocityY = 0;
+        }
+        player.position.y = newY;
+        // Determine whether player is currently on the ground
+        const onGround = (player.velocityY === 0 && player.canJump);
+
+        // Track fall distance for damage calculation.  When the player is
+        // descending, accumulate the vertical distance fallen.  When
+        // ascending or standing on ground reset the fall distance.  If
+        // the player lands (transition from not onGround to onGround)
+        // apply fall damage based on the accumulated distance.  Damage
+        // increases by one heart per four blocks beyond a safe drop of
+        // four blocks.
+        if (!onGround) {
+            // Accumulate fall distance whenever the player is moving downwards.
+            if (player.position.y < lastYPosition) {
+                fallDistance += (lastYPosition - player.position.y);
+            }
+        }
+        // Landing detection: if the player has just landed, compute fall
+        // damage and play a landing sound.  fallDistance is reset above
+        // when onGround is true, so use the stored distance from the
+        // previous frame.  Only apply damage if the drop was greater
+        // than 4 units.  Damage scales with distance.
+        if (!wasOnGround && onGround) {
+            // Player has just landed.  Use the accumulated fall distance
+            // before resetting it.  After computing damage, reset
+            // fallDistance so that subsequent jumps start fresh.
+            const landedDist = fallDistance;
+            if (landedDist > 4) {
+                const dmg = Math.ceil((landedDist - 4) / 4);
+                dealDamage(dmg);
+            }
+            // Reset fall distance now that damage has been computed
+            fallDistance = 0;
+            playRandomStepSound();
+        }
+        // Play walking step sounds while moving on ground, throttled by interval
+        if (onGround && moving) {
+            if (time - lastStepSoundTime >= STEP_SOUND_INTERVAL * 1000) {
+                playRandomStepSound();
+                lastStepSoundTime = time;
+            }
+        }
+        // Update previous ground state
+        wasOnGround = onGround;
+        // Update camera position.  Copy from player position and apply
+        // crouch offset if crouching.  The crouch offset lowers the
+        // camera smoothly while crouch is engaged.  The Y position of
+        // the player itself remains unchanged so collision detection
+        // continues to work correctly.
+        camera.position.copy(player.position);
+        camera.position.y -= player.crouchOffset;
+        // Update highlight position based on current look direction.  We
+        // raycast into the world to find the targeted block.  If a solid
+        // block is hit, position and show the highlight mesh; otherwise
+        // hide it.  While breaking, if the target changes or goes out of
+        // range the break is cancelled.  If the break timer completes,
+        // remove the block, spawn debris and play a dig sound.
+        const hit = pickBlock();
+        if (hit) {
+            highlightMesh.visible = true;
+            highlightMesh.position.set(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5);
+        } else {
+            highlightMesh.visible = false;
+        }
+        // If we are not currently breaking, ensure the crack overlay is hidden
+        if (!isBreaking && cracksMesh) {
+            cracksMesh.visible = false;
+        }
+        if (isBreaking) {
+            // Cancel breaking if looking at a different block or no block
+            if (!hit || hit.x !== breakTarget.x || hit.y !== breakTarget.y || hit.z !== breakTarget.z) {
+                cancelBreaking();
+            } else {
+                const elapsed = time - breakStartTime;
+                // Update cracks overlay material and position based on break progress
+                if (cracksMesh) {
+                    let stage = Math.floor((elapsed / BREAK_DURATION) * 10);
+                    if (stage < 0) stage = 0;
+                    if (stage > 9) stage = 9;
+                    cracksMesh.material = destroyMaterials[stage];
+                    cracksMesh.position.set(breakTarget.x + 0.5, breakTarget.y + 0.5, breakTarget.z + 0.5);
+                }
+                if (elapsed >= BREAK_DURATION) {
+                    // break complete
+                    removeVoxel(breakTarget.x, breakTarget.y, breakTarget.z);
+                    spawnDebris(breakTarget.x, breakTarget.y, breakTarget.z, breakTarget.type);
+                    playRandomDigSound(breakTarget.type);
+                    cancelBreaking();
+                }
+            }
+        }
+        // Animate hand when placing or breaking.  A short animation moves
+        // the hand forward/back or rotates it downward, similar to
+        // Minecraft.  handAnimTime runs from 0 to 1 over the course of
+        // 0.3 seconds.  After completion the animation resets.
+        if (handAnimType) {
+            const animDuration = 0.3;
+            handAnimTime += delta / animDuration;
+            if (handAnimTime >= 1) {
+                handAnimTime = 0;
+                handAnimType = null;
+                // Reset to the default hand pose after animation
+                handGroup.rotation.copy(handBaseRotation);
+                handGroup.position.copy(handBasePosition);
+            } else {
+                const t = handAnimTime;
+                if (handAnimType === 'break') {
+                    // break animation: swing hand downward then return relative to base
+                    const angle = Math.sin(t * Math.PI) * 0.6;
+                    handGroup.rotation.x = handBaseRotation.x - angle;
+                } else if (handAnimType === 'place') {
+                    // place animation: thrust forward and back relative to base position
+                    const offset = Math.sin(t * Math.PI) * 0.4;
+                    handGroup.position.z = handBasePosition.z - offset;
+                }
+            }
+        }
+        // Update debris pieces: apply velocity and gravity, update life and
+        // remove when expired.  A small gravity value is used here to
+        // simulate falling pieces separate from the player's gravity.
+        for (let i = debrisPieces.length - 1; i >= 0; i--) {
+            const d = debrisPieces[i];
+            d.velocity.y -= GRAVITY * delta * 0.5;
+            d.mesh.position.addScaledVector(d.velocity, delta);
+            d.life -= delta;
+            if (d.life <= 0) {
+                scene.remove(d.mesh);
+                debrisPieces.splice(i, 1);
+            }
+        }
+        // Update dropped items: move them under gravity and check for
+        // collection by the player.  This call ensures that spawned
+        // items fall to the ground and can be picked up.
+        updateDroppedItems(delta);
+
+        // Process a subset of water cells to simulate flowing water.  This
+        // spreads newly placed water into adjacent empty blocks over
+        // time.  Limiting the number of processed cells per frame
+        // prevents the simulation from consuming too much CPU.
+        updateFluidSimulation();
+        // Frustum culling for chunks: hide chunk groups outside the camera
+        // view frustum to improve performance.  A conservative bounding box
+        // is computed for each chunk based on its world coordinates.  If
+        // the frustum does not intersect the chunk's bounding box, we hide
+        // its group.  Otherwise we show it.  This helps avoid drawing
+        // chunks that are behind the player or far out of view.
+        {
+            const projScreenMatrix = new THREE.Matrix4();
+            projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+            const frustum = new THREE.Frustum();
+            frustum.setFromProjectionMatrix(projScreenMatrix);
+            for (const chunk of chunkMap.values()) {
+                // compute chunk bounding box
+                const minX = chunk.cx * CHUNK_SIZE;
+                const minZ = chunk.cz * CHUNK_SIZE;
+                const maxX = minX + CHUNK_SIZE;
+                const maxZ = minZ + CHUNK_SIZE;
+                const box = new THREE.Box3(new THREE.Vector3(minX, 0, minZ), new THREE.Vector3(maxX, CHUNK_HEIGHT, maxZ));
+                chunk.group.visible = frustum.intersectsBox(box);
+            }
+        }
+
+        // Render the scene
+        renderer.render(scene, camera);
+
+        // Lava damage: apply damage over time when the player's feet are
+        // inside a lava block.  Each second spent in lava removes one
+        // heart.  lavaAccumulator stores accumulated time in seconds.
+        {
+            const fx = Math.floor(player.position.x);
+            const fy = Math.floor(player.position.y - PLAYER_HEIGHT / 2 + 0.001);
+            const fz = Math.floor(player.position.z);
+            const entry = voxelMap.get(`${fx},${fy},${fz}`);
+            if (entry && entry.type === 'lava') {
+                lavaAccumulator += delta;
+                if (lavaAccumulator >= 1.0) {
+                    const dmg = Math.floor(lavaAccumulator);
+                    lavaAccumulator -= dmg;
+                    dealDamage(dmg);
+                }
+            } else {
+                lavaAccumulator = 0;
+            }
+        }
+
+        // Store last Y position for fall damage calculations on the next frame
+        lastYPosition = player.position.y;
+    }
+
+    // Play a random step or landing sound from the loaded stepSounds array.  If no
+    // sounds have finished loading yet, this function safely returns.  When a
+    // sound is selected that is already playing, it is stopped before
+    // restarting to avoid overlapping the same sound.
+    function playRandomStepSound() {
+        if (!stepSounds || stepSounds.length === 0) return;
+        const index = Math.floor(Math.random() * stepSounds.length);
+        const sound = stepSounds[index];
+        if (!sound.buffer) {
+            // buffer not loaded yet
+            return;
+        }
+        if (sound.isPlaying) {
+            sound.stop();
+        }
+        sound.play();
+    }
+
+    // Play a random background music track.  Each track will be loaded via
+    // musicLoader and played through the same Audio object.  When a track
+    // finishes playing, the onEnded callback triggers this function again to
+    // continue playing music indefinitely.
+    function playRandomMusic() {
+        if (!MUSIC_TRACKS || MUSIC_TRACKS.length === 0) return;
+        const url = MUSIC_TRACKS[Math.floor(Math.random() * MUSIC_TRACKS.length)];
+        musicLoader.load(url, (buffer) => {
+            music.setBuffer(buffer);
+            music.setLoop(false);
+            // Volume is determined by the global master and music volume
+            music.setVolume(masterVolume * musicVolume);
+            // assign an ended callback each time we set a new buffer
+            music.onEnded = () => {
+                playRandomMusic();
+            };
+            music.play();
+        }, undefined, (err) => {
+            console.warn('Error loading music', url, err);
+        });
+    }
+
+    // Update the material of the handBlock mesh to reflect the currently
+    // selected block type.  This is called whenever the player presses 1–4.
+    function updateHandBlockMaterial() {
+        if (!handBlock) return;
+        const type = selectableTypes[selectedIndex];
+        const mat = blockMaterials[type];
+        // Clone the material to avoid sharing across hands?  We can reuse the same
+        // material to keep memory low.
+        handBlock.material = mat;
+        // Update the hotbar highlight when the selection changes
+        if (typeof updateHotbarSelection === 'function') updateHotbarSelection();
+        // Show a tooltip indicating the block name and key number
+        if (typeof showSelectionTooltip === 'function') {
+            showSelectionTooltip(type, selectedIndex);
+        }
+    }
+
+    // Initialize the hotbar by creating DOM elements for each selectable type.
+    // This should be called once during init().  Each slot shows an icon
+    // corresponding to the block type, and the currently selected slot is
+    // highlighted.
+    function initHotbar() {
+        const bar = document.getElementById('hotbar');
+        // Clear any existing children in case of reinitialisation
+        while (bar.firstChild) bar.removeChild(bar.firstChild);
+        hotbarSlots = [];
+        for (let i = 0; i < selectableTypes.length; i++) {
+            const slot = document.createElement('div');
+            slot.className = 'hotbar-slot';
+            const img = document.createElement('img');
+            const type = selectableTypes[i];
+            img.src = hotbarIcons[type] || '';
+            slot.appendChild(img);
+            bar.appendChild(slot);
+            hotbarSlots.push(slot);
+        }
+        updateHotbarSelection();
+
+        // Reference the selection tooltip element.  It's a singleton in the
+        // DOM.  This ensures we capture it once for later positioning and
+        // updates.  The tooltip will remain hidden until explicitly shown.
+        selectionTooltip = document.getElementById('selectionTooltip');
+    }
+
+    // Highlight the currently selected hotbar slot.  Called whenever
+    // selectedIndex changes.
+    function updateHotbarSelection() {
+        if (!hotbarSlots || hotbarSlots.length === 0) return;
+        for (let i = 0; i < hotbarSlots.length; i++) {
+            const slot = hotbarSlots[i];
+            if (i === selectedIndex) {
+                slot.classList.add('selected');
+            } else {
+                slot.classList.remove('selected');
+            }
+        }
+    }
+
+    // --- Health UI helpers ---
+    // Update the heart display based on the player's current health.  A
+    // filled heart is represented by a red unicode heart.  Empty hearts
+    // are grey.  The hearts container is cleared and repopulated on each
+    // call.
+    function updateHearts() {
+        const container = document.getElementById('heartContainer');
+        if (!container) return;
+        // Clear existing hearts
+        container.innerHTML = '';
+        for (let i = 0; i < maxHealth; i++) {
+            const span = document.createElement('span');
+            span.classList.add('heart');
+            if (i < health) {
+                span.textContent = '❤';
+            } else {
+                span.textContent = '❤';
+                span.classList.add('empty');
+            }
+            container.appendChild(span);
+        }
+    }
+
+    // --- Inventory UI helpers ---
+    // Build the inventory grid.  This function creates grid elements for
+    // every block type known to the game (as defined in blockNames).  The
+    // grid entries display the block's icon and its count in the
+    // inventory.  Clicking an entry will select that block for placement
+    // by changing selectedIndex and updating the hotbar selection.  The
+    // search field filters the visible items based on the block name.
+    function initInventoryUI() {
+        const grid = document.getElementById('inventoryGrid');
+        const searchInput = document.getElementById('inventorySearch');
+        const closeBtn = document.getElementById('closeInventory');
+        if (!grid || !searchInput || !closeBtn) return;
+        // Add input listener to filter grid
+        searchInput.addEventListener('input', () => {
+            updateInventoryUI();
+        });
+        // Close button toggles off the overlay
+        closeBtn.addEventListener('click', () => {
+            toggleInventory();
+        });
+        // Create grid slot elements for each block type once; we will
+        // update their counts and visibility in updateInventoryUI().
+        grid.innerHTML = '';
+        Object.keys(blockNames).forEach((type) => {
+            const slot = document.createElement('div');
+            slot.className = 'inv-slot';
+            slot.dataset.type = type;
+            // Icon image
+            const img = document.createElement('img');
+            img.src = hotbarIcons[type] || '';
+            img.style.pointerEvents = 'none';
+            slot.appendChild(img);
+            // Count label
+            const countSpan = document.createElement('span');
+            countSpan.className = 'inv-count';
+            countSpan.style.position = 'absolute';
+            countSpan.style.bottom = '4px';
+            countSpan.style.right = '4px';
+            countSpan.style.fontSize = '0.7rem';
+            countSpan.style.color = '#fff';
+            slot.appendChild(countSpan);
+            // Click handler to select block and close inventory
+            slot.addEventListener('click', () => {
+                // Set selected index to this block type if present in selectableTypes
+                const idx = selectableTypes.indexOf(type);
+                if (idx >= 0) {
+                    selectedIndex = idx;
+                    updateHotbarSelection();
+                    updateHandBlockMaterial();
+                }
+                toggleInventory();
+            });
+            grid.appendChild(slot);
+        });
+        updateInventoryUI();
+    }
+
+    // Refresh the inventory grid contents.  This is called whenever the
+    // inventory overlay is opened or when the search/filter changes or
+    // when item counts are updated.  Each slot's count is updated and
+    // slots that do not match the search query are hidden.
+    function updateInventoryUI() {
+        const grid = document.getElementById('inventoryGrid');
+        const searchInput = document.getElementById('inventorySearch');
+        if (!grid || !searchInput) return;
+        const query = searchInput.value.trim().toLowerCase();
+        const slots = grid.children;
+        for (let i = 0; i < slots.length; i++) {
+            const slot = slots[i];
+            const type = slot.dataset.type;
+            const countLabel = slot.querySelector('.inv-count');
+            const count = inventory[type] || 0;
+            countLabel.textContent = (count > 0) ? count.toString() : '';
+            // Show or hide based on search query
+            if (!query || blockNames[type].toLowerCase().includes(query)) {
+                slot.style.display = '';
+            } else {
+                slot.style.display = 'none';
+            }
+        }
+    }
+
+    // Toggle the inventory overlay.  When opening, release pointer lock
+    // and pause the game.  When closing, reapply pointer lock and
+    // resume.  Inventory toggling is bound to the 'E' key.
+    function toggleInventory() {
+        const overlay = document.getElementById('inventoryOverlay');
+        if (!overlay) return;
+        if (!inventoryOpen) {
+            // Opening inventory
+            inventoryOpen = true;
+            overlay.style.display = 'flex';
+            updateInventoryUI();
+            // Unlock pointer if locked
+            if (document.pointerLockElement) {
+                document.exitPointerLock();
+            }
+            // Pause the game if not already paused
+            if (!window.isPaused && typeof window.showPauseMenu === 'function') {
+                // Instead of showing pause menu, just set paused state
+                window.isPaused = true;
+            }
+        } else {
+            // Closing inventory
+            inventoryOpen = false;
+            overlay.style.display = 'none';
+            // Restore pointer lock
+            if (!document.pointerLockElement) {
+                const canvas = renderer.domElement;
+                if (canvas.requestPointerLock) canvas.requestPointerLock();
+            }
+            // Resume game (unpause) if it was paused by inventory
+            if (window.isPaused && typeof window.hidePauseMenu === 'function') {
+                // Only set paused false if pause menu isn't open
+                if (!window.pauseMenuElement || window.pauseMenuElement.style.display !== 'flex') {
+                    window.isPaused = false;
+                }
+            }
+        }
+    }
+    // Apply damage to the player.  Decreases health by the given
+    // amount (minimum 1).  Plays a random damage sound and updates
+    // hearts.  If health reaches zero, triggers death.
+    function dealDamage(amount) {
+        amount = Math.max(1, Math.floor(amount));
+        health -= amount;
+        if (health < 0) health = 0;
+        // Play random damage sound if any health remains
+        if (health > 0 && damageSounds.length > 0) {
+            const idx = Math.floor(Math.random() * damageSounds.length);
+            try {
+                damageSounds[idx].currentTime = 0;
+                damageSounds[idx].volume = 0.6 * masterVolume * sfxVolume;
+                damageSounds[idx].play();
+            } catch (e) {}
+        }
+        updateHearts();
+        if (health <= 0) {
+            die();
+        }
+    }
+    // Handle player death.  Show the death screen, play the death
+    // sound and freeze the game.  Exits pointer lock and marks the game
+    // as paused so the world stops updating.  The camera is slightly
+    // tilted for dramatic effect.
+    function die() {
+        // Play death sound once
+        if (deathSound) {
+            try {
+                deathSound.currentTime = 0;
+                deathSound.volume = 0.7 * masterVolume * sfxVolume;
+                deathSound.play();
+            } catch (e) {}
+        }
+        // Show death screen overlay
+        const deathEl = document.getElementById('deathScreen');
+        if (deathEl) {
+            deathEl.style.display = 'flex';
+        }
+        // Tilt the camera sideways
+        camera.rotation.z = Math.PI / 2;
+        // Pause the game
+        isPaused = true;
+        window.isPaused = true;
+        // Exit pointer lock
+        if (document.pointerLockElement) {
+            document.exitPointerLock();
+        }
+    }
+    // Respawn the player after death.  Restores full health, resets
+    // position and clears the camera tilt.  Hides the death screen and
+    // resumes the game.
+    function respawn() {
+        health = maxHealth;
+        updateHearts();
+        // Reset camera tilt
+        camera.rotation.z = 0;
+        // Reset player position: find highest block at spawn (0,0)
+        const groundY = getHighestBlockY(0, 0);
+        player.position.set(0, (groundY + 1) + PLAYER_HEIGHT/2, 0);
+        player.velocityY = 0;
+        // Hide death screen
+        const deathEl = document.getElementById('deathScreen');
+        if (deathEl) {
+            deathEl.style.display = 'none';
+        }
+        // Resume game
+        isPaused = false;
+        window.isPaused = false;
+        // Request pointer lock again
+        const canvas = document.querySelector('canvas');
+        if (canvas && !document.pointerLockElement) {
+            if (canvas.requestPointerLock) canvas.requestPointerLock();
+        }
+    }
+
+    // Expose health functions on the global object so that the pause
+    // overlay and other scripts can trigger respawn when the death
+    // screen buttons are clicked.  Without this export the functions
+    // would be scoped to this closure and inaccessible.
+    window.updateHearts = updateHearts;
+    window.dealDamage   = dealDamage;
+    window.respawn      = respawn;
+
+    // Display a tooltip above the selected hotbar slot with the block name
+    // and number key.  The tooltip appears for a short duration then fades
+    // away.  It is repositioned based on the selected slot's screen
+    // coordinates.  If another selection happens before the previous
+    // tooltip disappears, the old timer is cleared and a new one starts.
+    function showSelectionTooltip(type, index) {
+        if (!selectionTooltip || !hotbarSlots || index < 0 || index >= hotbarSlots.length) return;
+        // Cancel any existing timeout so the tooltip persists for the full duration
+        if (tooltipTimeout) {
+            clearTimeout(tooltipTimeout);
+            tooltipTimeout = null;
+        }
+        // Set the tooltip text
+        const displayName = blockNames[type] || type;
+        selectionTooltip.textContent = `${displayName} (${index + 1})`;
+        // Position the tooltip relative to the selected slot
+        const slot = hotbarSlots[index];
+        const rect = slot.getBoundingClientRect();
+        selectionTooltip.style.left = `${rect.left + rect.width / 2}px`;
+        selectionTooltip.style.top  = `${rect.top - 6}px`;
+        // Translate so that the tooltip is centred horizontally and appears above the slot
+        selectionTooltip.style.transform = 'translate(-50%, -100%)';
+        // Show the tooltip
+        selectionTooltip.classList.add('visible');
+        // Hide the tooltip after one second
+        tooltipTimeout = setTimeout(() => {
+            selectionTooltip.classList.remove('visible');
+        }, 1000);
+    }
+
+    // Begin breaking the block currently under the crosshair.  The break
+    // target is stored and a timer is started.  Unbreakable blocks (such
+    // as bedrock) are ignored.  If no block is targeted nothing happens.
+    function startBreaking() {
+        if (isBreaking) return;
+        const hit = pickBlock();
+        if (!hit) return;
+        // bedrock is unbreakable
+        if (hit.type === 'bedrock') return;
+        isBreaking = true;
+        breakTarget = hit;
+        breakStartTime = performance.now();
+        handAnimTime = 0;
+        handAnimType = 'break';
+        // Show cracks overlay at the targeted block and reset to stage 0
+        if (cracksMesh) {
+            cracksMesh.visible = true;
+            cracksMesh.position.set(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5);
+            cracksMesh.material = destroyMaterials[0];
+        }
+    }
+
+    // Cancel the current breaking action, if any.
+    function cancelBreaking() {
+        isBreaking = false;
+        breakTarget = null;
+        breakStartTime = 0;
+        // Hide cracks overlay when breaking stops
+        if (cracksMesh) {
+            cracksMesh.visible = false;
+        }
+    }
+
+    // Attempt to place a block adjacent to the currently targeted block.  The
+    // new block is placed on the face indicated by the hit normal.  If the
+    // destination is occupied or would intersect the player, nothing happens.
+    function tryPlaceBlock() {
+        const hit = pickBlock();
+        if (!hit) return;
+        const px = hit.x + hit.normal.x;
+        const py = hit.y + hit.normal.y;
+        const pz = hit.z + hit.normal.z;
+        const key = `${px},${py},${pz}`;
+        if (voxelMap.has(key)) return;
+        // Don't place into the world outside of bounds (negative y) or above limit
+        if (py < 0 || py >= CHUNK_HEIGHT) return;
+        // Prevent placing inside player's bounding box
+        const playerBottom = player.position.y - PLAYER_HEIGHT/2;
+        const playerTop    = player.position.y + PLAYER_HEIGHT/2;
+        const bx = px + 0.5;
+        const by = py + 0.5;
+        const bz = pz + 0.5;
+        if (Math.abs(bx - player.position.x) < 0.4 && Math.abs(bz - player.position.z) < 0.4 && by + 0.5 > playerBottom && py < playerTop) {
+            return;
+        }
+        const type = selectableTypes[selectedIndex];
+        placeVoxel(px, py, pz, type);
+        // Play a placement sound using the same dig sound categories.  This
+        // provides audio feedback when blocks are placed, similar to
+        // Minecraft.  We reuse playRandomDigSound() which categorises
+        // sounds by block type.
+        playRandomDigSound(type);
+        // Start place animation
+        handAnimTime = 0;
+        handAnimType = 'place';
+    }
+
+    // Place a voxel of the given type at the specified coordinates.  A
+    // standalone Mesh is created for dynamic blocks.  The voxelMap and
+    // voxelInstances are updated accordingly.
+    function placeVoxel(x, y, z, type) {
+        const mat = blockMaterials[type];
+        const mesh = new THREE.Mesh(cubeGeometry, mat);
+        mesh.position.set(x + 0.5, y + 0.5, z + 0.5);
+        scene.add(mesh);
+        modifiedMeshes.push(mesh);
+        const key = `${x},${y},${z}`;
+        voxelMap.set(key, { type: type, chunk: 'mod' });
+        voxelInstances.set(key, { mesh: mesh, index: 0, chunk: 'mod', type });
+        // Update heightMap if this is the new highest solid block in the column.
+        // Non‑solid blocks like water and leaves do not count towards the
+        // height map because they should not support the player.
+        if (type !== 'water' && type !== 'leaves') {
+            const colKey = `${x},${z}`;
+            if (heightMap[colKey] === undefined || y > heightMap[colKey]) {
+                heightMap[colKey] = y;
+            }
+        }
+        // If placing water, enqueue it for fluid simulation so that it
+        // spreads to adjacent empty spaces over time.
+        if (type === 'water') {
+            fluidQueue.push({ x: x, y: y, z: z });
+        }
+    }
+
+    // Remove a voxel at the given coordinates from the scene.  This will hide
+    // the instanced block (by scaling it to zero) or remove a dynamic mesh.
+    function removeVoxel(x, y, z) {
+        const key = `${x},${y},${z}`;
+        const info = voxelInstances.get(key);
+        if (!info) return;
+        if (info.chunk === 'mod') {
+            // Remove dynamic mesh
+            scene.remove(info.mesh);
+            const idx = modifiedMeshes.indexOf(info.mesh);
+            if (idx >= 0) modifiedMeshes.splice(idx, 1);
+        } else {
+            // Hide instanced block by scaling to zero
+            const inst = info.mesh;
+            const idxInst = info.index;
+            const m = new THREE.Matrix4();
+            m.makeScale(0, 0, 0);
+            inst.setMatrixAt(idxInst, m);
+            inst.instanceMatrix.needsUpdate = true;
+        }
+        voxelInstances.delete(key);
+        const oldEntry = voxelMap.get(key);
+        if (oldEntry) {
+            // Remove the voxel from the map before spawning a drop so
+            // that collision checks treat the space as empty.  Store
+            // the type for later use.
+            voxelMap.delete(key);
+            // Spawn a dropped item corresponding to the removed block.
+            spawnDroppedItem(oldEntry.type, x, y, z);
+        }
+        // Update heightMap if needed
+        const colKey = `${x},${z}`;
+        if (heightMap[colKey] !== undefined && y >= heightMap[colKey]) {
+            // find next highest
+            let newH = -Infinity;
+            for (let yy = y - 1; yy >= 0; yy--) {
+                const e = voxelMap.get(`${x},${yy},${z}`);
+                if (e && e.type !== 'water' && e.type !== 'leaves') {
+                    newH = yy;
+                    break;
+                }
+            }
+            if (newH === -Infinity) {
+                delete heightMap[colKey];
+            } else {
+                heightMap[colKey] = newH;
+            }
+        }
+    }
+
+    // Spawn debris particles when a block is broken.  Each piece is a small
+    // cube that will move upward and outward, then fall down under gravity.
+    function spawnDebris(x, y, z, type) {
+        const count = 6;
+        for (let i = 0; i < count; i++) {
+            const geom = new THREE.BoxBufferGeometry(0.2, 0.2, 0.2);
+            const mat = blockMaterials[type];
+            const dMesh = new THREE.Mesh(geom, mat);
+            dMesh.position.set(x + 0.5, y + 0.5, z + 0.5);
+            const vel = new THREE.Vector3((Math.random() - 0.5) * 2, Math.random() * 2 + 1, (Math.random() - 0.5) * 2);
+            debrisPieces.push({ mesh: dMesh, velocity: vel, life: 1.5 });
+            scene.add(dMesh);
+        }
+    }
+
+    // Play a random dig/break sound appropriate for the given block type.
+    function playRandomDigSound(type) {
+        let category;
+        if (type === 'wood') category = 'wood';
+        else if (type === 'stone' || type === 'bedrock' || type === 'sand') category = 'stone';
+        else category = 'grass';
+        const arr = digSounds[category];
+        if (!arr || arr.length === 0) return;
+        const idx = Math.floor(Math.random() * arr.length);
+        const s = arr[idx];
+        if (!s.buffer) return;
+        if (s.isPlaying) s.stop();
+        s.play();
+    }
+
+    // Spawn a dropped item at the given world coordinates.  The item
+    // appears as a small cube with the same material as the block.  A
+    // random initial velocity is assigned to give the item a slight
+    // bounce.  The item will fall under gravity until it reaches the
+    // ground and can then be collected by the player.
+    function spawnDroppedItem(type, x, y, z) {
+        // Do not drop items for water, leaves or fluids; bedrock also drops nothing.
+        if (type === 'water' || type === 'leaves' || type === 'lava' || type === 'bedrock') return;
+        const geom = new THREE.BoxBufferGeometry(0.4, 0.4, 0.4);
+        const mat  = blockMaterials[type] || new THREE.MeshStandardMaterial({ color: 0xffffff });
+        const mesh = new THREE.Mesh(geom, mat);
+        mesh.position.set(x + 0.5, y + 0.6, z + 0.5);
+        const vx = (Math.random() - 0.5) * 0.3;
+        const vz = (Math.random() - 0.5) * 0.3;
+        const vy = 0.3 + Math.random() * 0.3;
+        droppedItems.push({ mesh: mesh, type: type, velocity: new THREE.Vector3(vx, vy, vz), grounded: false });
+        scene.add(mesh);
+    }
+
+    // Add an item to the player's inventory.  Creates a new entry if needed.
+    function addItemToInventory(type, count = 1) {
+        if (!inventory[type]) inventory[type] = 0;
+        inventory[type] += count;
+        if (inventoryOpen) updateInventoryUI();
+    }
+
+    // Update dropped item positions and handle pickup.  Items fall under
+    // gravity until they touch the ground.  When the player moves close
+    // enough to an item, it is collected and added to the inventory.
+    function updateDroppedItems(delta) {
+        if (droppedItems.length === 0) return;
+        const gravity = -9.8;
+        const pickRadius = 1.0;
+        const toRemove = [];
+        let collectedCount = 0;
+        for (let i = 0; i < droppedItems.length; i++) {
+            const item = droppedItems[i];
+            // Apply gravity if not grounded
+            if (!item.grounded) {
+                item.velocity.y += gravity * delta;
+                item.mesh.position.addScaledVector(item.velocity, delta);
+                // Check ground collision
+                const ix = Math.floor(item.mesh.position.x);
+                const iz = Math.floor(item.mesh.position.z);
+                const h = heightMap[`${ix},${iz}`] || 0;
+                if (item.mesh.position.y <= h + 0.3) {
+                    item.mesh.position.y = h + 0.3;
+                    item.velocity.set(0, 0, 0);
+                    item.grounded = true;
+                }
+            }
+            // Check for pickup
+            const dx = item.mesh.position.x - camera.position.x;
+            const dy = item.mesh.position.y - camera.position.y;
+            const dz = item.mesh.position.z - camera.position.z;
+            if (dx*dx + dy*dy + dz*dz < pickRadius * pickRadius) {
+                addItemToInventory(item.type, 1);
+                toRemove.push(item);
+                collectedCount++;
+            }
+        }
+        // Play pickup sound if any collected
+        if (collectedCount > 0) {
+            let soundUrl;
+            if (collectedCount > 1) {
+                soundUrl = 'https://github.com/bellasaunders25/VoxelVerse-Assets/raw/refs/heads/main/pop_sound_effect-1758966766407.mp3';
+            } else {
+                soundUrl = 'https://github.com/bellasaunders25/VoxelVerse-Assets/raw/refs/heads/main/pop_sound_effect-%232-1758966708680.mp3';
+            }
+            const audio = new Audio(soundUrl);
+            audio.playbackRate = 0.9 + Math.random() * 0.2;
+            audio.volume = 0.6 * masterVolume * sfxVolume;
+            audio.play();
+        }
+        // Remove collected items
+        toRemove.forEach((item) => {
+            const idx = droppedItems.indexOf(item);
+            if (idx >= 0) droppedItems.splice(idx, 1);
+            scene.remove(item.mesh);
+        });
+    }
+
+    // Spread fluid (water) to neighbouring empty cells.  This simple
+    // simulation processes a small number of queued water cells each
+    // frame.  For each cell in the queue, we attempt to flow downwards
+    // first; if the space below is empty and not bedrock, we add water
+    // there.  Otherwise we try to spread horizontally.  Newly spawned
+    // water cells are added back to the queue for further spreading.
+    function updateFluidSimulation() {
+        const maxPerFrame = 20;
+        let processed = 0;
+        while (fluidQueue.length > 0 && processed < maxPerFrame) {
+            const cell = fluidQueue.shift();
+            processed++;
+            const { x, y, z } = cell;
+            // If this water cell no longer exists (e.g. replaced by solid block) skip
+            const key = `${x},${y},${z}`;
+            const entry = voxelMap.get(key);
+            if (!entry || entry.type !== 'water') continue;
+            // Try to flow downwards first
+            const downKey = `${x},${y-1},${z}`;
+            if (y > 0 && !voxelMap.has(downKey)) {
+                placeVoxel(x, y-1, z, 'water');
+                fluidQueue.push({ x: x, y: y-1, z: z });
+                continue;
+            }
+            // Spread horizontally to four directions
+            const dirs = [ [1,0], [-1,0], [0,1], [0,-1] ];
+            for (let i = 0; i < dirs.length; i++) {
+                const nx = x + dirs[i][0];
+                const nz = z + dirs[i][1];
+                const nKey = `${nx},${y},${nz}`;
+                // Only spread if the neighbour is empty and not above water level
+                if (!voxelMap.has(nKey) && y >= 0) {
+                    placeVoxel(nx, y, nz, 'water');
+                    fluidQueue.push({ x: nx, y: y, z: nz });
+                    // Spread to only one neighbour per frame to limit growth
+                    break;
+                }
+            }
+        }
+    }
+
+    // Generate a simple puffy cloud texture on a canvas.  The resulting
+    // texture has a radial falloff from white in the centre to transparent
+    // at the edges.  Using a small canvas keeps the texture lightweight
+    // while still looking soft when scaled up.
+    function createCloudTexture() {
+        const size = 64;
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        const grd = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+        grd.addColorStop(0, 'rgba(255,255,255,1)');
+        grd.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = grd;
+        ctx.fillRect(0, 0, size, size);
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.magFilter = THREE.LinearFilter;
+        tex.minFilter = THREE.LinearMipMapLinearFilter;
+        tex.needsUpdate = true;
+        return tex;
+    }
+
+    // Initialise the sky elements: clouds, sun, moon, stars and dynamic
+    // lights.  This function should be called from init() after the
+    // scene has been created.  It relies on the global variables defined
+    // above and populates them accordingly.  The cloud sprites are
+    // scattered in a square region around the origin; they are later
+    // repositioned relative to the camera in updateClouds().
+    function initSky() {
+        // Create cloud texture if not already generated
+        if (!cloudTexture) {
+            cloudTexture = createCloudTexture();
+        }
+        // Cloud group.  Each cloud is a small cluster of white cubes
+        // assembled into a group.  Clouds drift slowly across the sky and
+        // wrap around when they leave the vicinity of the player.  This
+        // yields the "blocky" look characteristic of Minecraft clouds.
+        cloudGroup = new THREE.Group();
+        // Increase the number of clouds and enlarge the region size so that
+        // clouds fill more of the sky and wrap less frequently.
+        const cloudCount = 80;
+        const regionSize = 400; // width of the distribution area
+        // Material for cloud cubes.  Using a semi‑transparent Lambert
+        // material softens the clouds and lets the sky show through.  The
+        // opacity controls the amount of transparency – 0.7 gives a
+        // translucent, blocky appearance.
+        const cloudMat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.7 });
+        for (let i = 0; i < cloudCount; i++) {
+            const g = new THREE.Group();
+            // Random number of cubes for this cloud
+            const cubeCount = 3 + Math.floor(Math.random() * 4);
+            for (let j = 0; j < cubeCount; j++) {
+                const cube = new THREE.Mesh(cubeGeometry, cloudMat);
+                // Random offset relative to the cloud centre.  Keeping
+                // positions integer makes the cloud look cubic.
+                const ox = Math.floor(Math.random() * 3) - 1;
+                const oy = Math.floor(Math.random() * 2);
+                const oz = Math.floor(Math.random() * 3) - 1;
+                cube.position.set(ox, oy, oz);
+                g.add(cube);
+            }
+            // Random initial world position
+            g.position.set(
+                (Math.random() - 0.5) * regionSize,
+                // Raise clouds much higher into the sky.  Clouds should
+                // float far above the terrain similar to Minecraft.  A
+                // base height of 120 with a small variation keeps them
+                // consistently elevated.
+                120 + Math.random() * 20,
+                (Math.random() - 0.5) * regionSize
+            );
+            // Scale clouds to be roughly the size of normal blocks.
+            // Using a scale around 4 yields blocky cloud clusters that
+            // resemble Minecraft's clouds without appearing enormous.
+            const s = 4 + Math.random() * 2;
+            g.scale.set(s, s, s);
+            // Assign a slow horizontal drift speed.  Positive values move
+            // clouds eastward; negative values westward.  Store in userData
+            // so updateClouds() can access it.
+            g.userData.speed = 2 + Math.random() * 3;
+            cloudGroup.add(g);
+        }
+        scene.add(cloudGroup);
+        // Render clouds after the sun and moon so they appear in front when
+        // depth testing is enabled.  A higher renderOrder causes an
+        // object to be drawn later in the render pipeline.
+        cloudGroup.renderOrder = 1;
+        // Sun mesh: use a cube to match the blocky aesthetic.  A
+        // Lambert material with an emissive component makes the sun
+        // appear bright and glowing.  DepthWrite is disabled so the
+        // sun does not occlude distant objects, while depthTest
+        // remains enabled so that clouds can pass in front.  The sun
+        // is scaled down slightly compared to earlier versions.
+        {
+            const sunGeo = new THREE.BoxGeometry(1, 1, 1);
+            const sunMat = new THREE.MeshLambertMaterial({
+                color: 0xffff80,
+                emissive: 0xffffaa,
+                emissiveIntensity: 0.8,
+                transparent: true,
+                opacity: 1,
+                depthWrite: false,
+                depthTest: true,
+                fog: false
+            });
+            sunMesh = new THREE.Mesh(sunGeo, sunMat);
+            sunMesh.scale.set(35, 35, 35);
+            // Give the sun a slight rotation so that its cube form is
+            // visible from various angles.  Unlike a billboarded
+            // circle, the cube's orientation remains fixed relative
+            // to the world.
+            sunMesh.rotation.set(Math.PI * 0.25, Math.PI * 0.15, 0);
+            scene.add(sunMesh);
+            // Add concentric glow rings around the sun for a radiant effect.
+            const sunGlowRadii = [1.3, 1.8, 2.2];
+            sunGlowRadii.forEach((r, idx) => {
+                const ringGeo = new THREE.RingGeometry(r * 0.9, r, 32);
+                const ringMat = new THREE.MeshBasicMaterial({
+                    color: 0xffff80,
+                    transparent: true,
+                    opacity: 0.25 / (idx + 1),
+                    side: THREE.DoubleSide,
+                    depthWrite: false,
+                    depthTest: true,
+                    fog: false
+                });
+                const ring = new THREE.Mesh(ringGeo, ringMat);
+                // Scale ring to match sun size so radii remain proportional
+                ring.scale.set(sunMesh.scale.x, sunMesh.scale.y, 1);
+                // Position the ring slightly behind the sun so that the
+                // glow appears around the cube rather than on top of it.  A
+                // small negative Z offset ensures the ring stays behind
+                // when the sun faces the camera.
+                ring.position.z = -0.02;
+                sunMesh.add(ring);
+            });
+        }
+        // Moon mesh: use a cube geometry to approximate the blocky moon
+        // from Minecraft.  Apply the existing stone texture from the
+        // block materials as the moon's surface and slightly tint it
+        // towards light grey.  Depth testing is enabled so clouds can
+        // pass in front of the moon.  We scale the cube to make it
+        // large and easily visible in the night sky.
+        {
+            const moonGeo = new THREE.BoxGeometry(1, 1, 1);
+            let moonMap = null;
+            if (blockMaterials && blockMaterials.stone && blockMaterials.stone.map) {
+                moonMap = blockMaterials.stone.map;
+            }
+            const moonMat = new THREE.MeshLambertMaterial({ map: moonMap, color: 0xbfcfcf, transparent: true, opacity: 0.95, depthWrite: false, depthTest: true, fog: false });
+            moonMesh = new THREE.Mesh(moonGeo, moonMat);
+            // Reduce the moon size to be slightly smaller than before.
+            moonMesh.scale.set(40, 40, 40);
+            moonMesh.rotation.set(Math.PI * 0.15, Math.PI * 0.25, 0);
+            scene.add(moonMesh);
+            // Add glow rings around the moon with a subtle lunar halo effect.
+            const moonGlowRadii = [1.2, 1.6, 2.0];
+            moonGlowRadii.forEach((r, idx) => {
+                const ringGeo = new THREE.RingGeometry(r * 0.9, r, 32);
+                const ringMat = new THREE.MeshBasicMaterial({
+                    color: 0xbfcfcf,
+                    transparent: true,
+                    opacity: 0.2 / (idx + 1),
+                    side: THREE.DoubleSide,
+                    depthWrite: false,
+                    depthTest: true,
+                    fog: false
+                });
+                const ring = new THREE.Mesh(ringGeo, ringMat);
+                ring.scale.set(moonMesh.scale.x, moonMesh.scale.y, 1);
+                // Offset lunar halo slightly behind the moon so it rings
+                // around the cube instead of overlapping the front face.
+                ring.position.z = -0.02;
+                moonMesh.add(ring);
+            });
+        }
+        // Star field: points on a sphere scaled up; attach to scene and
+        // reposition relative to the camera each frame.  Setting depthWrite
+        // to false ensures stars don't occlude other objects.
+        {
+            const positions = new Float32Array(STAR_COUNT * 3);
+            for (let i = 0; i < STAR_COUNT; i++) {
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.acos(2 * Math.random() - 1);
+                const x = Math.sin(phi) * Math.cos(theta);
+                const y = Math.cos(phi);
+                const z = Math.sin(phi) * Math.sin(theta);
+                positions[i*3] = x;
+                positions[i*3+1] = y;
+                positions[i*3+2] = z;
+            }
+            const starGeom = new THREE.BufferGeometry();
+            starGeom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: 1.5, sizeAttenuation: true, transparent: true, opacity: 0.0, depthWrite: false });
+            stars = new THREE.Points(starGeom, starMat);
+            stars.scale.setScalar(1000);
+            scene.add(stars);
+        }
+        // Ambient and directional lights for day/night transitions.  Remove
+        // any previously created lights and store references so they can
+        // be updated later.
+        if (ambientLight) scene.remove(ambientLight);
+        if (sunLight) scene.remove(sunLight);
+        ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        sunLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        sunLight.position.set(0, 1, 0);
+        scene.add(sunLight);
+    }
+
+    // Update the sky and lighting based on elapsed time.  This should
+    // be called every frame from animate() with the delta time.  The
+    // dayTime variable is incremented and wrapped to the range [0,1].  The
+    // positions of the sun and moon, the sky/fog colours, the intensities
+    // of lights, and the visibility/opacity of stars are all updated.
+    function updateSky(delta) {
+        if (!sunMesh || !moonMesh || !stars || !ambientLight || !sunLight) return;
+        // advance dayTime; modulo to keep in [0,1]
+        dayTime = (dayTime + delta / DAY_DURATION) % 1;
+        // Compute an angle for the sun's orbit.  A value of 0
+        // corresponds to sunrise; 0.25 is midday; 0.5 is sunset;
+        // 0.75 is midnight; and 1 returns to sunrise.  The angle is
+        // used to compute both the horizontal and vertical components of
+        // the sun's position such that it follows a circular path in the
+        // X–Y plane.  This matches Minecraft's sun and moon which rise in
+        // the east, climb to the zenith, then set in the west.
+        const angle = dayTime * Math.PI * 2;
+        // Sun position: move along a circle around the origin in the
+        // X–Y plane.  The X coordinate controls east/west position while
+        // the Y coordinate controls height above the horizon.  A positive
+        // Y value places the sun above the horizon; a negative value puts
+        // it below and thus hidden.  Z remains zero so the sun always
+        // stays directly ahead or behind in the Z axis.
+        const sunX = Math.cos(angle) * SUN_DISTANCE;
+        const sunY = Math.sin(angle) * SUN_DISTANCE;
+        sunMesh.position.set(sunX, sunY, 0);
+        // Always orient the sun so one face points toward the camera.  This
+        // makes the cube appear like a flat disk with a ring behind it
+        // similar to Minecraft's sun.  We adjust the sun's rotation
+        // each frame so it faces the camera regardless of player
+        // orientation.  Children (glow rings) follow this rotation.
+        sunMesh.lookAt(camera.position);
+        // Do not orient the sun toward the camera.  The sun is a
+        // three‑dimensional cube that retains its rotation relative to
+        // the world.  Allowing it to rotate naturally gives a more
+        // authentic, blocky appearance reminiscent of Minecraft.
+        // Moon position: phase shifted by 180 degrees (π radians) so
+        // that it rises when the sun sets and vice versa.  Like the
+        // sun, the moon follows the same circular path on the opposite
+        // side of the sky.
+        const moonAngle = angle + Math.PI;
+        const moonX = Math.cos(moonAngle) * SUN_DISTANCE;
+        const moonY = Math.sin(moonAngle) * SUN_DISTANCE;
+        moonMesh.position.set(moonX, moonY, 0);
+        // Do not constantly orient the moon toward the camera.  Unlike the
+        // sun, the moon is a 3D cube in Minecraft and retains a fixed
+        // orientation relative to the world.  Leaving its rotation
+        // unchanged allows the player to see multiple faces of the cube.
+        // Determine brightness factor based on the sun's height above the
+        // horizon.  When the sun is above the horizon (sunY >= 0),
+        // brightness increases from 0 at sunrise to 1 at midday.  When
+        // the sun is below the horizon the brightness is zero.
+        const brightness = Math.max(0, sunY / SUN_DISTANCE);
+        // Interpolate sky and fog colours between night and day.  At
+        // brightness 1 the sky is light blue; at 0 it is deep blue.
+        const dayColor = new THREE.Color(0x87ceeb);
+        const nightColor = new THREE.Color(0x020916);
+        const skyColor = nightColor.clone().lerp(dayColor, brightness);
+        scene.background.copy(skyColor);
+        scene.fog.color.copy(skyColor);
+        // Adjust light intensities based on brightness.  The ambient and
+        // directional lights fade in as the sun rises and out as it
+        // sets.
+        ambientLight.intensity = 0.15 + 0.45 * brightness;
+        sunLight.intensity = 0.05 + 0.75 * brightness;
+        sunLight.position.set(sunX, sunY, 0);
+        // Sun and moon visibility: show the sun only when it is above the
+        // horizon; show the moon only when it is above the horizon.  This
+        // yields proper rising and setting.
+        sunMesh.visible = sunY >= 0;
+        moonMesh.visible = moonY >= 0;
+        // Optionally adjust opacities of the sun and moon slightly for
+        // additional subtlety.  When the sun is low in the sky its
+        // opacity decreases slightly.  Similarly for the moon.
+        if (sunMesh.material && sunMesh.material.opacity !== undefined) {
+            sunMesh.material.opacity = 0.5 + 0.5 * brightness;
+        }
+        if (moonMesh.material && moonMesh.material.opacity !== undefined) {
+            const moonBrightness = Math.max(0, moonY / SUN_DISTANCE);
+            moonMesh.material.opacity = 0.4 + 0.6 * moonBrightness;
+        }
+        // Stars fade in as brightness drops.  Use a squared relationship
+        // for a smoother fade.  Only render stars when the sun is below
+        // the horizon.
+        const starOpacity = Math.pow(Math.max(0, 1 - brightness), 2);
+        stars.material.opacity = starOpacity;
+        stars.visible = starOpacity > 0.001;
+        // Reposition stars to follow the camera
+        stars.position.copy(camera.position);
+
+        // Show clouds only during the day.  When brightness drops below a
+        // small threshold the clouds are hidden so that stars can shine
+        // unobstructed.  cloudGroup may be undefined if sky elements have
+        // not yet been initialised.
+        if (typeof cloudGroup !== 'undefined' && cloudGroup) {
+            cloudGroup.visible = brightness > 0.1;
+        }
+    }
+
+    // Update cloud positions to maintain an infinite field.  Each cloud
+    // sprite wraps around a square region centred on the camera.  They
+    // always face the camera.
+    function updateClouds(delta) {
+        if (!cloudGroup) return;
+        const camX = camera.position.x;
+        const camZ = camera.position.z;
+        // Define the wrapping region relative to the camera.  Clouds will
+        // wrap around this square area when they travel too far.  A
+        // larger region prevents frequent wraps.
+        // Match the region size to initSky's distribution area.  A larger
+        // region keeps clouds distributed across a wider area and reduces
+        // noticeable wrapping.
+        const region = 400;
+        cloudGroup.children.forEach((cloud) => {
+            // Move the cloud along the X axis by its speed.  A positive
+            // speed drifts eastwards (increasing x).  Multiply by delta
+            // for frame‑rate independence.
+            if (cloud.userData && typeof cloud.userData.speed === 'number') {
+                cloud.position.x += cloud.userData.speed * delta;
+            }
+            // Wrap the cloud around the region when it travels too far
+            let dx = cloud.position.x - camX;
+            if (dx > region) cloud.position.x -= region * 2;
+            else if (dx < -region) cloud.position.x += region * 2;
+            // Optionally wrap along z to keep distribution square
+            let dz = cloud.position.z - camZ;
+            if (dz > region) cloud.position.z -= region * 2;
+            else if (dz < -region) cloud.position.z += region * 2;
+        });
+    }
+    // Delay world initialisation until the Play button is pressed.  Instead of
+    // calling init() and animate() immediately, define a function that
+    // performs this setup.  When the game starts, init() will build the
+    // world and animate() will kick off the render loop.  A guard
+    // prevents multiple initialisations.
+    let gameStarted = false;
+    function startGame() {
+        if (gameStarted) return;
+        gameStarted = true;
+        init();
+        animate();
+    }
+    // Expose helpers and the startGame function for the menu script.  The
+    // regenerate() helper remains available for debug purposes via
+    // window._voxelWorld.  startGame() will be called when the player
+    // clicks the Play button in the main menu.
+    window._voxelWorld = {
+        regenerate: () => {
+            seed = Math.floor(Math.random()*1e9);
+            clearAllChunks();
+            Object.keys(heightMap).forEach(k => delete heightMap[k]);
+            perlinNoise = createPerlin(seed);
+            updateVisibleChunks(true);
+        },
+        getSeed: () => seed,
+        startGame: startGame
+    };
+})();
+</script>
+
+<!-- Main menu behaviour and music.  This script runs after the page
+     content is parsed.  It initialises menu music, sets up event
+     listeners for user interaction and the Play button, and starts
+     playing random menu tracks on loop until the game starts. -->
+<script>
+(() => {
+    // Only one menu track – Pixel Reflections – is played on loop.  Additional
+    // tracks can be added to this array if desired.
+    const MENU_MUSIC_TRACKS = [
+        'https://github.com/bellasaunders25/VoxelVerse-Assets/raw/refs/heads/main/Pixel%20Reflections.mp3'
+    ];
+    let menuMusicAudio = null;
+    let menuMusicStarted = false;
+    // Button hover/click sound effects
+    const hoverSound = new Audio('https://github.com/bellasaunders25/VoxelVerse-Assets/raw/refs/heads/main/Button_Hover_sound_f-%231-1758959463352.mp3');
+    const clickSound = new Audio('https://github.com/bellasaunders25/VoxelVerse-Assets/raw/refs/heads/main/Button_click_sound_f-%232-1758959535901.mp3');
+    hoverSound.volume = 0.6;
+    clickSound.volume = 0.7;
+    // Play the menu music.  When it ends, restart it for continuous playback.
+    function playRandomMenuTrack() {
+        if (!menuMusicAudio) {
+            menuMusicAudio = new Audio();
+            menuMusicAudio.volume = 0.5;
+            menuMusicAudio.addEventListener('ended', playRandomMenuTrack);
+        }
+        const url = MENU_MUSIC_TRACKS[Math.floor(Math.random() * MENU_MUSIC_TRACKS.length)];
+        menuMusicAudio.src = url;
+        menuMusicAudio.play().catch(() => {/* wait for user gesture */});
+    }
+    function startMenuMusic() {
+        if (menuMusicStarted) return;
+        menuMusicStarted = true;
+        playRandomMenuTrack();
+    }
+    // Gradually fade out the provided audio over the given duration (ms).
+    function fadeOutAudio(audio, duration) {
+        const steps = 20;
+        const stepTime = duration / steps;
+        const initialVolume = audio.volume;
+        let currentStep = 0;
+        const iv = setInterval(() => {
+            currentStep++;
+            const newVol = initialVolume * (1 - currentStep / steps);
+            audio.volume = Math.max(0, newVol);
+            if (currentStep >= steps) {
+                clearInterval(iv);
+                audio.pause();
+            }
+        }, stepTime);
+    }
+    // Stop menu music immediately.
+    function stopMenuMusic() {
+        if (menuMusicAudio) {
+            menuMusicAudio.pause();
+            menuMusicAudio.currentTime = 0;
+        }
+    }
+    // After first user interaction, begin playing menu music.
+    function handleFirstInteraction() {
+        document.removeEventListener('click', handleFirstInteraction);
+        document.removeEventListener('keydown', handleFirstInteraction);
+        startMenuMusic();
+    }
+    document.addEventListener('click', handleFirstInteraction);
+    document.addEventListener('keydown', handleFirstInteraction);
+    // Wire up hover and click sounds for menu buttons and icon buttons.
+    function setupButtonSounds() {
+        const buttons = document.querySelectorAll('.menu-btn:not(.disabled), .icon-btn');
+        buttons.forEach(btn => {
+            btn.addEventListener('mouseenter', () => {
+                try {
+                    hoverSound.currentTime = 0;
+                    hoverSound.play();
+                } catch (e) {}
+            });
+            btn.addEventListener('click', (e) => {
+                const isDisabled = e.currentTarget.classList.contains('disabled');
+                if (!isDisabled) {
+                    try {
+                        clickSound.currentTime = 0;
+                        clickSound.play();
+                    } catch (e2) {}
+                }
+            });
+        });
+    }
+    // Handle Play button: fade out menu, fade music, show loading screen and start the game.
+    function setupPlayButton() {
+        const playBtn = document.getElementById('playButton');
+        const mainMenu = document.getElementById('mainMenu');
+        const loadingScreen = document.getElementById('loadingScreen');
+        if (!playBtn) return;
+        playBtn.addEventListener('click', () => {
+            mainMenu.style.transition = 'opacity 0.6s ease-out';
+            mainMenu.style.opacity = '0';
+            mainMenu.style.pointerEvents = 'none';
+            // Fade out menu music over 1.5 seconds
+            if (menuMusicAudio) {
+                fadeOutAudio(menuMusicAudio, 1500);
+            }
+            // Show loading screen
+            if (loadingScreen) loadingScreen.classList.add('visible');
+            // Start the game after a brief delay
+            setTimeout(() => {
+                if (window._voxelWorld && typeof window._voxelWorld.startGame === 'function') {
+                    window._voxelWorld.startGame();
+                }
+                // Hide loading screen once the world has had a moment to generate
+                setTimeout(() => {
+                    if (loadingScreen) loadingScreen.classList.remove('visible');
+                }, 2500);
+            }, 1200);
+        });
+    }
+    window.addEventListener('DOMContentLoaded', () => {
+        setupButtonSounds();
+        setupPlayButton();
+        // Hook up the Options button on the main menu to show the
+        // options overlay.  When clicked from the main menu the
+        // options menu opens even though the game has not yet started.
+        const mainOptsBtn = document.getElementById('mainOptionsButton');
+        if (mainOptsBtn) {
+            mainOptsBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                // Hide the main menu while options are displayed
+                const mainMenuEl = document.getElementById('mainMenu');
+                if (mainMenuEl) {
+                    mainMenuEl.style.display = 'none';
+                    mainMenuEl.style.opacity = '1';
+                    mainMenuEl.style.pointerEvents = 'none';
+                }
+                // Sync slider values with current volume settings
+                const masterSlider = document.getElementById('masterVolumeSlider');
+                const musicSlider  = document.getElementById('musicVolumeSlider');
+                const sfxSlider    = document.getElementById('sfxVolumeSlider');
+                if (masterSlider) masterSlider.value = Math.round(((typeof window.masterVolume === 'number' ? window.masterVolume : 1.0) * 100));
+                if (musicSlider)  musicSlider.value  = Math.round(((typeof window.musicVolume  === 'number' ? window.musicVolume  : 0.2) * 100));
+                if (sfxSlider)    sfxSlider.value    = Math.round(((typeof window.sfxVolume    === 'number' ? window.sfxVolume    : 0.5) * 100));
+                // Show the options menu
+                const optionsMenuEl = document.getElementById('optionsMenu');
+                if (optionsMenuEl) optionsMenuEl.style.display = 'flex';
+            });
+        }
+    });
+})();
+</script>
+
+<!-- Pause and options menu logic -->
+<script>
+(() => {
+    window.addEventListener('DOMContentLoaded', () => {
+        pauseMenuElement = document.getElementById('pauseMenu');
+        optionsMenuElement = document.getElementById('optionsMenu');
+        // Update global references to the pause and options menu elements
+        window.pauseMenuElement = pauseMenuElement;
+        window.optionsMenuElement = optionsMenuElement;
+        const resumeBtn = document.getElementById('resumeButton');
+        const pauseOptionsBtn = document.getElementById('pauseOptionsButton');
+        const pauseQuitBtn = document.getElementById('pauseQuitButton');
+        const optionsBackBtn = document.getElementById('optionsBackButton');
+        const masterSlider = document.getElementById('masterVolumeSlider');
+        const musicSlider  = document.getElementById('musicVolumeSlider');
+        const sfxSlider    = document.getElementById('sfxVolumeSlider');
+        // Initialise sliders using the global volume variables (if they exist)
+        if (masterSlider) masterSlider.value = Math.round(((typeof window.masterVolume === 'number' ? window.masterVolume : 1.0) * 100));
+        if (musicSlider)  musicSlider.value  = Math.round(((typeof window.musicVolume  === 'number' ? window.musicVolume  : 0.2) * 100));
+        if (sfxSlider)    sfxSlider.value    = Math.round(((typeof window.sfxVolume    === 'number' ? window.sfxVolume    : 0.5) * 100));
+        // Apply initial volume settings to all audio objects now that
+        // menu sounds and loaders have been created.  Without this call
+        // the menu music and UI sounds will not reflect saved volumes until
+        // the game begins.
+        if (typeof window.applyVolumeSettings === 'function') window.applyVolumeSettings();
+        if (resumeBtn) {
+            resumeBtn.addEventListener('click', () => {
+                if (typeof hidePauseMenu === 'function') hidePauseMenu();
+            });
+        }
+        if (pauseOptionsBtn) {
+            pauseOptionsBtn.addEventListener('click', () => {
+                if (typeof showOptionsMenu === 'function') showOptionsMenu();
+            });
+        }
+        if (pauseQuitBtn) {
+            pauseQuitBtn.addEventListener('click', () => {
+                location.reload();
+            });
+        }
+        if (optionsBackBtn) {
+            optionsBackBtn.addEventListener('click', () => {
+                if (typeof hideOptionsMenu === 'function') hideOptionsMenu();
+            });
+        }
+        if (masterSlider) {
+            masterSlider.addEventListener('input', () => {
+                window.masterVolume = parseInt(masterSlider.value, 10) / 100;
+                if (typeof window.applyVolumeSettings === 'function') window.applyVolumeSettings();
+                if (typeof window.saveVolumeSettings === 'function') window.saveVolumeSettings();
+            });
+        }
+        if (musicSlider) {
+            musicSlider.addEventListener('input', () => {
+                window.musicVolume = parseInt(musicSlider.value, 10) / 100;
+                if (typeof window.applyVolumeSettings === 'function') window.applyVolumeSettings();
+                if (typeof window.saveVolumeSettings === 'function') window.saveVolumeSettings();
+            });
+        }
+        if (sfxSlider) {
+            sfxSlider.addEventListener('input', () => {
+                window.sfxVolume = parseInt(sfxSlider.value, 10) / 100;
+                if (typeof window.applyVolumeSettings === 'function') window.applyVolumeSettings();
+                if (typeof window.saveVolumeSettings === 'function') window.saveVolumeSettings();
+            });
+        }
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Escape') {
+                // Determine current pointer lock and menu visibility states
+                // Determine visibility of pause and options menus
+                const pauseMenu = document.getElementById('pauseMenu');
+                const optionsMenu = document.getElementById('optionsMenu');
+                const pauseVisible = pauseMenu && pauseMenu.style.display === 'flex';
+                const optionsVisible = optionsMenu && optionsMenu.style.display === 'flex';
+                if (!pauseVisible) {
+                    // When no pause menu is visible (the game is running), show it
+                    if (typeof window.showPauseMenu === 'function') {
+                        window.showPauseMenu();
+                        e.preventDefault();
+                    }
+                } else if (pauseVisible && optionsVisible) {
+                    // If both pause and options menus are visible, close options and return to pause
+                    if (typeof window.hideOptionsMenu === 'function') {
+                        window.hideOptionsMenu();
+                        e.preventDefault();
+                    }
+                } else if (pauseVisible) {
+                    // Otherwise toggle off the pause menu to resume
+                    if (typeof window.hidePauseMenu === 'function') {
+                        window.hidePauseMenu();
+                        e.preventDefault();
+                    }
+                }
+            }
+        });
+
+        // Hook up death screen buttons if present
+        const respawnBtn = document.getElementById('respawnButton');
+        const quitBtn    = document.getElementById('quitButton');
+        if (respawnBtn) {
+            respawnBtn.addEventListener('click', () => {
+                // Respawn the player and hide the death screen
+                if (typeof respawn === 'function') respawn();
+            });
+        }
+        if (quitBtn) {
+            quitBtn.addEventListener('click', () => {
+                // Reload the page to return to the main menu
+                location.reload();
+            });
+        }
+    });
+    window.showPauseMenu = function() {
+        if (isPaused) return;
+        if (!pauseMenuElement) return;
+        // Mark the game as paused and expose this state on the global
+        // window so that other scripts can detect it.
+        isPaused = true;
+        window.isPaused = true;
+        if (document.pointerLockElement) {
+            document.exitPointerLock();
+        }
+        pauseMenuElement.style.display = 'flex';
+        // Update the exposed references whenever the menu is shown.
+        window.pauseMenuElement = pauseMenuElement;
+        window.optionsMenuElement = optionsMenuElement;
+    };
+    window.hidePauseMenu = function() {
+        if (!isPaused) return;
+        // Clear the paused state and update the global flags.
+        isPaused = false;
+        window.isPaused = false;
+        if (pauseMenuElement) pauseMenuElement.style.display = 'none';
+        if (optionsMenuElement) optionsMenuElement.style.display = 'none';
+        // Update exposed references
+        window.pauseMenuElement = pauseMenuElement;
+        window.optionsMenuElement = optionsMenuElement;
+        const canvas = document.querySelector('canvas');
+        if (canvas && !document.pointerLockElement) {
+            if (canvas.requestPointerLock) canvas.requestPointerLock();
+        }
+    };
+    window.showOptionsMenu = function() {
+        // Allow the options menu to be opened regardless of whether the game is paused.
+        if (!optionsMenuElement) return;
+        // Hide whichever overlay is currently visible.  If the game is paused
+        // hide the pause menu; otherwise hide the main menu.
+        if (window.isPaused) {
+            if (pauseMenuElement) pauseMenuElement.style.display = 'none';
+        } else {
+            const mainMenuEl = document.getElementById('mainMenu');
+            if (mainMenuEl) mainMenuEl.style.display = 'none';
+        }
+        optionsMenuElement.style.display = 'flex';
+        // Sync the slider values with the current global volumes
+        const masterSlider = document.getElementById('masterVolumeSlider');
+        const musicSlider  = document.getElementById('musicVolumeSlider');
+        const sfxSlider    = document.getElementById('sfxVolumeSlider');
+        if (masterSlider) masterSlider.value = Math.round(((typeof window.masterVolume === 'number' ? window.masterVolume : 1.0) * 100));
+        if (musicSlider)  musicSlider.value  = Math.round(((typeof window.musicVolume  === 'number' ? window.musicVolume  : 0.2) * 100));
+        if (sfxSlider)    sfxSlider.value    = Math.round(((typeof window.sfxVolume    === 'number' ? window.sfxVolume    : 0.5) * 100));
+    };
+    window.hideOptionsMenu = function() {
+        // Only proceed if the options menu exists
+        if (!optionsMenuElement) return;
+        optionsMenuElement.style.display = 'none';
+        // If the game is paused, return to the pause menu; otherwise return to
+        // the main menu.  This allows the same options overlay to be used
+        // from both the main menu and the pause menu.
+        if (window.isPaused) {
+            // Show the pause menu if available
+            if (pauseMenuElement) pauseMenuElement.style.display = 'flex';
+        } else {
+            // Reveal the main menu overlay again
+            const mainMenuEl = document.getElementById('mainMenu');
+            if (mainMenuEl) {
+                mainMenuEl.style.display = 'flex';
+                mainMenuEl.style.opacity = '1';
+                mainMenuEl.style.pointerEvents = 'auto';
+            }
+        }
+    };
+})();
+</script>
+</body>
+</html>
