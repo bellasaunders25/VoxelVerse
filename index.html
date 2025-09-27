@@ -3281,6 +3281,7 @@ to better suit your requirements.
         moveBackward: false,
         moveLeft: false,
         moveRight: false,
+        jumpHeld: false,
         canJump: false,
         isSprinting: false,
         isCrouching: false,
@@ -3532,6 +3533,7 @@ to better suit your requirements.
                 rightMouseDown = false;
                 placeHoldCooldown = 0;
                 cancelBreaking();
+                player.jumpHeld = false;
             }
             // Start background music when the user first locks the pointer
             if (pointerLocked && !musicStarted) {
@@ -3591,6 +3593,7 @@ to better suit your requirements.
                         e.preventDefault();
                         break;
                     }
+                    player.jumpHeld = true;
                     if (player.canJump) {
                         // Initiate jump and trigger a step sound on jump
                         player.velocityY = JUMP_VELOCITY;
@@ -3606,14 +3609,14 @@ to better suit your requirements.
                     }
                     player.isSprinting = true;
                     break;
-                case 'ControlLeft':
-                case 'ControlRight':
+                case 'KeyC':
                     if (inventoryOpen) {
                         e.preventDefault();
                         break;
                     }
-                    player.isCrouching = true;
-                    player.crouchOffset = 0.5;
+                    if (!e.repeat) {
+                        player.isCrouching = !player.isCrouching;
+                    }
                     break;
                 case 'KeyE': {
                     // Open or close the inventory overlay.  Prevent default
@@ -3676,10 +3679,8 @@ to better suit your requirements.
                 case 'ShiftRight':
                     player.isSprinting = false;
                     break;
-                case 'ControlLeft':
-                case 'ControlRight':
-                    player.isCrouching = false;
-                    player.crouchOffset = 0;
+                case 'Space':
+                    player.jumpHeld = false;
                     break;
             }
         });
@@ -3935,6 +3936,9 @@ to better suit your requirements.
         let waterSurfaceY = waterState.surfaceY;
         player.inWater = waterState.inWater;
         player.headSubmerged = waterState.headSubmerged;
+        const crouchTarget = player.isCrouching ? 0.5 : 0;
+        const crouchLerp = 1 - Math.exp(-delta * 12);
+        player.crouchOffset = THREE.MathUtils.lerp(player.crouchOffset, crouchTarget, Math.min(1, crouchLerp));
         const baseSpeed = waterState.inWater ? SWIM_SPEED : MOVE_SPEED;
         const speedMult = player.isSprinting ? (waterState.inWater ? 1.25 : 1.6) : 1.0;
         const newX = player.position.x + moveDir.x * baseSpeed * speedMult * delta;
@@ -3946,6 +3950,28 @@ to better suit your requirements.
         // Disallow stepping up too high
         if (newCol - curCol > STEP_MAX) {
             allowMove = false;
+        }
+        if (allowMove && player.isCrouching && !waterState.inWater && moving) {
+            const feetHeight = player.position.y - PLAYER_HEIGHT / 2 - 0.05;
+            const signX = Math.sign(moveDir.x);
+            const signZ = Math.sign(moveDir.z);
+            const sampleOffsets = [
+                [0, 0],
+                [signX * 0.3, 0],
+                [0, signZ * 0.3],
+                [signX * 0.3, signZ * 0.3]
+            ];
+            let supported = true;
+            for (const [ox, oz] of sampleOffsets) {
+                const sx = Math.floor(newX + ox);
+                const sz = Math.floor(newZ + oz);
+                const supportY = findSupportingBlockY(sx, Math.floor(feetHeight), sz);
+                if (!Number.isFinite(supportY) || feetHeight - (supportY + 1) > 0.25) {
+                    supported = false;
+                    break;
+                }
+            }
+            if (!supported) allowMove = false;
         }
         // Horizontal collision detection with solid voxels (trees etc.)
         let blocked = false;
@@ -3974,7 +4000,7 @@ to better suit your requirements.
         player.headSubmerged = waterState.headSubmerged;
         let newY = player.position.y;
         if (waterState.inWater) {
-            const ascendHeld = player.moveLeft;
+            const ascendHeld = player.jumpHeld;
             const descendHeld = player.isCrouching && !ascendHeld;
             const bobVelocity = (!waterState.headSubmerged && waterSurfaceY !== null)
                 ? Math.sin(swimBobTime * UNDERWATER_BOB_SPEED * Math.PI * 2) * (SWIM_ASCEND_SPEED * 0.3)
@@ -5011,6 +5037,7 @@ to better suit your requirements.
             player.isSprinting = false;
             player.isCrouching = false;
             player.crouchOffset = 0;
+            player.jumpHeld = false;
             if (bar) {
                 bar.classList.add('visible');
                 bar.classList.add('interactive');
