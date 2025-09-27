@@ -1234,8 +1234,7 @@ to better suit your requirements.
     let handBlock;
     const handMaterialCache = new Map();
     let handGroup;
-    let handMesh;
-    const toolMeshes = {};
+    const handItemMeshes = {};
     let activeHandTool = null;
     // Base hand position and rotation.  These will be captured after the
     // hand group is positioned in init().  When animations end the
@@ -1418,28 +1417,180 @@ to better suit your requirements.
     window.pauseMenuElement = pauseMenuElement;
     window.optionsMenuElement = optionsMenuElement;
 
-    // Icon URLs for the hotbar slots.  These images are reused from the
-    // textures loaded for the block materials.  Where a dedicated texture
-    // isn't available (such as sand and water) a similar placeholder is
-    // chosen.  Feel free to replace these URLs with other images if
-    // preferred.
-    const hotbarIcons = {
-        grass:   'https://i.postimg.cc/KzggQfJC/image.png',
-        dirt:    'https://i.postimg.cc/pTMN7XPk/image.png',
-        stone:   'https://i.postimg.cc/qqQ9zsyZ/image.png',
-        wood:    'https://i.postimg.cc/YqxLXhz2/image.png',
-        leaves:  'https://i.postimg.cc/BnV6yDL3/image.png',
-        sand:    'https://i.postimg.cc/pTMN7XPk/image.png',
-        water:   'https://i.postimg.cc/pTMN7XPk/image.png',
-        bedrock: 'https://i.postimg.cc/Wbh9Gcv4/image.png',
-        snow:    'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect fill="%23f4f9ff" width="16" height="16"/><path stroke="%23dce9ff" stroke-width="1" d="M1 8h14M8 1v14"/><circle cx="8" cy="8" r="2" fill="%23ffffff"/></svg>',
-        ice:     'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect fill="%23b6e5ff" width="16" height="16"/><rect x="2" y="2" width="12" height="12" fill="%23e7f6ff" opacity="0.8"/><path stroke="%2398d5ff" stroke-width="1" d="M2 6h12M6 2v12"/></svg>',
-        moss:    'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect fill="%233b8a64" width="16" height="16"/><rect x="2" y="2" width="12" height="12" fill="%2347a774" opacity="0.6"/></svg>',
-        glowstone: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect fill="%23ffe6a6" width="16" height="16"/><circle cx="5" cy="5" r="3" fill="%23fff7ce"/><circle cx="11" cy="10" r="3" fill="%23fff1b3"/></svg>',
-        cactus:  'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect fill="%232f9b57" width="16" height="16"/><path stroke="%2343b86d" stroke-width="2" d="M4 2v12M8 1v14M12 3v10"/></svg>',
-        stick:   'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" fill="%2330261a"/><path d="M4 2l8 8" stroke="%23c79b5f" stroke-width="2" stroke-linecap="round"/><path d="M6 2l8 8" stroke="%23f3d7a2" stroke-width="1.2" stroke-linecap="round"/></svg>',
-        axe:     'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" rx="2" fill="%23262a33"/><rect x="7" y="2" width="2" height="11" rx="1" fill="%238b5a2b"/><rect x="6.6" y="9.8" width="2.8" height="2.6" rx="1.1" fill="%2350331a"/><path d="M9 4h3.4c.6 0 1.1.5 1.1 1.1v2.2c0 .6-.5 1.1-1.1 1.1H9z" fill="%23c7d5e5"/><path d="M11.6 4.2h.6c.4 0 .8.3.8.8v2c0 .4-.3.8-.8.8h-.6z" fill="%23e4edf7"/></svg>'
-    };
+    // Icon URLs for the hotbar slots.  Each icon is generated at runtime using
+    // small inline SVGs so the art style matches the semi-realistic, slightly
+    // isometric look of the game UI without relying on external URLs.
+    const hotbarIcons = createHotbarIcons();
+
+    function svgDataUrl(svg) {
+        return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+    }
+
+    function shadeColor(hex, amount) {
+        const col = hex.replace('#', '');
+        if (col.length !== 6) return hex;
+        const num = parseInt(col, 16);
+        const r = Math.max(0, Math.min(255, Math.round(((num >> 16) & 0xff) + 255 * amount)));
+        const g = Math.max(0, Math.min(255, Math.round(((num >> 8) & 0xff) + 255 * amount)));
+        const b = Math.max(0, Math.min(255, Math.round((num & 0xff) + 255 * amount)));
+        return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+    }
+
+    function createCubeIcon(topColor, leftColor, rightColor, {
+        outlineColor = '#091015',
+        topInset = true,
+        leftShine = true,
+        rightShadow = true,
+        detailSvg = ''
+    } = {}) {
+        const topHighlight = shadeColor(topColor, 0.25);
+        const leftHighlight = shadeColor(leftColor, 0.2);
+        const rightDark = shadeColor(rightColor, -0.25);
+        const svg = `
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+                <g stroke-linejoin="round">
+                    <polygon fill="${topColor}" points="50,8 92,32 50,56 8,32"/>
+                    <polygon fill="${leftColor}" points="8,32 50,56 50,92 8,72"/>
+                    <polygon fill="${rightColor}" points="92,32 50,56 50,92 92,72"/>
+                    ${topInset ? `<polygon fill="${topHighlight}" opacity="0.45" points="50,16 80,32 50,48 20,32"/>` : ''}
+                    ${leftShine ? `<polygon fill="${leftHighlight}" opacity="0.28" points="12,36 46,56 46,84 12,68"/>` : ''}
+                    ${rightShadow ? `<polygon fill="${rightDark}" opacity="0.4" points="54,56 88,36 88,68 54,88"/>` : ''}
+                    <path d="M50 8L92 32L92 72L50 92L8 72L8 32Z" fill="none" stroke="${outlineColor}" stroke-width="3"/>
+                    <path d="M8 32L50 56L92 32" fill="none" stroke="${outlineColor}" stroke-width="3"/>
+                </g>
+                ${detailSvg}
+            </svg>
+        `;
+        return svgDataUrl(svg);
+    }
+
+    function createStickIcon() {
+        const base = '#a8733a';
+        const highlight = shadeColor(base, 0.25);
+        const shadow = shadeColor(base, -0.35);
+        const svg = `
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+                <rect width="100" height="100" rx="18" fill="#1b1f27"/>
+                <g transform="translate(16 14) rotate(-33 34 36)" stroke-linejoin="round">
+                    <polygon points="24,6 44,16 44,74 24,64" fill="${shadow}"/>
+                    <polygon points="24,6 52,20 52,72 24,58" fill="${base}"/>
+                    <polygon points="52,20 44,16 44,74 52,78" fill="${shadeColor(base, -0.18)}"/>
+                    <polygon points="26,12 46,22 46,66 26,56" fill="${highlight}" opacity="0.28"/>
+                    <path d="M24 6L44 16L44 74L24 64Z" fill="none" stroke="#0e131a" stroke-width="3"/>
+                </g>
+            </svg>
+        `;
+        return svgDataUrl(svg);
+    }
+
+    function createAxeIcon() {
+        const handle = '#8a5f2d';
+        const wrap = '#3d2614';
+        const blade = '#5de4ff';
+        const bladeAccent = '#1d99b8';
+        const edge = '#e5fbff';
+        const svg = `
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+                <rect width="100" height="100" rx="18" fill="#151a22"/>
+                <g transform="translate(12 6)">
+                    <g transform="rotate(-32 42 52)" stroke-linejoin="round">
+                        <polygon points="30,6 44,12 44,86 30,80" fill="${shadeColor(handle, -0.2)}"/>
+                        <polygon points="30,6 56,18 56,80 30,68" fill="${handle}"/>
+                        <polygon points="30,30 56,42 56,56 30,44" fill="${wrap}"/>
+                        <polygon points="30,30 44,36 44,54 30,48" fill="${shadeColor(wrap, 0.2)}" opacity="0.35"/>
+                        <polygon points="56,18 80,20 80,66 56,80" fill="${bladeAccent}"/>
+                        <polygon points="56,18 90,28 90,58 56,80" fill="${blade}"/>
+                        <polygon points="90,28 94,30 94,58 90,58" fill="${edge}"/>
+                        <polygon points="56,26 84,32 84,52 56,68" fill="${shadeColor(blade, -0.25)}" opacity="0.4"/>
+                        <path d="M30 6L56 18L56 80L30 68Z" fill="none" stroke="#0e131a" stroke-width="3"/>
+                        <path d="M56 18L90 28L90 58L56 80Z" fill="none" stroke="#0e131a" stroke-width="3"/>
+                    </g>
+                </g>
+            </svg>
+        `;
+        return svgDataUrl(svg);
+    }
+
+    function createHotbarIcons() {
+        return {
+            grass: createCubeIcon('#54b15b', '#6a4826', '#74481f', {
+                detailSvg: `
+                    <path d="M10 52L50 72L50 92L10 72Z" fill="${shadeColor('#6a4826', -0.2)}" opacity="0.45"/>
+                    <path d="M90 52L50 72L50 92L90 72Z" fill="${shadeColor('#74481f', -0.25)}" opacity="0.5"/>
+                    <path d="M18 30L50 44L82 30" stroke="#8ce68f" stroke-width="4" stroke-linecap="round" opacity="0.6"/>
+                `
+            }),
+            dirt: createCubeIcon('#b47d47', '#9b6636', '#87542b'),
+            stone: createCubeIcon('#bfc5cc', '#9ca2aa', '#818892', {
+                detailSvg: `
+                    <path d="M18 66L34 74" stroke="#d5dade" stroke-width="5" stroke-linecap="round" opacity="0.4"/>
+                    <path d="M70 58L82 66" stroke="#d5dade" stroke-width="6" stroke-linecap="round" opacity="0.35"/>
+                `
+            }),
+            wood: createCubeIcon('#caa062', '#9a6d3b', '#8c5c27', {
+                detailSvg: `
+                    <path d="M18 40L18 86" stroke="#5c3a1a" stroke-width="5" opacity="0.45"/>
+                    <path d="M32 46L32 90" stroke="#5c3a1a" stroke-width="4" opacity="0.35"/>
+                `
+            }),
+            leaves: createCubeIcon('#4aa75b', '#3a7f47', '#2e5f36', {
+                detailSvg: `
+                    <path d="M24 60C32 54 36 60 44 54" stroke="#7ddf8d" stroke-width="4" stroke-linecap="round" opacity="0.45"/>
+                    <path d="M60 56C68 50 74 56 80 50" stroke="#7ddf8d" stroke-width="4" stroke-linecap="round" opacity="0.45"/>
+                `
+            }),
+            sand: createCubeIcon('#f0d39c', '#d3b078', '#c9a267', {
+                detailSvg: `
+                    <circle cx="36" cy="68" r="6" fill="#f7e5c5" opacity="0.4"/>
+                    <circle cx="68" cy="62" r="5" fill="#fdf0d4" opacity="0.35"/>
+                `
+            }),
+            water: createCubeIcon('#3ba7ff', '#2b74c4', '#2159a0', {
+                detailSvg: `
+                    <path d="M18 62C26 58 34 62 42 58" stroke="#8fd3ff" stroke-width="5" stroke-linecap="round" opacity="0.45"/>
+                    <path d="M60 56C68 52 76 56 84 52" stroke="#8fd3ff" stroke-width="5" stroke-linecap="round" opacity="0.4"/>
+                `,
+                topInset: false
+            }),
+            bedrock: createCubeIcon('#7b7f85', '#585b61', '#3f4247', {
+                detailSvg: `
+                    <path d="M20 60L32 68" stroke="#9da1a6" stroke-width="5" stroke-linecap="round" opacity="0.3"/>
+                    <path d="M66 62L80 72" stroke="#9da1a6" stroke-width="4" stroke-linecap="round" opacity="0.28"/>
+                `
+            }),
+            snow: createCubeIcon('#f3f7fc', '#d8dee7', '#bcc3cf', {
+                detailSvg: `
+                    <path d="M36 40L50 48L64 40" stroke="#ffffff" stroke-width="6" stroke-linecap="round" opacity="0.5"/>
+                `,
+                leftShine: false
+            }),
+            ice: createCubeIcon('#bce6ff', '#92c5e6', '#6f9bcf', {
+                detailSvg: `
+                    <path d="M32 42L50 50L68 42" stroke="#e6f6ff" stroke-width="6" stroke-linecap="round" opacity="0.45"/>
+                    <path d="M24 68L36 74" stroke="#d7f0ff" stroke-width="4" stroke-linecap="round" opacity="0.4"/>
+                `
+            }),
+            moss: createCubeIcon('#3f9f6b', '#347d55', '#296145', {
+                detailSvg: `
+                    <path d="M20 60C28 54 34 60 42 54" stroke="#63d596" stroke-width="4" stroke-linecap="round" opacity="0.45"/>
+                `
+            }),
+            glowstone: createCubeIcon('#ffdf95', '#d9b46a', '#c0984f', {
+                detailSvg: `
+                    <circle cx="34" cy="66" r="8" fill="#fff5cf" opacity="0.55"/>
+                    <circle cx="70" cy="60" r="6" fill="#ffeab3" opacity="0.55"/>
+                `
+            }),
+            cactus: createCubeIcon('#2d9d57', '#227642', '#1a5530', {
+                detailSvg: `
+                    <path d="M22 46L22 84" stroke="#44cc77" stroke-width="5" opacity="0.4" stroke-linecap="round"/>
+                    <path d="M36 52L36 88" stroke="#44cc77" stroke-width="4" opacity="0.35" stroke-linecap="round"/>
+                `
+            }),
+            stick: createStickIcon(),
+            axe: createAxeIcon()
+        };
+    }
     const HOTBAR_DRAG_MIME = 'application/x-voxel-item';
     const HOTBAR_STACK_LIMIT = 64;
     const TOOL_TYPES = new Set(['axe']);
@@ -1993,13 +2144,11 @@ to better suit your requirements.
     // array.  lastStepSoundTime tracks when the last step sound was played so
     // that we don't spam sounds while the player is moving.  wasOnGround
     // remembers whether the player was previously grounded so we can detect
-    // landing events.  playerArm will hold the visible arm mesh attached to
-    // the camera.
+    // landing events.
     let audioListener;
     const stepSounds = [];
     let lastStepSoundTime = 0;
     let wasOnGround = true;
-    let playerArm;
 
     // --- Health and damage state ---
     // The player has a finite amount of health represented by hearts.  Five
@@ -2924,80 +3073,47 @@ to better suit your requirements.
             cracksMesh.visible = false;
             scene.add(cracksMesh);
         }
-        // Create a simple visible arm and block attached to the camera.  We
-        // group them so that animations can be applied to both together.
-        const createHandMaterial = (hex, emissiveIntensity = 0.22) => {
-            const mat = new THREE.MeshStandardMaterial({
-                color: hex,
-                roughness: 0.55,
-                metalness: 0.04,
-                flatShading: true,
-            });
-            mat.emissive.setHex(hex);
-            mat.emissiveIntensity = emissiveIntensity;
-            mat.depthTest = false;
-            mat.depthWrite = false;
-            return mat;
-        };
-        const handMaterial = createHandMaterial(0xffe8ce, 0.26);
-        playerArm = new THREE.Group();
-        handMesh = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.36, 1.12), handMaterial);
-        handMesh.position.set(0.08, -0.28, -0.32);
-        handMesh.rotation.set(-Math.PI / 28, 0.22, 0.08);
-        handMesh.renderOrder = 30;
-        playerArm.add(handMesh);
-        playerArm.traverse((child) => {
-            if (child.isMesh) {
-                child.renderOrder = 20;
-            }
-        });
         // Create the block mesh that shows the currently selected block.  It
-        // uses a smaller scale so it fits comfortably in view.  The
-        // material will be updated whenever the player changes the selected
-        // block type.
+        // uses a slightly reduced scale and is positioned so the held item sits
+        // toward the lower-right corner of the screen, similar to Minecraft's
+        // hand placement.
         const initialType = selectableTypes[selectedIndex];
         const initialMaterial = (initialType && blockMaterials[initialType]) ? getHandMaterialForType(initialType) : emptyHandMaterial;
         const initialCount = initialType ? (inventory[initialType] || 0) : 0;
         handBlock = new THREE.Mesh(cubeGeometry.clone(), initialMaterial);
         handBlock.visible = !!initialType && initialCount > 0;
-        handBlock.scale.set(0.48, 0.48, 0.48);
-        handBlock.rotation.set(-Math.PI / 8, Math.PI / 6, 0.02);
+        handBlock.scale.set(0.72, 0.72, 0.72);
+        handBlock.position.set(0.08, -0.08, -0.16);
+        handBlock.rotation.set(-Math.PI / 7, Math.PI / 5.5, Math.PI / 16);
         handBlock.renderOrder = 32;
-        // Group the arm and block for animation.  The group itself is
-        // positioned relative to the camera, while the children are
-        // positioned within the group.  This makes it easy to animate
-        // rotations of the entire hand on place/break actions.
+        // Group the held item meshes together for animation.  When the player
+        // has nothing selected the entire group is hidden so no ghost arm is
+        // rendered.
         handGroup = new THREE.Group();
-        handGroup.add(playerArm);
         handGroup.add(handBlock);
         const axeMesh = createAxeMesh();
-        axeMesh.position.set(0.8, -0.55, -0.7);
+        axeMesh.position.set(0.12, -0.12, -0.2);
         axeMesh.visible = false;
         handGroup.add(axeMesh);
-        toolMeshes.axe = axeMesh;
-        // Position and orient the arm within the group
-        playerArm.position.set(0.44, -0.46, -0.3);
-        playerArm.rotation.set(-Math.PI / 3.2, Math.PI / 6.4, Math.PI / 12);
-        // Position the block slightly in front of the arm
-        handBlock.position.set(0.64, -0.4, -0.54);
-        // Position the hand group relative to the camera so it sits clearly in
-        // view.  Without setting a position, the group defaults to the
-        // camera's local origin which can place the arm outside the view frustum.
-        // Adjust these coordinates to taste; negative z moves the hand in
-        // front of the camera, positive x shifts it to the right and
-        // negative y lowers it slightly.  These values were tuned to
-        // approximate Minecraft's first-person arm placement.
-        // Position the hand group relative to the camera so it sits clearly in
-        // view.  Adjust these coordinates to taste; the hand should be
-        // visible on the right side of the screen.  A slightly closer z
-        // makes the arm more prominent.
-        handGroup.position.set(0.54, -0.44, -0.52);
-        handGroup.rotation.set(-0.05, 0.28, 0.08);
+        handItemMeshes.axe = axeMesh;
+        const stickMesh = createStickMesh();
+        stickMesh.position.set(0.16, -0.18, -0.26);
+        stickMesh.visible = false;
+        handGroup.add(stickMesh);
+        handItemMeshes.stick = stickMesh;
+        // Position the held item group relative to the camera so it sits clearly
+        // in view on the right-hand side.  The group is brought a little
+        // closer to the lens so items appear substantial without clipping into
+        // the camera near plane.
+        handGroup.position.set(0.66, -0.56, -0.78);
+        handGroup.rotation.set(-0.16, 0.36, 0.14);
+        handGroup.visible = !!(initialType && initialCount > 0);
         // Capture the base position and rotation for animations
         handBasePosition = handGroup.position.clone();
         handBaseRotation = handGroup.rotation.clone();
         // Attach the group to the camera
         camera.add(handGroup);
+        updateHandBlockMaterial();
         // handle resize
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
@@ -3460,29 +3576,35 @@ to better suit your requirements.
         const onGround = (player.velocityY === 0 && player.canJump);
 
         if (handGroup) {
-            const bobbing = moving && onGround && pointerLocked && !inventoryOpen;
+            const isVisible = handGroup.visible;
+            const bobbing = moving && onGround && pointerLocked && !inventoryOpen && isVisible;
             const targetStrength = bobbing ? 1 : 0;
             const lerpSpeed = bobbing ? 10 : 6;
             handBobStrength = THREE.MathUtils.lerp(handBobStrength, targetStrength, Math.min(1, delta * lerpSpeed));
             const idleSpeed = 3.5;
             const walkSpeed = player.isSprinting ? 12 : 9;
-            handBobTime += delta * (bobbing ? walkSpeed : idleSpeed);
-            const sinHalf = Math.sin(handBobTime * 0.5);
-            const sinFull = Math.sin(handBobTime);
-            const sway = sinHalf * 0.09 * handBobStrength;
-            const lift = Math.cos(handBobTime) * 0.05 * handBobStrength;
-            const push = sinFull * 0.04 * handBobStrength;
+            if (isVisible) {
+                handBobTime += delta * (bobbing ? walkSpeed : idleSpeed);
+                const sinHalf = Math.sin(handBobTime * 0.5);
+                const sinFull = Math.sin(handBobTime);
+                const sway = sinHalf * 0.09 * handBobStrength;
+                const lift = Math.cos(handBobTime) * 0.05 * handBobStrength;
+                const push = sinFull * 0.04 * handBobStrength;
 
-            handBobPosition.copy(handBasePosition);
-            handBobPosition.x += sway;
-            handBobPosition.y += lift - 0.015 * handBobStrength;
-            handBobPosition.z += push * 0.6;
+                handBobPosition.copy(handBasePosition);
+                handBobPosition.x += sway;
+                handBobPosition.y += lift - 0.015 * handBobStrength;
+                handBobPosition.z += push * 0.6;
 
-            handBobRotation.set(
-                handBaseRotation.x + sinFull * 0.12 * handBobStrength,
-                handBaseRotation.y + Math.sin(handBobTime * 0.3) * 0.06 * handBobStrength,
-                handBaseRotation.z + Math.cos(handBobTime * 0.4) * 0.05 * handBobStrength
-            );
+                handBobRotation.set(
+                    handBaseRotation.x + sinFull * 0.12 * handBobStrength,
+                    handBaseRotation.y + Math.sin(handBobTime * 0.3) * 0.06 * handBobStrength,
+                    handBaseRotation.z + Math.cos(handBobTime * 0.4) * 0.05 * handBobStrength
+                );
+            } else {
+                handBobPosition.copy(handBasePosition);
+                handBobRotation.copy(handBaseRotation);
+            }
 
             handFinalPosition.copy(handBobPosition);
             handFinalRotation.copy(handBobRotation);
@@ -3581,26 +3703,33 @@ to better suit your requirements.
         // Minecraft.  handAnimTime runs from 0 to 1 over the course of
         // 0.3 seconds.  After completion the animation resets.
         if (handGroup) {
-            if (handAnimType) {
-                const animDuration = 0.3;
-                handAnimTime += delta / animDuration;
-                const t = Math.min(handAnimTime, 1);
-                handFinalPosition.copy(handBobPosition);
-                handFinalRotation.copy(handBobRotation);
-                if (handAnimType === 'break') {
-                    const angle = Math.sin(t * Math.PI) * 0.6;
-                    handFinalRotation.x -= angle;
-                } else if (handAnimType === 'place') {
-                    const offset = Math.sin(t * Math.PI) * 0.4;
-                    handFinalPosition.z -= offset;
+            if (!handGroup.visible) {
+                handAnimTime = 0;
+                handAnimType = null;
+                handGroup.position.copy(handBasePosition);
+                handGroup.rotation.copy(handBaseRotation);
+            } else {
+                if (handAnimType) {
+                    const animDuration = 0.3;
+                    handAnimTime += delta / animDuration;
+                    const t = Math.min(handAnimTime, 1);
+                    handFinalPosition.copy(handBobPosition);
+                    handFinalRotation.copy(handBobRotation);
+                    if (handAnimType === 'break') {
+                        const angle = Math.sin(t * Math.PI) * 0.6;
+                        handFinalRotation.x -= angle;
+                    } else if (handAnimType === 'place') {
+                        const offset = Math.sin(t * Math.PI) * 0.4;
+                        handFinalPosition.z -= offset;
+                    }
+                    if (handAnimTime >= 1) {
+                        handAnimTime = 0;
+                        handAnimType = null;
+                    }
                 }
-                if (handAnimTime >= 1) {
-                    handAnimTime = 0;
-                    handAnimType = null;
-                }
+                handGroup.position.copy(handFinalPosition);
+                handGroup.rotation.copy(handFinalRotation);
             }
-            handGroup.position.copy(handFinalPosition);
-            handGroup.rotation.copy(handFinalRotation);
         }
         // Update debris pieces: apply velocity and gravity, update life and
         // remove when expired.  A small gravity value is used here to
@@ -3730,31 +3859,36 @@ to better suit your requirements.
     // Update the material of the handBlock mesh to reflect the currently
     // selected block type.  This is called whenever the player presses 1–4.
     function updateHandBlockMaterial() {
-        if (!handBlock) return;
+        if (!handBlock || !handGroup) return;
         const type = selectableTypes[selectedIndex];
         const available = type ? (inventory[type] || 0) : 0;
-        Object.values(toolMeshes).forEach((mesh) => {
+        Object.values(handItemMeshes).forEach((mesh) => {
             if (mesh) mesh.visible = false;
         });
         activeHandTool = null;
+        handBlock.visible = false;
+        handGroup.visible = false;
         if (type && available > 0) {
+            handGroup.visible = true;
             if (blockMaterials[type]) {
                 handBlock.material = getHandMaterialForType(type);
                 handBlock.material.needsUpdate = true;
                 handBlock.visible = true;
-            } else if (toolMeshes[type]) {
+            } else if (handItemMeshes[type]) {
                 handBlock.visible = false;
-                toolMeshes[type].visible = true;
+                handItemMeshes[type].visible = true;
                 activeHandTool = type;
             } else {
                 handBlock.material = emptyHandMaterial;
                 handBlock.material.needsUpdate = true;
                 handBlock.visible = false;
+                handGroup.visible = false;
             }
         } else {
             handBlock.material = emptyHandMaterial;
             handBlock.material.needsUpdate = true;
             handBlock.visible = false;
+            handGroup.visible = false;
         }
         if (typeof updateHotbarSelection === 'function') updateHotbarSelection();
         if (type && available > 0 && typeof showSelectionTooltip === 'function') {
@@ -3766,29 +3900,70 @@ to better suit your requirements.
 
     function createAxeMesh() {
         const group = new THREE.Group();
-        const handleMaterial = new THREE.MeshStandardMaterial({ color: 0x8f5b2a, roughness: 0.75, metalness: 0.1 });
-        const gripMaterial = new THREE.MeshStandardMaterial({ color: 0x4b2f17, roughness: 0.85, metalness: 0.05 });
-        const headMaterial = new THREE.MeshStandardMaterial({ color: 0xcad6e2, roughness: 0.35, metalness: 0.85 });
-        const edgeMaterial = new THREE.MeshStandardMaterial({ color: 0xeaf2ff, roughness: 0.15, metalness: 1.0 });
-        [handleMaterial, gripMaterial, headMaterial, edgeMaterial].forEach((mat) => {
+        const handleMaterial = new THREE.MeshStandardMaterial({ color: 0x8d5e2c, roughness: 0.68, metalness: 0.18, flatShading: true });
+        const gripMaterial = new THREE.MeshStandardMaterial({ color: 0x2f1b0c, roughness: 0.82, metalness: 0.08, flatShading: true });
+        const headCoreMaterial = new THREE.MeshStandardMaterial({ color: 0x2fa7c3, roughness: 0.35, metalness: 0.9, emissive: 0x0e4a5b, emissiveIntensity: 0.25, flatShading: true });
+        const headPlateMaterial = new THREE.MeshStandardMaterial({ color: 0x5fe9ff, roughness: 0.18, metalness: 0.95, emissive: 0x1a6f80, emissiveIntensity: 0.28, flatShading: true });
+        const edgeMaterial = new THREE.MeshStandardMaterial({ color: 0xe8faff, roughness: 0.06, metalness: 1.0, flatShading: true });
+        [handleMaterial, gripMaterial, headCoreMaterial, headPlateMaterial, edgeMaterial].forEach((mat) => {
             mat.depthTest = false;
             mat.depthWrite = false;
         });
 
-        const handle = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.6, 0.08), handleMaterial);
-        handle.position.set(0, -0.05, 0);
-        const grip = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.18, 0.1), gripMaterial);
-        grip.position.set(0, -0.32, 0);
-        const head = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.22, 0.12), headMaterial);
-        head.position.set(0.14, 0.18, 0);
-        const edge = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.22, 0.16), edgeMaterial);
-        edge.position.set(0.31, 0.18, 0);
+        const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.74, 0.09), handleMaterial);
+        shaft.position.set(-0.06, -0.02, 0);
+        shaft.rotation.z = THREE.MathUtils.degToRad(4);
+        const grip = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.2, 0.1), gripMaterial);
+        grip.position.set(-0.06, -0.34, 0);
+        const pommel = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 0.12), gripMaterial);
+        pommel.position.set(-0.06, -0.42, 0);
 
-        group.add(handle, grip, head, edge);
-        group.rotation.set(-Math.PI / 3.2, Math.PI / 8, Math.PI / 16);
+        const headBase = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.28, 0.18), headCoreMaterial);
+        headBase.position.set(0.22, 0.24, 0);
+        const headInset = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.18, 0.2), headPlateMaterial);
+        headInset.position.set(0.38, 0.3, 0);
+        const blade = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.3, 0.26), headPlateMaterial);
+        blade.position.set(0.54, 0.24, 0);
+        const bladeEdge = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.3, 0.28), edgeMaterial);
+        bladeEdge.position.set(0.62, 0.24, 0);
+        const lowerNotch = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.12, 0.2), headCoreMaterial.clone());
+        lowerNotch.position.set(0.18, 0.06, 0);
+        lowerNotch.rotation.z = -Math.PI / 6;
+
+        group.add(shaft, grip, pommel, headBase, headInset, blade, bladeEdge, lowerNotch);
+        group.rotation.set(-Math.PI / 3.25, Math.PI / 4.4, Math.PI / 12);
         group.traverse((child) => {
             if (child.isMesh) {
-                child.renderOrder = 30;
+                child.renderOrder = 31;
+                child.castShadow = false;
+                child.receiveShadow = false;
+            }
+        });
+        return group;
+    }
+
+    function createStickMesh() {
+        const group = new THREE.Group();
+        const coreMaterial = new THREE.MeshStandardMaterial({ color: 0x9f6b36, roughness: 0.7, metalness: 0.12, flatShading: true });
+        const highlightMaterial = new THREE.MeshStandardMaterial({ color: 0xcb9451, roughness: 0.6, metalness: 0.15, flatShading: true });
+        [coreMaterial, highlightMaterial].forEach((mat) => {
+            mat.depthTest = false;
+            mat.depthWrite = false;
+        });
+
+        const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.62, 0.06), coreMaterial);
+        shaft.rotation.z = THREE.MathUtils.degToRad(-6);
+        const sheen = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.6, 0.028), highlightMaterial);
+        sheen.position.set(0.022, -0.02, 0.022);
+        sheen.rotation.z = THREE.MathUtils.degToRad(-6);
+
+        group.add(shaft, sheen);
+        group.rotation.set(-Math.PI / 3.6, Math.PI / 5.6, Math.PI / 18);
+        group.traverse((child) => {
+            if (child.isMesh) {
+                child.renderOrder = 31;
+                child.castShadow = false;
+                child.receiveShadow = false;
             }
         });
         return group;
