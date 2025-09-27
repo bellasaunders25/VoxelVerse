@@ -2807,6 +2807,10 @@ to better suit your requirements.
         scene.fog = new THREE.Fog(0x87ceeb, 150, 400);
         camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 2000);
         camera.position.copy(player.position);
+        // Attach the camera to the scene so that child objects (like the first-person
+        // hand) render correctly. Without this, any meshes parented to the camera are
+        // not traversed during rendering and remain invisible.
+        scene.add(camera);
 
         // Initialize lastYPosition for fall damage calculations with the
         // player's starting height.
