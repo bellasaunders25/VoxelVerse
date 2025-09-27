@@ -2939,23 +2939,13 @@ to better suit your requirements.
             mat.depthWrite = false;
             return mat;
         };
-        const sleeveMaterial = createHandMaterial(0x4b76d0, 0.18);
-        const skinMaterial = createHandMaterial(0xffeed8, 0.24);
-        const palmMaterial = createHandMaterial(0xffe5c8, 0.24);
+        const handMaterial = createHandMaterial(0xffe8ce, 0.26);
         playerArm = new THREE.Group();
-        const sleeve = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.26, 0.34), sleeveMaterial);
-        sleeve.position.set(0, 0.28, 0);
-        const upperArm = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.32, 0.3), skinMaterial);
-        upperArm.position.set(0, 0.1, 0);
-        const cuff = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.1, 0.36), sleeveMaterial);
-        cuff.position.set(0, 0.06, 0);
-        const lowerArm = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.36, 0.28), skinMaterial);
-        lowerArm.position.set(0, -0.12, 0);
-        handMesh = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.32, 0.96), palmMaterial);
-        handMesh.position.set(0.04, -0.36, -0.1);
-        handMesh.rotation.set(-Math.PI / 40, 0.14, 0.08);
+        handMesh = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.36, 1.12), handMaterial);
+        handMesh.position.set(0.08, -0.28, -0.32);
+        handMesh.rotation.set(-Math.PI / 28, 0.22, 0.08);
         handMesh.renderOrder = 30;
-        playerArm.add(sleeve, upperArm, cuff, lowerArm, handMesh);
+        playerArm.add(handMesh);
         playerArm.traverse((child) => {
             if (child.isMesh) {
                 child.renderOrder = 20;
