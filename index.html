@@ -542,9 +542,18 @@ to better suit your requirements.
     // lowest quarter of the world is underwater.
     const WATER_LEVEL = Math.floor(CHUNK_HEIGHT * 0.25);
     const VIEW_DISTANCE_CHUNKS = 3;
-    const WORLD_FREQUENCY = 0.02;
+    // Terrain noise configuration.  We bias the landscape toward broad,
+    // gently rolling hills by reducing the base frequency and explicitly
+    // splitting the surface height into a base elevation, a mountain-scale
+    // variation and a smaller detail component.
+    const WORLD_FREQUENCY = 0.009;
     const OCTAVES = 4;
     const PERSISTENCE = 0.5;
+    const TERRAIN_BASE_HEIGHT = Math.floor(CHUNK_HEIGHT * 0.34);
+    const TERRAIN_VARIATION = Math.floor(CHUNK_HEIGHT * 0.18);
+    const TERRAIN_DETAIL_VARIATION = Math.floor(CHUNK_HEIGHT * 0.06);
+    const TERRAIN_MOUNTAIN_EXTRA = Math.floor(CHUNK_HEIGHT * 0.12);
+    const MOUNTAIN_NOISE_FREQUENCY = WORLD_FREQUENCY * 0.85;
     // Day/night cycle configuration.  The time of day advances from 0 to 1
     // over the course of DAY_DURATION seconds.  At 0.25 the sun rises, at
     // 0.5 it reaches its highest point, at 0.75 it sets and at 1.0 it
@@ -564,19 +573,22 @@ to better suit your requirements.
     // appear near the horizon at the edge of the world.  A small offset
     // above CHUNK_HEIGHT ensures they remain visible above terrain.
     const SUN_HEIGHT    = CHUNK_HEIGHT + 10;
-    // Probability that a stone block deep underground will be carved out to
-    // create a cave.  A small value like 0.08 produces occasional open
-    // spaces in the stone layers.  Only stone below the dirt layers is
-    // eligible for carving.
-    const CAVE_PROBABILITY = 0.08;
+    // Cave generation configuration.  Instead of a simple per-block
+    // probability we evaluate layered 3D Perlin noise (similar to Minecraft's
+    // original approach) so caves meander naturally while still appearing
+    // infrequently.  The thresholds below keep cave systems uncommon and make
+    // surface ravines rare.
+    const CAVE_PROBABILITY = 0.0; // maintained for backwards compatibility
+    const CAVE_NOISE_SCALE = 0.055;
+    const CAVE_VERTICAL_SCALE = 0.085;
+    const CAVE_THRESHOLD = 0.63;
 
-    // Cave entrance configuration.  A small chance per column on the surface
-    // produces an entrance that opens downward into the world.  Each
-    // entrance carves a circular hole with a given radius and depth, giving
-    // the player access to underground caves from the surface.
-    const ENTRANCE_CHANCE = 0.004;
-    const ENTRANCE_RADIUS = 2;
-    const ENTRANCE_DEPTH = 6;
+    // Cave entrance configuration.  Rare surface openings keep ravines and
+    // sinkholes from appearing too frequently while still exposing the
+    // underground network now and then.
+    const ENTRANCE_CHANCE = 0.00025;
+    const ENTRANCE_RADIUS = 1;
+    const ENTRANCE_DEPTH = 4;
     // Terrain layering configuration.  We always place 3 layers of dirt
     // directly beneath the top surface, and we want the top 10 layers of
     // stone below those to be visible and selectable.  Deeper stone
@@ -1122,7 +1134,7 @@ to better suit your requirements.
                 )
             );
         }
-        return function(x, z, octaves = OCTAVES, persistence = PERSISTENCE, frequency = WORLD_FREQUENCY) {
+        function noise2D(x, z, octaves = OCTAVES, persistence = PERSISTENCE, frequency = WORLD_FREQUENCY) {
             let total = 0, amplitude = 1, maxValue = 0, freq = frequency;
             for (let i = 0; i < octaves; i++) {
                 total += rawNoise(x * freq, 0, z * freq) * amplitude;
@@ -1131,7 +1143,18 @@ to better suit your requirements.
                 freq *= 2;
             }
             return total / maxValue;
+        }
+        noise2D.noise3D = function(x, y, z, octaves = 4, persistence = PERSISTENCE, frequency = 1) {
+            let total = 0, amplitude = 1, maxValue = 0, freq = frequency;
+            for (let i = 0; i < octaves; i++) {
+                total += rawNoise(x * freq, y * freq, z * freq) * amplitude;
+                maxValue += amplitude;
+                amplitude *= persistence;
+                freq *= 2;
+            }
+            return total / maxValue;
         };
+        return noise2D;
     }
     // Deterministic helper for tree placement
     function coordSeededRand(cx, cz, wx, wz) {
@@ -1150,10 +1173,21 @@ to better suit your requirements.
             for (let dz = -1; dz <= CHUNK_SIZE; dz++) {
                 const wx = worldX0 + dx;
                 const wz = worldZ0 + dz;
-                const n = perlinNoise(wx, wz);
-                const normalized = (n + 1) / 2;
-                let h = Math.floor(normalized * (CHUNK_HEIGHT - 8)) + 2;
-                h = Math.max(0, Math.min(CHUNK_HEIGHT - 1, h));
+                const continentNoise = perlinNoise(wx * 0.35, wz * 0.35, 2, 0.5, WORLD_FREQUENCY * 0.25);
+                const continentMask = Math.min(1, Math.max(0, (continentNoise + 1) * 0.5 + 0.15));
+                const broadNoise = perlinNoise(wx, wz, 4, 0.55, WORLD_FREQUENCY * 0.55);
+                const shaped = Math.pow((broadNoise + 1) * 0.5, 1.1);
+                const detailNoise = perlinNoise(wx + 1000, wz - 1000, 2, 0.6, WORLD_FREQUENCY * 1.8);
+                const detail = (detailNoise + 1) * 0.5;
+                const mountainNoise = perlinNoise(wx - 2000, wz + 2000, 3, 0.55, MOUNTAIN_NOISE_FREQUENCY);
+                const mountainMask = Math.pow(Math.max(0, mountainNoise), 3);
+                let h = Math.floor(
+                    TERRAIN_BASE_HEIGHT +
+                    continentMask * TERRAIN_VARIATION * shaped +
+                    detail * TERRAIN_DETAIL_VARIATION +
+                    mountainMask * TERRAIN_MOUNTAIN_EXTRA
+                );
+                h = Math.max(WATER_LEVEL - 2, Math.min(CHUNK_HEIGHT - 1, h));
                 heights[`${wx},${wz}`] = h;
                 // Update global height map if this column is higher than previous
                 const key = `${wx},${wz}`;
@@ -1176,9 +1210,9 @@ to better suit your requirements.
                 const colKey = `${wx},${wz}`;
                 const colHeight = heights[colKey];
                 // Only spawn entrances on columns that are sufficiently above the water level.
-                // Use the constant 4 (default water level) directly here because
-                // waterLevel has not yet been defined in this scope at runtime.
-                if (colHeight > 4 + 2) {
+                // Use the global WATER_LEVEL constant directly because waterLevel has not
+                // yet been defined in this scope at runtime.
+                if (colHeight > WATER_LEVEL + 2) {
                     const rSeed = (seed ^ (wx * 897689) ^ (wz * 354331) ^ 0xCAFEBABE) >>> 0;
                     const rng = mulberry32(rSeed);
                     if (rng() < ENTRANCE_CHANCE) {
@@ -1309,16 +1343,26 @@ to better suit your requirements.
                             }
                         }
                     }
-                    // Carve caves out of stone below the dirt layers.  A small
-                    // probability determines whether the current stone block is
-                    // removed entirely.  The random value is derived from the
-                    // global seed and the world coordinates, ensuring deterministic
-                    // caves that line up across chunk boundaries.
+                    // Carve caves out of stone below the dirt layers.  We drive
+                    // carving with layered 3D noise so tunnels wind organically
+                    // while remaining deterministic across chunk boundaries.
                     let carved = false;
                     if (matKey === 'stone' && y <= columnHeight - DIRT_LAYERS) {
-                        const rSeed = (seed ^ (wx * 92837111) ^ (y * 689287) ^ (wz * 1234567)) >>> 0;
-                        const rng = mulberry32(rSeed);
-                        if (rng() < CAVE_PROBABILITY) {
+                        const nx = wx * CAVE_NOISE_SCALE;
+                        const ny = y * CAVE_VERTICAL_SCALE;
+                        const nz = wz * CAVE_NOISE_SCALE;
+                        const primary = perlinNoise.noise3D(nx + seed * 0.0001, ny, nz + seed * 0.0001, 4, 0.55, 1);
+                        const secondary = perlinNoise.noise3D(
+                            (wx + 4000) * CAVE_NOISE_SCALE * 1.6,
+                            (y + 200) * CAVE_VERTICAL_SCALE * 1.4,
+                            (wz - 4000) * CAVE_NOISE_SCALE * 1.6,
+                            3,
+                            0.6,
+                            1
+                        );
+                        const ridged = 1 - Math.abs(secondary);
+                        const caveValue = Math.max(Math.abs(primary), ridged * 0.75);
+                        if (caveValue > CAVE_THRESHOLD) {
                             carved = true;
                         }
                     }
@@ -1361,7 +1405,15 @@ to better suit your requirements.
                 // Tree generation (only on ground above water level)
                 if (columnHeight > waterLevel + 1) {
                     const rand = coordSeededRand(cx, cz, wx, wz)();
-                    if (rand < 0.02) {
+                    const slope = Math.max(
+                        Math.abs((heights[`${wx + 1},${wz}`] ?? columnHeight) - columnHeight),
+                        Math.abs((heights[`${wx - 1},${wz}`] ?? columnHeight) - columnHeight),
+                        Math.abs((heights[`${wx},${wz + 1}`] ?? columnHeight) - columnHeight),
+                        Math.abs((heights[`${wx},${wz - 1}`] ?? columnHeight) - columnHeight)
+                    );
+                    const treeNoise = perlinNoise(wx + 3000, wz - 3000, 2, 0.6, WORLD_FREQUENCY);
+                    const treeThreshold = 0.0035 + Math.max(0, (0.45 - Math.abs(treeNoise)) * 0.002);
+                    if (rand < treeThreshold && slope <= 2) {
                         const trunkH = 3 + Math.floor(coordSeededRand(cx, cz, wx+1, wz)() * 3);
                         for (let t = 1; t <= trunkH; t++) {
                             const sy = columnHeight + t;
