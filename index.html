@@ -1160,30 +1160,66 @@ to better suit your requirements.
     bedrockTexture.magFilter  = THREE.LinearFilter;
     bedrockTexture.minFilter  = THREE.LinearMipmapLinearFilter;
     bedrockTexture.anisotropy = 4;
+    const sandTexture = textureLoader.load('https://i.postimg.cc/mD8wBsKF/image.png');
+    sandTexture.magFilter  = THREE.LinearFilter;
+    sandTexture.minFilter  = THREE.LinearMipmapLinearFilter;
+    sandTexture.anisotropy = 4;
+    const snowTexture = textureLoader.load('https://i.postimg.cc/XYkxQdxD/image.png');
+    snowTexture.magFilter  = THREE.LinearFilter;
+    snowTexture.minFilter  = THREE.LinearMipmapLinearFilter;
+    snowTexture.anisotropy = 4;
+    const mossTexture = textureLoader.load('https://i.postimg.cc/Z5HFrZKg/image.png');
+    mossTexture.magFilter  = THREE.LinearFilter;
+    mossTexture.minFilter  = THREE.LinearMipmapLinearFilter;
+    mossTexture.anisotropy = 4;
+    const cactusTexture = textureLoader.load('https://i.postimg.cc/9f18FZ7m/image.png');
+    cactusTexture.magFilter  = THREE.LinearFilter;
+    cactusTexture.minFilter  = THREE.LinearMipmapLinearFilter;
+    cactusTexture.anisotropy = 4;
+    const ironTexture = textureLoader.load('https://i.postimg.cc/VsSJgw4H/image.png');
+    ironTexture.magFilter  = THREE.LinearFilter;
+    ironTexture.minFilter  = THREE.LinearMipmapLinearFilter;
+    ironTexture.anisotropy = 4;
+    const copperTexture = textureLoader.load('https://i.postimg.cc/rmXPHMxf/image.png');
+    copperTexture.magFilter  = THREE.LinearFilter;
+    copperTexture.minFilter  = THREE.LinearMipmapLinearFilter;
+    copperTexture.anisotropy = 4;
+    const rubyTexture = textureLoader.load('https://i.postimg.cc/5yPpfVYB/image.png');
+    rubyTexture.magFilter  = THREE.LinearFilter;
+    rubyTexture.minFilter  = THREE.LinearMipmapLinearFilter;
+    rubyTexture.anisotropy = 4;
+    const diamondTexture = textureLoader.load('https://i.postimg.cc/brF0K9WV/image.png');
+    diamondTexture.magFilter  = THREE.LinearFilter;
+    diamondTexture.minFilter  = THREE.LinearMipmapLinearFilter;
+    diamondTexture.anisotropy = 4;
+    const coalTexture = textureLoader.load('https://i.postimg.cc/9QyTp2XX/image.png');
+    coalTexture.magFilter  = THREE.LinearFilter;
+    coalTexture.minFilter  = THREE.LinearMipmapLinearFilter;
+    coalTexture.anisotropy = 4;
     const blockMaterials = {
         grass: new THREE.MeshStandardMaterial({ map: grassTexture }),
         dirt:  new THREE.MeshStandardMaterial({ map: dirtTexture }),
         stone: new THREE.MeshStandardMaterial({ map: stoneTexture }),
-        sand:  new THREE.MeshStandardMaterial({ color: 0xe6d4a0 }),
+        sand:  new THREE.MeshStandardMaterial({ map: sandTexture }),
         water: new THREE.MeshStandardMaterial({ color: 0x4a7ad1, transparent: true, opacity: 0.6 }),
         wood:  new THREE.MeshStandardMaterial({ map: woodTexture }),
         leaves:new THREE.MeshStandardMaterial({ map: leavesTexture, transparent: true, alphaTest: 0.5, side: THREE.DoubleSide }),
         bedrock: new THREE.MeshStandardMaterial({ map: bedrockTexture }),
-        snow:   new THREE.MeshStandardMaterial({ color: 0xf5fbff, roughness: 0.45, metalness: 0.05 }),
+        snow:   new THREE.MeshStandardMaterial({ map: snowTexture }),
         ice:    new THREE.MeshStandardMaterial({ color: 0x9bd8ff, transparent: true, opacity: 0.7, roughness: 0.12, metalness: 0.15, envMapIntensity: 0.6 }),
-        moss:   new THREE.MeshStandardMaterial({ color: 0x3b8a64, roughness: 0.85, metalness: 0.05 }),
+        moss:   new THREE.MeshStandardMaterial({ map: mossTexture }),
         glowstone: new THREE.MeshStandardMaterial({ color: 0xfff2b3, emissive: 0xffd76b, emissiveIntensity: 1.5, roughness: 0.3 }),
-        cactus: new THREE.MeshStandardMaterial({ color: 0x2f9b57, roughness: 0.9, metalness: 0.05 }),
+        cactus: new THREE.MeshStandardMaterial({ map: cactusTexture }),
         // Ores and lava.  Ores are represented by coloured materials
         // rather than textures for simplicity.  Lava is an emissive
         // semi‑transparent material that glows.  These materials can be
         // referenced by name in the voxel generation logic below.
-        iron:    new THREE.MeshStandardMaterial({ color: 0xd8d8d8 }),
-        copper:  new THREE.MeshStandardMaterial({ color: 0xb46c00 }),
-        ruby:    new THREE.MeshStandardMaterial({ color: 0xff3c44 }),
-        diamond: new THREE.MeshStandardMaterial({ color: 0x33ffe6 }),
-        coal:    new THREE.MeshStandardMaterial({ color: 0x222222 }),
-        lava:    new THREE.MeshStandardMaterial({ color: 0xff6600, emissive: 0xff4500, emissiveIntensity: 1.0, transparent: true, opacity: 0.85 })
+        iron:    new THREE.MeshStandardMaterial({ map: ironTexture }),
+        copper:  new THREE.MeshStandardMaterial({ map: copperTexture }),
+        ruby:    new THREE.MeshStandardMaterial({ map: rubyTexture }),
+        diamond: new THREE.MeshStandardMaterial({ map: diamondTexture }),
+        coal:    new THREE.MeshStandardMaterial({ map: coalTexture }),
+        lava:    new THREE.MeshStandardMaterial({ color: 0xff6600, emissive: 0xff4500, emissiveIntensity: 1.0, transparent: true, opacity: 0.6 })
     };
     const emptyHandMaterial = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.0 });
     emptyHandMaterial.depthTest = false;
