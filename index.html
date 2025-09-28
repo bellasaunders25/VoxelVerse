@@ -1016,11 +1016,11 @@ to better suit your requirements.
     const PLAINS_BASE = 0.28;
     const PLAINS_VARIATION = 0.24;
 
-    const OCEAN_MASK_FREQUENCY = 0.12;
-    const OCEAN_THRESHOLD = 0.46;
-    const OCEAN_SHELF_BLEND = 0.12;
-    const OCEAN_MAX_DEPTH = 14;
-    const OCEAN_FLOOR_JITTER = 3.5;
+    const OCEAN_MASK_FREQUENCY = 0.1;
+    const OCEAN_THRESHOLD = 0.38;
+    const OCEAN_SHELF_BLEND = 0.08;
+    const OCEAN_MAX_DEPTH = 12;
+    const OCEAN_FLOOR_JITTER = 2.5;
 
     // Cave entrance configuration.  A small chance per column on the surface
     // produces an entrance that opens downward into the world.  Each
@@ -1030,19 +1030,20 @@ to better suit your requirements.
     const ENTRANCE_RADIUS = 2;
     const ENTRANCE_DEPTH = 5;
 
-    const ISLAND_BASE_RADIUS = 640;
-    const ISLAND_VARIATION = 320;
+    const ISLAND_BASE_RADIUS = 820;
+    const ISLAND_VARIATION = 280;
     const ISLAND_FALLOFF_POWER = 1.45;
     const ISLAND_NOISE_FREQUENCY = 0.0035;
-    const ISLAND_INTERIOR_BOOST = 1.12;
-    const ISLAND_RIM_START = 0.58;
-    const ISLAND_RIM_FLOOR = 0.18;
-    const ISLAND_OCEAN_DEPTH = 22;
-    const OCEAN_BIOME_THRESHOLD = 0.32;
+    const ISLAND_INTERIOR_BOOST = 1.08;
+    const ISLAND_RIM_START = 0.54;
+    const ISLAND_RIM_FLOOR = 0.24;
+    const ISLAND_OCEAN_DEPTH = 18;
+    const OCEAN_BIOME_THRESHOLD = 0.25;
     const COAST_BIOME_THRESHOLD = 0.48;
     const SHORE_MASK_POWER = 1.65;
     const ISLAND_TREE_MIN_FACTOR = 0.35;
     const TREE_DENSITY_SCALE = 0.65;
+    const SPAWN_FORBIDDEN_SURFACE_TYPES = new Set(['leaves', 'wood', 'water', 'lava', 'glowstone', 'cactus']);
     // Terrain layering configuration.  We always place 3 layers of dirt
     // directly beneath the top surface, and we want the top 10 layers of
     // stone below those to be visible and selectable.  Deeper stone
@@ -2733,6 +2734,137 @@ to better suit your requirements.
     function computeShoreMaskFromFactor(factor) {
         return Math.pow(THREE.MathUtils.clamp(1 - factor, 0, 1), SHORE_MASK_POWER);
     }
+    function sampleColumnHeight(wx, wz) {
+        if (!perlinNoise) return null;
+        const biome = getBiomeAt(wx, wz);
+        const islandFactor = (biome && biome.samples && typeof biome.samples.island === 'number')
+            ? biome.samples.island
+            : computeIslandFactor(wx, wz);
+        const shoreMask = (biome && biome.samples && typeof biome.samples.shore === 'number')
+            ? biome.samples.shore
+            : computeShoreMaskFromFactor(islandFactor);
+        const continentNoise = (perlinNoise(wx, wz, 4, 0.5, WORLD_FREQUENCY * 0.22) + 1) / 2;
+        const ridgeNoise = (perlinNoise(wx, wz, 5, 0.5, WORLD_FREQUENCY * 0.9) + 1) / 2;
+        const detailNoise = (perlinNoise(wx, wz, 3, 0.55, WORLD_FREQUENCY * 1.6) + 1) / 2;
+        const mountainNoise = Math.pow(ridgeNoise, 1.6);
+        let normalized = continentNoise * 0.52 + mountainNoise * 0.34 + detailNoise * 0.14;
+        const plateauNoise = (perlinNoise(wx, wz, 2, 0.6, WORLD_FREQUENCY * 0.12) + 1) / 2;
+        if (plateauNoise > 0.58) {
+            const strength = Math.min(1, (plateauNoise - 0.58) / 0.42);
+            const flatTarget = Math.round(normalized * 12) / 12;
+            normalized = THREE.MathUtils.lerp(normalized, flatTarget, strength * 0.7);
+        }
+        const flattenMask = (perlinNoise(wx, wz, 3, 0.6, PLAINS_MASK_FREQUENCY) + 1) / 2;
+        const flatTarget = PLAINS_BASE + continentNoise * PLAINS_VARIATION;
+        const isMeadowy = biome && (biome.key === 'meadow' || biome.key === 'desert');
+        let flattenStrength = 0;
+        if (flattenMask > PLAINS_THRESHOLD) {
+            flattenStrength = Math.min(1, (flattenMask - PLAINS_THRESHOLD) / (1 - PLAINS_THRESHOLD));
+        }
+        if (isMeadowy) {
+            flattenStrength = Math.max(flattenStrength, 0.45);
+        }
+        if (flattenStrength > 0) {
+            normalized = THREE.MathUtils.lerp(normalized, flatTarget, flattenStrength * 0.85);
+        }
+        normalized = THREE.MathUtils.clamp(normalized, 0, 1);
+        const interiorScale = THREE.MathUtils.lerp(ISLAND_INTERIOR_BOOST, 1, 1 - islandFactor);
+        normalized *= interiorScale;
+        const rimBlend = THREE.MathUtils.clamp((islandFactor - ISLAND_RIM_START) / (1 - ISLAND_RIM_START), 0, 1);
+        normalized = THREE.MathUtils.lerp(ISLAND_RIM_FLOOR, normalized, rimBlend);
+        normalized = THREE.MathUtils.clamp(normalized, 0, 1);
+        let h = Math.floor(normalized * (CHUNK_HEIGHT - 12)) + 4;
+        const oceanNoise = (perlinNoise(wx, wz, 3, 0.55, OCEAN_MASK_FREQUENCY) + 1) / 2;
+        if (oceanNoise < OCEAN_THRESHOLD) {
+            const denom = Math.max(OCEAN_SHELF_BLEND, 0.0001);
+            const shelfFactor = Math.min(1, Math.max(0, (OCEAN_THRESHOLD - oceanNoise) / denom));
+            const depthStrength = Math.pow((OCEAN_THRESHOLD - oceanNoise) / OCEAN_THRESHOLD, 1.2);
+            const floorNoise = (perlinNoise(wx, wz, 2, 0.55, WORLD_FREQUENCY * 1.8) + 1) / 2;
+            const depth = OCEAN_MAX_DEPTH * (0.35 + 0.65 * depthStrength) * shelfFactor;
+            const floorOffset = Math.round(floorNoise * OCEAN_FLOOR_JITTER);
+            const oceanFloor = Math.floor(WATER_LEVEL - 2 - depth - floorOffset);
+            h = Math.min(h, oceanFloor);
+        }
+        if (biome && typeof biome.heightOffset === 'number') {
+            h += biome.heightOffset;
+        }
+        const islandOceanStrength = Math.pow(1 - islandFactor, 1.45);
+        if (islandOceanStrength > 0) {
+            const islandFloor = Math.floor(WATER_LEVEL - 2 - islandOceanStrength * ISLAND_OCEAN_DEPTH);
+            h = Math.min(h, islandFloor);
+        }
+        h = Math.max(0, Math.min(CHUNK_HEIGHT - 1, h));
+        let soilLayers = (biome && typeof biome.soilLayers === 'number') ? biome.soilLayers : 3;
+        let surfaceBlock = (h < WATER_LEVEL)
+            ? ((biome && biome.underwaterSurface) || (biome && biome.surface) || 'sand')
+            : ((biome && biome.surface) || 'grass');
+        let subsurfaceBlock = (biome && biome.subsurface) ? biome.subsurface : 'dirt';
+        const belowWater = h < WATER_LEVEL - 1;
+        const coastal = !belowWater && h >= WATER_LEVEL - 2 && h <= WATER_LEVEL + 2;
+        const strongShore = shoreMask > 0.38;
+        const beachBand = shoreMask > 0.18;
+        const depthBelowSea = WATER_LEVEL - h;
+        if (belowWater) {
+            surfaceBlock = 'sand';
+            subsurfaceBlock = 'sand';
+            if (depthBelowSea > 8) {
+                soilLayers = Math.max(soilLayers, 6);
+            } else if (depthBelowSea > 4) {
+                soilLayers = Math.max(soilLayers, 5);
+            } else {
+                soilLayers = Math.max(soilLayers, 4);
+            }
+        } else if (coastal || strongShore) {
+            surfaceBlock = 'sand';
+            subsurfaceBlock = 'sand';
+            soilLayers = Math.max(soilLayers, strongShore ? 4 : 3);
+        } else if (beachBand) {
+            surfaceBlock = 'sand';
+            subsurfaceBlock = shoreMask > 0.3 ? 'sand' : subsurfaceBlock;
+            soilLayers = Math.max(soilLayers, 2);
+        }
+        return { height: h, surfaceBlock, biome, islandFactor, shoreMask };
+    }
+    function findInitialSpawnPosition(maxRadius = 256, step = 2) {
+        if (!perlinNoise) {
+            return { x: 0, z: 0, height: WATER_LEVEL, surfaceBlock: 'grass' };
+        }
+        const stride = Math.max(1, Math.floor(step));
+        const maxSearch = Math.max(stride, Math.floor(maxRadius));
+        let fallback = null;
+        for (let radius = 0; radius <= maxSearch; radius += stride) {
+            for (let dx = -radius; dx <= radius; dx += stride) {
+                for (let dz = -radius; dz <= radius; dz += stride) {
+                    if (radius !== 0 && Math.max(Math.abs(dx), Math.abs(dz)) !== radius) continue;
+                    const wx = dx;
+                    const wz = dz;
+                    const column = sampleColumnHeight(wx, wz);
+                    if (!column) continue;
+                    const { height, surfaceBlock } = column;
+                    if (height < WATER_LEVEL) {
+                        if (!fallback || height > fallback.height) {
+                            fallback = { x: wx, z: wz, height, surfaceBlock: surfaceBlock || 'sand' };
+                        }
+                        continue;
+                    }
+                    if (surfaceBlock === 'water') continue;
+                    const neighbourOffsets = [[1,0], [-1,0], [0,1], [0,-1]];
+                    let slopeOk = true;
+                    for (const [nx, nz] of neighbourOffsets) {
+                        const neighbour = sampleColumnHeight(wx + nx, wz + nz);
+                        if (!neighbour) continue;
+                        if (neighbour.height < WATER_LEVEL - 1) { slopeOk = false; break; }
+                        if (Math.abs(neighbour.height - height) > 3) { slopeOk = false; break; }
+                    }
+                    if (!slopeOk) continue;
+                    return { x: wx, z: wz, height, surfaceBlock: surfaceBlock || 'grass' };
+                }
+            }
+        }
+        if (fallback) return fallback;
+        const defaultColumn = sampleColumnHeight(0, 0) || { height: WATER_LEVEL, surfaceBlock: 'sand' };
+        return { x: 0, z: 0, height: defaultColumn.height, surfaceBlock: defaultColumn.surfaceBlock || 'sand' };
+    }
     function computeBiome(x, z) {
         const heat = sampleBiomeNoise(heatNoise, x, z, BIOME_FREQUENCY);
         const moisture = sampleBiomeNoise(moistureNoise, x, z, BIOME_FREQUENCY);
@@ -3402,6 +3534,7 @@ to better suit your requirements.
         inWater: false,
         headSubmerged: false,
     };
+    let initialSpawnPoint = null;
     let pointerLocked = false;
 
     // --- Init three.js and world ---
@@ -3618,7 +3751,10 @@ to better suit your requirements.
         caveNoiseDetail = createPerlin3D(seed ^ 0x7c9f1);
         cavernNoise = createPerlin3D(seed ^ 0x1bd45);
         biomeCache.clear();
+        initialSpawnPoint = findInitialSpawnPosition();
+        teleportPlayerToSpawn(initialSpawnPoint);
         updateVisibleChunks(true);
+        snapPlayerToGroundAtCurrentColumn();
         // Apply volume settings now that audio objects have been created.  This
         // call ensures that in‑game music and sound effects respect the
         // saved master/music/SFX volumes from localStorage.
@@ -3868,6 +4004,51 @@ to better suit your requirements.
 
     function isWaterVoxel(x, y, z) {
         return getVoxelType(x, y, z) === 'water';
+    }
+
+    function findStableSurfaceY(x, z) {
+        const top = getHighestBlockY(x, z);
+        if (!Number.isFinite(top) || top === -Infinity) return null;
+        let y = top;
+        let iterations = 0;
+        while (y >= 0 && iterations < CHUNK_HEIGHT) {
+            const type = getVoxelType(x, y, z);
+            if (!type) {
+                return y;
+            }
+            if (!SPAWN_FORBIDDEN_SURFACE_TYPES.has(type)) {
+                return y;
+            }
+            y--;
+            iterations++;
+        }
+        return null;
+    }
+
+    function teleportPlayerToSpawn(spawnInfo) {
+        if (!spawnInfo) return;
+        const estimateSource = Number.isFinite(spawnInfo.groundY) ? spawnInfo.groundY : spawnInfo.height;
+        const estimated = Number.isFinite(estimateSource) ? estimateSource : WATER_LEVEL;
+        const groundEstimate = Math.max(0, Math.min(CHUNK_HEIGHT - 2, estimated));
+        const spawnGround = (spawnInfo.surfaceBlock === 'water') ? WATER_LEVEL : groundEstimate;
+        player.position.set(spawnInfo.x + 0.5, (spawnGround + 1) + PLAYER_HEIGHT / 2, spawnInfo.z + 0.5);
+        player.velocityY = 0;
+        camera.position.copy(player.position);
+        lastYPosition = player.position.y;
+    }
+
+    function snapPlayerToGroundAtCurrentColumn() {
+        const ix = Math.floor(player.position.x);
+        const iz = Math.floor(player.position.z);
+        const safeY = findStableSurfaceY(ix, iz);
+        if (safeY !== null && safeY !== -Infinity) {
+            player.position.y = (safeY + 1) + PLAYER_HEIGHT / 2;
+            camera.position.copy(player.position);
+            lastYPosition = player.position.y;
+            if (initialSpawnPoint && ix === initialSpawnPoint.x && iz === initialSpawnPoint.z) {
+                initialSpawnPoint.groundY = safeY;
+            }
+        }
     }
 
     function sampleWaterState(px, py, pz) {
@@ -5399,10 +5580,12 @@ to better suit your requirements.
         updateHearts();
         // Reset camera tilt
         camera.rotation.z = 0;
-        // Reset player position: find highest block at spawn (0,0)
-        const groundY = getHighestBlockY(0, 0);
-        player.position.set(0, (groundY + 1) + PLAYER_HEIGHT/2, 0);
-        player.velocityY = 0;
+        if (!initialSpawnPoint) {
+            initialSpawnPoint = findInitialSpawnPosition();
+        }
+        teleportPlayerToSpawn(initialSpawnPoint);
+        updateVisibleChunks(true);
+        snapPlayerToGroundAtCurrentColumn();
         // Hide death screen
         const deathEl = document.getElementById('deathScreen');
         if (deathEl) {
@@ -6596,7 +6779,10 @@ to better suit your requirements.
             mysticNoise = createPerlin(seed ^ 0x1f2a7);
             skyIslandNoise = createPerlin(seed ^ 0x7ab9d);
             biomeCache.clear();
+            initialSpawnPoint = findInitialSpawnPosition();
+            teleportPlayerToSpawn(initialSpawnPoint);
             updateVisibleChunks(true);
+            snapPlayerToGroundAtCurrentColumn();
         },
         getSeed: () => seed,
         startGame: startGame
