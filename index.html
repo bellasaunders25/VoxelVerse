@@ -995,33 +995,6 @@ to better suit your requirements.
     // appear near the horizon at the edge of the world.  A small offset
     // above CHUNK_HEIGHT ensures they remain visible above terrain.
     const SUN_HEIGHT    = CHUNK_HEIGHT + 10;
-    // Cave noise configuration.  Underground spaces are carved by sampling
-    // layered 3D Perlin noise fields instead of a simple probability.  The
-    // base and detail frequencies control tunnel width and branching,
-    // while the cavern frequency spawns larger chambers.  Threshold
-    // determines how much of the stone is removed and CAVE_MIN_Y limits
-    // generation to deeper levels so the surface remains intact.
-    const CAVE_BASE_FREQUENCY = 0.03;
-    const CAVE_DETAIL_FREQUENCY = 0.07;
-    const CAVERN_FREQUENCY = 0.018;
-    const CAVE_THRESHOLD = 0.52;
-    const CAVE_MIN_Y = 6;
-    const CAVE_VERTICAL_RIPPLE_FREQ = 0.22;
-    const CAVE_VERTICAL_RIPPLE_STRENGTH = 0.06;
-    const CAVE_CAVERN_THRESHOLD = 0.77;
-    const CAVE_CAVERN_BOOST = 0.24;
-    const CAVE_SURFACE_CLEARANCE = 5;
-
-    const RAVINE_GRID_SIZE = CHUNK_SIZE;
-    const RAVINE_CHANCE = 0.3;
-    const RAVINE_EXCLUSION_RADIUS = 1;
-    const RAVINE_MIN_LENGTH = 36;
-    const RAVINE_MAX_LENGTH = 104;
-    const RAVINE_MIN_DEPTH = 18;
-    const RAVINE_MAX_DEPTH = 32;
-    const RAVINE_BASE_WIDTH = 3.1;
-    const RAVINE_WIDTH_VARIATION = 1.4;
-
     const PLAINS_MASK_FREQUENCY = 0.04;
     const PLAINS_THRESHOLD = 0.55;
     const PLAINS_BASE = 0.3;
@@ -1033,15 +1006,6 @@ to better suit your requirements.
     const OCEAN_MAX_DEPTH = 14;
     const OCEAN_FLOOR_JITTER = 3.5;
 
-    // Cave entrance configuration.  A chunk-wide chance determines whether
-    // a surface entrance appears within the chunk.  When triggered, one or
-    // two circular openings are carved downwards to expose the underground
-    // network, giving the player access to caves without littering every
-    // column with holes.
-    const ENTRANCE_CHUNK_CHANCE = 0.3;
-    const ENTRANCE_ATTEMPTS = 5;
-    const ENTRANCE_RADIUS = 2;
-    const ENTRANCE_DEPTH = 6;
     // Terrain layering configuration.  We always place 3 layers of dirt
     // directly beneath the top surface, and we want the top 10 layers of
     // stone below those to be visible and selectable.  Deeper stone
@@ -1238,9 +1202,6 @@ to better suit your requirements.
     let moistureNoise;
     let mysticNoise;
     let skyIslandNoise;
-    let caveNoisePrimary;
-    let caveNoiseDetail;
-    let cavernNoise;
     const biomeCache = new Map();
     // A global height map storing the highest solid block for each (x,z)
     const heightMap = {};
@@ -2570,102 +2531,6 @@ to better suit your requirements.
             return total / maxValue;
         };
     }
-    const ravineCache = new Map();
-    const ravineChanceCache = new Map();
-    const ravineDecisionCache = new Map();
-    function getRavineChanceInfo(gx, gz) {
-        const key = `${gx},${gz}`;
-        if (ravineChanceCache.has(key)) return ravineChanceCache.get(key);
-        const seedVal = (seed ^ (gx * 1103515245) ^ (gz * 12345) ^ 0x9e3779b9) >>> 0;
-        const chance = mulberry32(seedVal)();
-        const info = { chance, seed: seedVal };
-        ravineChanceCache.set(key, info);
-        return info;
-    }
-    function cellSpawnsRavine(gx, gz) {
-        const key = `${gx},${gz}`;
-        if (ravineDecisionCache.has(key)) return ravineDecisionCache.get(key);
-        const info = getRavineChanceInfo(gx, gz);
-        let result = false;
-        if (info.chance < RAVINE_CHANCE) {
-            result = true;
-            outer: for (let dx = -RAVINE_EXCLUSION_RADIUS; dx <= RAVINE_EXCLUSION_RADIUS; dx++) {
-                for (let dz = -RAVINE_EXCLUSION_RADIUS; dz <= RAVINE_EXCLUSION_RADIUS; dz++) {
-                    if (dx === 0 && dz === 0) continue;
-                    const neighbour = getRavineChanceInfo(gx + dx, gz + dz);
-                    if (neighbour.chance < info.chance && neighbour.chance < RAVINE_CHANCE) {
-                        result = false;
-                        break outer;
-                    }
-                }
-            }
-        }
-        ravineDecisionCache.set(key, result);
-        return result;
-    }
-    function getRavinesForCell(gx, gz) {
-        const key = `${gx},${gz}`;
-        if (ravineCache.has(key)) return ravineCache.get(key);
-        const ravines = [];
-        if (cellSpawnsRavine(gx, gz)) {
-            const info = getRavineChanceInfo(gx, gz);
-            const rng = mulberry32(info.seed ^ 0xb5297a4d);
-            const startX = (gx + rng()) * RAVINE_GRID_SIZE;
-            const startZ = (gz + rng()) * RAVINE_GRID_SIZE;
-            const angle = rng() * Math.PI * 2;
-            const dirX = Math.cos(angle);
-            const dirZ = Math.sin(angle);
-            const length = RAVINE_MIN_LENGTH + rng() * (RAVINE_MAX_LENGTH - RAVINE_MIN_LENGTH);
-            const baseWidth = RAVINE_BASE_WIDTH + rng() * RAVINE_WIDTH_VARIATION;
-            const depth = RAVINE_MIN_DEPTH + rng() * (RAVINE_MAX_DEPTH - RAVINE_MIN_DEPTH);
-            const curve = (rng() - 0.5) * 0.65;
-            const wobble = (rng() - 0.5) * 0.35;
-            ravines.push({ startX, startZ, dirX, dirZ, length, baseWidth, depth, curve, wobble });
-        }
-        ravineCache.set(key, ravines);
-        return ravines;
-    }
-    function gatherRavinesForBounds(minX, maxX, minZ, maxZ) {
-        const ravines = [];
-        const gridMinX = Math.floor(minX / RAVINE_GRID_SIZE) - 1;
-        const gridMaxX = Math.floor((maxX - 1) / RAVINE_GRID_SIZE) + 1;
-        const gridMinZ = Math.floor(minZ / RAVINE_GRID_SIZE) - 1;
-        const gridMaxZ = Math.floor((maxZ - 1) / RAVINE_GRID_SIZE) + 1;
-        for (let gx = gridMinX; gx <= gridMaxX; gx++) {
-            for (let gz = gridMinZ; gz <= gridMaxZ; gz++) {
-                const cellRavines = getRavinesForCell(gx, gz);
-                for (const ravine of cellRavines) ravines.push(ravine);
-            }
-        }
-        return ravines;
-    }
-    function evaluateRavineAtColumn(ravine, wx, wz, columnHeight) {
-        const dx = wx - ravine.startX;
-        const dz = wz - ravine.startZ;
-        const t = dx * ravine.dirX + dz * ravine.dirZ;
-        if (t < -8 || t > ravine.length + 8) return null;
-        const perpX = -ravine.dirZ;
-        const perpZ = ravine.dirX;
-        const progress = Math.max(0, Math.min(1, t / ravine.length));
-        const curveOffset = ravine.curve * Math.sin(progress * Math.PI);
-        const wobbleOffset = ravine.wobble * Math.sin(progress * Math.PI * 2);
-        const offset = curveOffset + wobbleOffset;
-        const offsetX = dx - ravine.dirX * t - perpX * offset;
-        const offsetZ = dz - ravine.dirZ * t - perpZ * offset;
-        const lateralDist = Math.hypot(offsetX, offsetZ);
-        const width = ravine.baseWidth * (0.65 + 0.45 * Math.sin(progress * Math.PI));
-        if (lateralDist > width) return null;
-        const depth = ravine.depth * (0.7 + 0.3 * Math.sin(progress * Math.PI));
-        const top = Math.max(2, columnHeight - 1);
-        const bottom = Math.max(2, columnHeight - depth);
-        if (top - bottom < 2) return null;
-        const yRadius = (top - bottom) / 2;
-        const centerY = bottom + yRadius;
-        const horizontalRatio = lateralDist / Math.max(width, 0.0001);
-        const fluidType = bottom <= 5 ? 'lava' : null;
-        const fluidLevel = bottom;
-        return { width, dist: lateralDist, bottom, top, yRadius, centerY, horizontalRatio, fluidType, fluidLevel };
-    }
     const BIOME_FREQUENCY = 0.008;
     const DEFAULT_FOG_RANGE = { near: 120, far: 320 };
     const BIOME_SETTINGS = {
@@ -2898,71 +2763,6 @@ to better suit your requirements.
                 }
             }
         }
-        const chunkMinX = worldX0;
-        const chunkMaxX = worldX0 + CHUNK_SIZE;
-        const chunkMinZ = worldZ0;
-        const chunkMaxZ = worldZ0 + CHUNK_SIZE;
-        const activeRavines = gatherRavinesForBounds(chunkMinX, chunkMaxX, chunkMinZ, chunkMaxZ);
-        const ravineColumnCache = new Map();
-        function getRavineInfo(wx, wz, columnHeight) {
-            const key = `${wx},${wz}`;
-            if (ravineColumnCache.has(key)) return ravineColumnCache.get(key);
-            let best = null;
-            let bestScore = 0;
-            for (const ravine of activeRavines) {
-                const info = evaluateRavineAtColumn(ravine, wx, wz, columnHeight);
-                if (!info) continue;
-                const score = info.yRadius * (1 - Math.min(1, info.horizontalRatio));
-                if (score > bestScore) {
-                    bestScore = score;
-                    best = info;
-                }
-            }
-            ravineColumnCache.set(key, best);
-            return best;
-        }
-        // Determine cave entrances for this chunk.  A chunk-level roll decides
-        // whether one or two entrance centres should be carved.  Each centre
-        // cuts a circular opening from the surface and marks the affected
-        // columns so the global height map reflects the lowered terrain and
-        // the player can fall naturally into the hole.
-        const entranceCells = new Set();
-        const entranceSeed = (seed ^ (cx * 4213721) ^ (cz * 982451653) ^ 0xCAFEBABE) >>> 0;
-        const entranceRng = mulberry32(entranceSeed);
-        if (entranceRng() < ENTRANCE_CHUNK_CHANCE) {
-            const entranceCount = entranceRng() < 0.22 ? 2 : 1;
-            for (let i = 0; i < entranceCount; i++) {
-                let attempts = ENTRANCE_ATTEMPTS;
-                while (attempts-- > 0) {
-                    const lx = Math.floor(entranceRng() * CHUNK_SIZE);
-                    const lz = Math.floor(entranceRng() * CHUNK_SIZE);
-                    const wx = worldX0 + lx;
-                    const wz = worldZ0 + lz;
-                    const colKey = `${wx},${wz}`;
-                    const colHeight = heights[colKey];
-                    if (colHeight === undefined) continue;
-                    if (colHeight <= WATER_LEVEL + 2) continue;
-                    if (getRavineInfo(wx, wz, colHeight)) continue;
-                    for (let dx = -ENTRANCE_RADIUS; dx <= ENTRANCE_RADIUS; dx++) {
-                        for (let dz = -ENTRANCE_RADIUS; dz <= ENTRANCE_RADIUS; dz++) {
-                            if (dx * dx + dz * dz > ENTRANCE_RADIUS * ENTRANCE_RADIUS) continue;
-                            const ex = wx + dx;
-                            const ez = wz + dz;
-                            const cellKey = `${ex},${ez}`;
-                            entranceCells.add(cellKey);
-                            const hVal = heights[cellKey];
-                            if (hVal !== undefined) {
-                                const newH = Math.max(0, hVal - ENTRANCE_DEPTH);
-                                if (heightMap[cellKey] === undefined || heightMap[cellKey] > newH) {
-                                    heightMap[cellKey] = newH;
-                                }
-                            }
-                        }
-                    }
-                    break;
-                }
-            }
-        }
 
         // Matrix lists and world coordinate lists for instanced meshes
         // Each block type gets its own array of matrices and positions.  Be sure to
@@ -3116,15 +2916,10 @@ to better suit your requirements.
                     // store bedrock in voxelMap (unbreakable)
                     voxelMap.set(`${wx},0,${wz}`, { type: 'bedrock', chunk: chunkKeyString });
                 }
-                const columnRavineInfo = getRavineInfo(wx, wz, columnHeight);
-                if (columnRavineInfo) {
-                    heightMap[columnKey] = -Infinity;
-                }
                 // Terrain generation loop.  Start at y=1 because y=0 is reserved
                 // for bedrock.  Without this guard, a terrain block placed at
                 // y=0 would overwrite the bedrock entry in voxelMap and
                 // result in an unbreakable invisible block beneath the dirt.
-                const maxCarveY = columnHeight - Math.max(DIRT_LAYERS, CAVE_SURFACE_CLEARANCE);
                 for (let y = 1; y <= columnHeight; y++) {
                     // Determine if block is exposed (visible) to avoid drawing hidden blocks
                     // We'll still record voxels for collision and picking even if hidden.  For
@@ -3135,14 +2930,6 @@ to better suit your requirements.
                     for (const [nx,nz] of neighbourCoords) {
                         const nh = heights[`${nx},${nz}`];
                         if (nh === undefined || nh < y+1) { exposed = true; break; }
-                    }
-                    // Skip blocks that lie within a cave entrance.  Entrance cells
-                    // remove the top ENTRANCE_DEPTH layers of the column, creating
-                    // a hole down into the world.  Continue to the next y if
-                    // this position lies inside an entrance.
-                    const cellKey = `${wx},${wz}`;
-                    if (entranceCells.has(cellKey) && y > columnHeight - ENTRANCE_DEPTH) {
-                        continue;
                     }
                     // Determine block type.  Surface blocks become grass (or sand below the
                     // water level), the next DIRT_LAYERS blocks become dirt, and
@@ -3212,51 +2999,13 @@ to better suit your requirements.
                             }
                         }
                     }
-                    let carvedByRavine = false;
-                    if (columnRavineInfo) {
-                        const horizontalRatio = columnRavineInfo.horizontalRatio;
-                        if (horizontalRatio < 1 && y >= columnRavineInfo.bottom && y <= columnRavineInfo.top) {
-                            const verticalRadius = columnRavineInfo.yRadius * (1 - 0.35 * horizontalRatio);
-                            if (verticalRadius > 0) {
-                                const normalizedY = (y - columnRavineInfo.centerY) / verticalRadius;
-                                if (horizontalRatio * horizontalRatio + normalizedY * normalizedY < 1) {
-                                    if (columnRavineInfo.fluidType && y <= columnRavineInfo.fluidLevel) {
-                                        matKey = columnRavineInfo.fluidType;
-                                    } else {
-                                        carvedByRavine = true;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    // Carve caves out of stone below the dirt layers using layered noise.
-                    let carved = carvedByRavine;
-                    if (!carved && matKey === 'stone' && y <= maxCarveY) {
-                        const baseVal = (caveNoisePrimary(wx, y * 0.72, wz, 4, 0.55, CAVE_BASE_FREQUENCY) + 1) / 2;
-                        const detailVal = (caveNoiseDetail(wx, y * 1.05, wz, 3, 0.6, CAVE_DETAIL_FREQUENCY) + 1) / 2;
-                        const cavernVal = (cavernNoise(wx, y * 0.55, wz, 2, 0.58, CAVERN_FREQUENCY) + 1) / 2;
-                        const verticalRipple = (Math.sin(y * CAVE_VERTICAL_RIPPLE_FREQ) + 1) / 2;
-                        const carveValue = baseVal * 0.6 + detailVal * 0.4;
-                        let threshold = CAVE_THRESHOLD - (verticalRipple - 0.5) * CAVE_VERTICAL_RIPPLE_STRENGTH;
-                        if (cavernVal > CAVE_CAVERN_THRESHOLD) {
-                            threshold -= (cavernVal - CAVE_CAVERN_THRESHOLD) * CAVE_CAVERN_BOOST;
-                        }
-                        if (carveValue > threshold && y > CAVE_MIN_Y) {
-                            carved = true;
-                        }
-                    }
-                    if (carved) {
-                        // Skip carved blocks completely
-                        continue;
-                    }
                     // Record voxel in voxelMap irrespective of visibility
                     voxelMap.set(`${wx},${y},${wz}`, { type: matKey, chunk: chunkKeyString });
                     // Determine whether to draw this block.  Previously we
                     // avoided drawing hidden blocks to improve performance, but
                     // this resulted in "invisible" solid blocks that the player
                     // could stand on but not see.  To fix that we now draw
-                    // every terrain block except those carved out to form
-                    // caves.  This eliminates the issue where invisible
+                    // every terrain block.  This eliminates the issue where invisible
                     // collisions remain after terrain generation.  If you wish
                     // to optimise further you could reintroduce the exposed
                     // check here, but ensure that hidden voxels are also
@@ -3680,9 +3429,6 @@ to better suit your requirements.
         moistureNoise = createPerlin(seed ^ 0x9f4c3);
         mysticNoise = createPerlin(seed ^ 0x1f2a7);
         skyIslandNoise = createPerlin(seed ^ 0x7ab9d);
-        caveNoisePrimary = createPerlin3D(seed ^ 0x4ad34);
-        caveNoiseDetail = createPerlin3D(seed ^ 0x7c9f1);
-        cavernNoise = createPerlin3D(seed ^ 0x1bd45);
         biomeCache.clear();
         updateVisibleChunks(true);
         // Apply volume settings now that audio objects have been created.  This
