@@ -973,7 +973,7 @@ to better suit your requirements.
     // lowest quarter of the world is underwater.
     const WATER_LEVEL = Math.floor(CHUNK_HEIGHT * 0.25);
     const VIEW_DISTANCE_CHUNKS = 3;
-    const WORLD_FREQUENCY = 0.02;
+    const WORLD_FREQUENCY = 0.018;
     const OCTAVES = 4;
     const PERSISTENCE = 0.5;
     // Day/night cycle configuration.  The time of day advances from 0 to 1
@@ -1001,20 +1001,29 @@ to better suit your requirements.
     // while the cavern frequency spawns larger chambers.  Threshold
     // determines how much of the stone is removed and CAVE_MIN_Y limits
     // generation to deeper levels so the surface remains intact.
-    const CAVE_BASE_FREQUENCY = 0.038;
-    const CAVE_DETAIL_FREQUENCY = 0.085;
-    const CAVERN_FREQUENCY = 0.02;
-    const CAVE_THRESHOLD = 0.6;
+    const CAVE_BASE_FREQUENCY = 0.03;
+    const CAVE_DETAIL_FREQUENCY = 0.07;
+    const CAVERN_FREQUENCY = 0.018;
+    const CAVE_THRESHOLD = 0.68;
     const CAVE_MIN_Y = 6;
     const CAVE_VERTICAL_RIPPLE_FREQ = 0.22;
-    const CAVE_VERTICAL_RIPPLE_STRENGTH = 0.08;
-    const CAVE_CAVERN_THRESHOLD = 0.7;
-    const CAVE_CAVERN_BOOST = 0.35;
+    const CAVE_VERTICAL_RIPPLE_STRENGTH = 0.06;
+    const CAVE_CAVERN_THRESHOLD = 0.77;
+    const CAVE_CAVERN_BOOST = 0.24;
 
-    const PLAINS_MASK_FREQUENCY = 0.045;
-    const PLAINS_THRESHOLD = 0.58;
-    const PLAINS_BASE = 0.28;
-    const PLAINS_VARIATION = 0.24;
+    const RAVINE_GRID_SIZE = 64;
+    const RAVINE_CHANCE = 0.028;
+    const RAVINE_MIN_LENGTH = 36;
+    const RAVINE_MAX_LENGTH = 104;
+    const RAVINE_MIN_DEPTH = 18;
+    const RAVINE_MAX_DEPTH = 32;
+    const RAVINE_BASE_WIDTH = 3.1;
+    const RAVINE_WIDTH_VARIATION = 1.4;
+
+    const PLAINS_MASK_FREQUENCY = 0.04;
+    const PLAINS_THRESHOLD = 0.55;
+    const PLAINS_BASE = 0.3;
+    const PLAINS_VARIATION = 0.22;
 
     const OCEAN_MASK_FREQUENCY = 0.12;
     const OCEAN_THRESHOLD = 0.46;
@@ -1026,7 +1035,7 @@ to better suit your requirements.
     // produces an entrance that opens downward into the world.  Each
     // entrance carves a circular hole with a given radius and depth, giving
     // the player access to underground caves from the surface.
-    const ENTRANCE_CHANCE = 0.004;
+    const ENTRANCE_CHANCE = 0.0015;
     const ENTRANCE_RADIUS = 2;
     const ENTRANCE_DEPTH = 6;
     // Terrain layering configuration.  We always place 3 layers of dirt
@@ -2557,6 +2566,73 @@ to better suit your requirements.
             return total / maxValue;
         };
     }
+    const ravineCache = new Map();
+    function getRavinesForCell(gx, gz) {
+        const key = `${gx},${gz}`;
+        if (ravineCache.has(key)) return ravineCache.get(key);
+        const cellSeed = (seed ^ (gx * 1103515245) ^ (gz * 12345) ^ 0x9e3779b9) >>> 0;
+        const rng = mulberry32(cellSeed);
+        const ravines = [];
+        if (rng() < RAVINE_CHANCE) {
+            const count = rng() < 0.18 ? 2 : 1;
+            for (let i = 0; i < count; i++) {
+                const startX = (gx + rng()) * RAVINE_GRID_SIZE;
+                const startZ = (gz + rng()) * RAVINE_GRID_SIZE;
+                const angle = rng() * Math.PI * 2;
+                const dirX = Math.cos(angle);
+                const dirZ = Math.sin(angle);
+                const length = RAVINE_MIN_LENGTH + rng() * (RAVINE_MAX_LENGTH - RAVINE_MIN_LENGTH);
+                const baseWidth = RAVINE_BASE_WIDTH + rng() * RAVINE_WIDTH_VARIATION;
+                const depth = RAVINE_MIN_DEPTH + rng() * (RAVINE_MAX_DEPTH - RAVINE_MIN_DEPTH);
+                const curve = (rng() - 0.5) * 0.65;
+                const wobble = (rng() - 0.5) * 0.35;
+                ravines.push({ startX, startZ, dirX, dirZ, length, baseWidth, depth, curve, wobble });
+            }
+        }
+        ravineCache.set(key, ravines);
+        return ravines;
+    }
+    function gatherRavinesForBounds(minX, maxX, minZ, maxZ) {
+        const ravines = [];
+        const gridMinX = Math.floor(minX / RAVINE_GRID_SIZE) - 1;
+        const gridMaxX = Math.floor((maxX - 1) / RAVINE_GRID_SIZE) + 1;
+        const gridMinZ = Math.floor(minZ / RAVINE_GRID_SIZE) - 1;
+        const gridMaxZ = Math.floor((maxZ - 1) / RAVINE_GRID_SIZE) + 1;
+        for (let gx = gridMinX; gx <= gridMaxX; gx++) {
+            for (let gz = gridMinZ; gz <= gridMaxZ; gz++) {
+                const cellRavines = getRavinesForCell(gx, gz);
+                for (const ravine of cellRavines) ravines.push(ravine);
+            }
+        }
+        return ravines;
+    }
+    function evaluateRavineAtColumn(ravine, wx, wz, columnHeight) {
+        const dx = wx - ravine.startX;
+        const dz = wz - ravine.startZ;
+        const t = dx * ravine.dirX + dz * ravine.dirZ;
+        if (t < -8 || t > ravine.length + 8) return null;
+        const perpX = -ravine.dirZ;
+        const perpZ = ravine.dirX;
+        const progress = Math.max(0, Math.min(1, t / ravine.length));
+        const curveOffset = ravine.curve * Math.sin(progress * Math.PI);
+        const wobbleOffset = ravine.wobble * Math.sin(progress * Math.PI * 2);
+        const offset = curveOffset + wobbleOffset;
+        const offsetX = dx - ravine.dirX * t - perpX * offset;
+        const offsetZ = dz - ravine.dirZ * t - perpZ * offset;
+        const lateralDist = Math.hypot(offsetX, offsetZ);
+        const width = ravine.baseWidth * (0.65 + 0.45 * Math.sin(progress * Math.PI));
+        if (lateralDist > width) return null;
+        const depth = ravine.depth * (0.7 + 0.3 * Math.sin(progress * Math.PI));
+        const top = Math.max(2, columnHeight - 1);
+        const bottom = Math.max(2, columnHeight - depth);
+        if (top - bottom < 2) return null;
+        const yRadius = (top - bottom) / 2;
+        const centerY = bottom + yRadius;
+        const horizontalRatio = lateralDist / Math.max(width, 0.0001);
+        const fluidType = bottom <= 5 ? 'lava' : null;
+        const fluidLevel = bottom;
+        return { width, dist: lateralDist, bottom, top, yRadius, centerY, horizontalRatio, fluidType, fluidLevel };
+    }
     const BIOME_FREQUENCY = 0.008;
     const DEFAULT_FOG_RANGE = { near: 120, far: 320 };
     const BIOME_SETTINGS = {
@@ -2569,7 +2645,7 @@ to better suit your requirements.
             deep: 'stone',
             soilLayers: DIRT_LAYERS,
             treeType: 'oak',
-            treeChance: 0.035,
+            treeChance: 0.02,
             decorations: { moss: 0.05 },
             heightOffset: 0,
             fogNear: 110,
@@ -2586,7 +2662,7 @@ to better suit your requirements.
             deep: 'stone',
             soilLayers: 1,
             treeType: 'cactus',
-            treeChance: 0.05,
+            treeChance: 0.015,
             decorations: {},
             heightOffset: -1,
             fogNear: 130,
@@ -2603,7 +2679,7 @@ to better suit your requirements.
             deep: 'stone',
             soilLayers: 2,
             treeType: 'pine',
-            treeChance: 0.05,
+            treeChance: 0.035,
             decorations: { moss: 0.02 },
             heightOffset: 2,
             fogNear: 80,
@@ -2639,7 +2715,7 @@ to better suit your requirements.
             deep: 'stone',
             soilLayers: 4,
             treeType: 'oak',
-            treeChance: 0.07,
+            treeChance: 0.05,
             decorations: { moss: 0.12, glowstone: 0.02 },
             heightOffset: 1,
             fogNear: 60,
@@ -2656,7 +2732,7 @@ to better suit your requirements.
             deep: 'stone',
             soilLayers: 2,
             treeType: 'glowshroom',
-            treeChance: 0.08,
+            treeChance: 0.045,
             decorations: { glowstone: 0.18 },
             heightOffset: -1,
             fogNear: 70,
@@ -2674,7 +2750,7 @@ to better suit your requirements.
             deep: 'stone',
             soilLayers: 2,
             treeType: 'glowshroom',
-            treeChance: 0.06,
+            treeChance: 0.035,
             decorations: { glowstone: 0.12 },
             heightOffset: 3,
             fogNear: 85,
@@ -2741,15 +2817,15 @@ to better suit your requirements.
                 const biome = getBiomeAt(wx, wz);
                 columnBiomes.set(`${wx},${wz}`, biome);
                 const continentNoise = (perlinNoise(wx, wz, 4, 0.5, WORLD_FREQUENCY * 0.22) + 1) / 2;
-                const ridgeNoise = (perlinNoise(wx, wz, 5, 0.5, WORLD_FREQUENCY * 0.9) + 1) / 2;
-                const detailNoise = (perlinNoise(wx, wz, 3, 0.55, WORLD_FREQUENCY * 1.6) + 1) / 2;
-                const mountainNoise = Math.pow(ridgeNoise, 1.6);
-                let normalized = continentNoise * 0.52 + mountainNoise * 0.34 + detailNoise * 0.14;
-                const plateauNoise = (perlinNoise(wx, wz, 2, 0.6, WORLD_FREQUENCY * 0.12) + 1) / 2;
+                const ridgeNoise = (perlinNoise(wx, wz, 5, 0.5, WORLD_FREQUENCY * 0.78) + 1) / 2;
+                const detailNoise = (perlinNoise(wx, wz, 3, 0.55, WORLD_FREQUENCY * 1.4) + 1) / 2;
+                const mountainNoise = Math.pow(ridgeNoise, 1.35);
+                let normalized = continentNoise * 0.6 + mountainNoise * 0.25 + detailNoise * 0.15;
+                const plateauNoise = (perlinNoise(wx, wz, 2, 0.6, WORLD_FREQUENCY * 0.1) + 1) / 2;
                 if (plateauNoise > 0.58) {
                     const strength = Math.min(1, (plateauNoise - 0.58) / 0.42);
                     const flatTarget = Math.round(normalized * 12) / 12;
-                    normalized = THREE.MathUtils.lerp(normalized, flatTarget, strength * 0.7);
+                    normalized = THREE.MathUtils.lerp(normalized, flatTarget, strength * 0.8);
                 }
                 const flattenMask = (perlinNoise(wx, wz, 3, 0.6, PLAINS_MASK_FREQUENCY) + 1) / 2;
                 const flatTarget = PLAINS_BASE + continentNoise * PLAINS_VARIATION;
@@ -2759,10 +2835,10 @@ to better suit your requirements.
                     flattenStrength = Math.min(1, (flattenMask - PLAINS_THRESHOLD) / (1 - PLAINS_THRESHOLD));
                 }
                 if (isMeadowy) {
-                    flattenStrength = Math.max(flattenStrength, 0.45);
+                    flattenStrength = Math.max(flattenStrength, 0.6);
                 }
                 if (flattenStrength > 0) {
-                    normalized = THREE.MathUtils.lerp(normalized, flatTarget, flattenStrength * 0.85);
+                    normalized = THREE.MathUtils.lerp(normalized, flatTarget, flattenStrength * 0.9);
                 }
                 normalized = THREE.MathUtils.clamp(normalized, 0, 1);
                 let h = Math.floor(normalized * (CHUNK_HEIGHT - 12)) + 4;
@@ -2789,6 +2865,29 @@ to better suit your requirements.
                 }
             }
         }
+        const chunkMinX = worldX0;
+        const chunkMaxX = worldX0 + CHUNK_SIZE;
+        const chunkMinZ = worldZ0;
+        const chunkMaxZ = worldZ0 + CHUNK_SIZE;
+        const activeRavines = gatherRavinesForBounds(chunkMinX, chunkMaxX, chunkMinZ, chunkMaxZ);
+        const ravineColumnCache = new Map();
+        function getRavineInfo(wx, wz, columnHeight) {
+            const key = `${wx},${wz}`;
+            if (ravineColumnCache.has(key)) return ravineColumnCache.get(key);
+            let best = null;
+            let bestScore = 0;
+            for (const ravine of activeRavines) {
+                const info = evaluateRavineAtColumn(ravine, wx, wz, columnHeight);
+                if (!info) continue;
+                const score = info.yRadius * (1 - Math.min(1, info.horizontalRatio));
+                if (score > bestScore) {
+                    bestScore = score;
+                    best = info;
+                }
+            }
+            ravineColumnCache.set(key, best);
+            return best;
+        }
         // Determine cave entrances for this chunk.  A small chance per column
         // spawns an entrance centre; a circular area around the centre is
         // carved out to form the opening.  Entrance cells are stored in a
@@ -2806,6 +2905,8 @@ to better suit your requirements.
                 // Use the constant 4 (default water level) directly here because
                 // waterLevel has not yet been defined in this scope at runtime.
                 if (colHeight > 4 + 2) {
+                    const ravineInfo = getRavineInfo(wx, wz, colHeight);
+                    if (ravineInfo) continue;
                     const rSeed = (seed ^ (wx * 897689) ^ (wz * 354331) ^ 0xCAFEBABE) >>> 0;
                     const rng = mulberry32(rSeed);
                     if (rng() < ENTRANCE_CHANCE) {
@@ -2987,6 +3088,10 @@ to better suit your requirements.
                     // store bedrock in voxelMap (unbreakable)
                     voxelMap.set(`${wx},0,${wz}`, { type: 'bedrock', chunk: chunkKeyString });
                 }
+                const columnRavineInfo = getRavineInfo(wx, wz, columnHeight);
+                if (columnRavineInfo) {
+                    heightMap[columnKey] = -Infinity;
+                }
                 // Terrain generation loop.  Start at y=1 because y=0 is reserved
                 // for bedrock.  Without this guard, a terrain block placed at
                 // y=0 would overwrite the bedrock entry in voxelMap and
@@ -3078,9 +3183,26 @@ to better suit your requirements.
                             }
                         }
                     }
+                    let carvedByRavine = false;
+                    if (columnRavineInfo) {
+                        const horizontalRatio = columnRavineInfo.horizontalRatio;
+                        if (horizontalRatio < 1 && y >= columnRavineInfo.bottom && y <= columnRavineInfo.top) {
+                            const verticalRadius = columnRavineInfo.yRadius * (1 - 0.35 * horizontalRatio);
+                            if (verticalRadius > 0) {
+                                const normalizedY = (y - columnRavineInfo.centerY) / verticalRadius;
+                                if (horizontalRatio * horizontalRatio + normalizedY * normalizedY < 1) {
+                                    if (columnRavineInfo.fluidType && y <= columnRavineInfo.fluidLevel) {
+                                        matKey = columnRavineInfo.fluidType;
+                                    } else {
+                                        carvedByRavine = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
                     // Carve caves out of stone below the dirt layers using layered noise.
-                    let carved = false;
-                    if (matKey === 'stone' && y <= columnHeight - DIRT_LAYERS) {
+                    let carved = carvedByRavine;
+                    if (!carved && matKey === 'stone' && y <= columnHeight - DIRT_LAYERS) {
                         const baseVal = (caveNoisePrimary(wx, y * 0.72, wz, 4, 0.55, CAVE_BASE_FREQUENCY) + 1) / 2;
                         const detailVal = (caveNoiseDetail(wx, y * 1.05, wz, 3, 0.6, CAVE_DETAIL_FREQUENCY) + 1) / 2;
                         const cavernVal = (cavernNoise(wx, y * 0.55, wz, 2, 0.58, CAVERN_FREQUENCY) + 1) / 2;
