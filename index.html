@@ -2849,13 +2849,19 @@ to better suit your requirements.
             snow: [], ice: [], moss: [], glowstone: [], cactus: [],
             iron: [], copper: [], ruby: [], diamond: [], coal: [], lava: []
         };
+        const waterCells = [];
         // Helper to queue a block into the instancing buffers while keeping
         // voxelMap and the height map in sync.
         function queueBlock(type, x, y, z) {
-            if (!matrices[type]) return;
             if (y < 0 || y >= CHUNK_HEIGHT) return;
             const key = `${x},${y},${z}`;
             voxelMap.set(key, { type, chunk: chunkKeyString });
+            if (type === 'water') {
+                waterCells.push({ x, y, z });
+                positionsByType.water.push({ x, y, z });
+                return;
+            }
+            if (!matrices[type]) return;
             const m = new THREE.Matrix4();
             m.makeTranslation(x + 0.5, y + 0.5, z + 0.5);
             matrices[type].push(m);
@@ -3207,7 +3213,12 @@ to better suit your requirements.
                 voxelInstances.set(globalKey, { mesh: inst, index: i, chunk: chunkKeyString, type: key });
             }
         }
-        return { cx, cz, group, instancedMeshes, instancedByType };
+        const chunkData = { cx, cz, group, instancedMeshes, instancedByType, waterCells: new Set(), waterMesh: null };
+        for (const cell of waterCells) {
+            chunkData.waterCells.add(`${cell.x},${cell.y},${cell.z}`);
+        }
+        rebuildChunkWaterGeometry(chunkData);
+        return chunkData;
     }
     // Dispose chunk
     function disposeChunk(chunk) {
@@ -3215,6 +3226,11 @@ to better suit your requirements.
         scene.remove(chunk.group);
         for (const inst of chunk.instancedMeshes) {
             if (inst.material) inst.material.dispose();
+        }
+        if (chunk.waterMesh) {
+            chunk.group.remove(chunk.waterMesh);
+            if (chunk.waterMesh.geometry) chunk.waterMesh.geometry.dispose();
+            chunk.waterMesh = null;
         }
         // Remove any voxel instance mappings belonging to this chunk and
         // corresponding voxelMap entries.  The chunkKey is derived from the
@@ -3226,6 +3242,17 @@ to better suit your requirements.
                 voxelInstances.delete(key);
                 voxelMap.delete(key);
             }
+        }
+        for (const [key, entry] of Array.from(voxelMap.entries())) {
+            if (entry.chunk === ck) {
+                voxelMap.delete(key);
+            }
+        }
+        if (chunk.waterCells) chunk.waterCells.clear();
+        const neighbourOffsets = [[1,0], [-1,0], [0,1], [0,-1]];
+        for (const [dx, dz] of neighbourOffsets) {
+            const neighbour = chunkMap.get(`${chunk.cx + dx},${chunk.cz + dz}`);
+            if (neighbour) rebuildChunkWaterGeometry(neighbour);
         }
     }
     function clearAllChunks() {
@@ -3259,6 +3286,7 @@ to better suit your requirements.
                     const chunk = generateChunk(cx, cz);
                     chunkMap.set(key, chunk);
                     scene.add(chunk.group);
+                    refreshWaterForChunkAndNeighbours(chunk);
                 }
             }
         }
@@ -3802,6 +3830,152 @@ to better suit your requirements.
             }
         }
         return -Infinity;
+    }
+
+    function worldToChunkKey(x, z) {
+        const cx = Math.floor(x / CHUNK_SIZE);
+        const cz = Math.floor(z / CHUNK_SIZE);
+        return `${cx},${cz}`;
+    }
+
+    function buildWaterGeometryFromCells(cells) {
+        if (!cells || cells.length === 0) return null;
+        const positions = [];
+        const normals = [];
+        const uvs = [];
+        const uvBase = [[0, 0], [1, 0], [1, 1], [0, 1]];
+        const pushFace = (verts, normal, order) => {
+            const [nx, ny, nz] = normal;
+            for (let i = 0; i < order.length; i++) {
+                const idx = order[i];
+                const v = verts[idx];
+                const uv = uvBase[idx];
+                positions.push(v[0], v[1], v[2]);
+                normals.push(nx, ny, nz);
+                uvs.push(uv[0], uv[1]);
+            }
+        };
+        for (const cell of cells) {
+            const { x, y, z } = cell;
+            const topWater = isWaterVoxel(x, y + 1, z);
+            const bottomWater = isWaterVoxel(x, y - 1, z);
+            const northWater = isWaterVoxel(x, y, z - 1);
+            const southWater = isWaterVoxel(x, y, z + 1);
+            const eastWater = isWaterVoxel(x + 1, y, z);
+            const westWater = isWaterVoxel(x - 1, y, z);
+            if (!topWater) {
+                pushFace([
+                    [x, y + 1, z],
+                    [x + 1, y + 1, z],
+                    [x + 1, y + 1, z + 1],
+                    [x, y + 1, z + 1]
+                ], [0, 1, 0], [0, 3, 2, 0, 2, 1]);
+            }
+            if (!bottomWater) {
+                pushFace([
+                    [x, y, z + 1],
+                    [x + 1, y, z + 1],
+                    [x + 1, y, z],
+                    [x, y, z]
+                ], [0, -1, 0], [0, 2, 1, 0, 3, 2]);
+            }
+            if (!eastWater) {
+                pushFace([
+                    [x + 1, y, z],
+                    [x + 1, y, z + 1],
+                    [x + 1, y + 1, z + 1],
+                    [x + 1, y + 1, z]
+                ], [1, 0, 0], [0, 2, 1, 0, 3, 2]);
+            }
+            if (!westWater) {
+                pushFace([
+                    [x, y, z + 1],
+                    [x, y, z],
+                    [x, y + 1, z],
+                    [x, y + 1, z + 1]
+                ], [-1, 0, 0], [0, 2, 1, 0, 3, 2]);
+            }
+            if (!southWater) {
+                pushFace([
+                    [x + 1, y, z + 1],
+                    [x, y, z + 1],
+                    [x, y + 1, z + 1],
+                    [x + 1, y + 1, z + 1]
+                ], [0, 0, 1], [0, 2, 1, 0, 3, 2]);
+            }
+            if (!northWater) {
+                pushFace([
+                    [x, y, z],
+                    [x + 1, y, z],
+                    [x + 1, y + 1, z],
+                    [x, y + 1, z]
+                ], [0, 0, -1], [0, 2, 1, 0, 3, 2]);
+            }
+        }
+        if (positions.length === 0) return null;
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+        geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+        geometry.computeBoundingBox();
+        geometry.computeBoundingSphere();
+        return geometry;
+    }
+
+    function rebuildChunkWaterGeometry(chunk) {
+        if (!chunk) return;
+        if (chunk.waterMesh) {
+            chunk.group.remove(chunk.waterMesh);
+            if (chunk.waterMesh.geometry) chunk.waterMesh.geometry.dispose();
+            chunk.waterMesh = null;
+        }
+        if (!chunk.waterCells || chunk.waterCells.size === 0) return;
+        const cells = [];
+        chunk.waterCells.forEach((key) => {
+            const parts = key.split(',').map(Number);
+            cells.push({ x: parts[0], y: parts[1], z: parts[2] });
+        });
+        const geometry = buildWaterGeometryFromCells(cells);
+        if (!geometry) return;
+        const mesh = new THREE.Mesh(geometry, blockMaterials.water);
+        mesh.castShadow = false;
+        mesh.receiveShadow = true;
+        mesh.renderOrder = 2;
+        chunk.group.add(mesh);
+        chunk.waterMesh = mesh;
+    }
+
+    function refreshWaterForChunkAndNeighbours(chunk) {
+        if (!chunk) return;
+        const visited = new Set();
+        const stack = [chunk];
+        const offsets = [[1,0], [-1,0], [0,1], [0,-1]];
+        while (stack.length > 0) {
+            const current = stack.pop();
+            if (!current || visited.has(current)) continue;
+            visited.add(current);
+            rebuildChunkWaterGeometry(current);
+            for (const [dx, dz] of offsets) {
+                const neighbour = chunkMap.get(`${current.cx + dx},${current.cz + dz}`);
+                if (neighbour && !visited.has(neighbour)) {
+                    stack.push(neighbour);
+                }
+            }
+        }
+    }
+
+    function recomputeColumnHeight(x, z) {
+        const colKey = `${x},${z}`;
+        let newH = -Infinity;
+        for (let yy = CHUNK_HEIGHT - 1; yy >= 0; yy--) {
+            const entry = voxelMap.get(`${x},${yy},${z}`);
+            if (entry && entry.type !== 'water' && entry.type !== 'leaves' && entry.type !== 'lava') {
+                newH = yy;
+                break;
+            }
+        }
+        if (newH === -Infinity) delete heightMap[colKey];
+        else heightMap[colKey] = newH;
     }
 
     // Cast a ray from the camera forward into the world to find the first
@@ -5397,29 +5571,42 @@ to better suit your requirements.
     // standalone Mesh is created for dynamic blocks.  The voxelMap and
     // voxelInstances are updated accordingly.
     function placeVoxel(x, y, z, type) {
+        const key = `${x},${y},${z}`;
+        if (type === 'water') {
+            const chunkKey = worldToChunkKey(x, z);
+            const chunk = chunkMap.get(chunkKey);
+            voxelMap.set(key, { type: type, chunk: chunk ? chunkKey : 'mod' });
+            if (chunk) {
+                if (!chunk.waterCells) chunk.waterCells = new Set();
+                chunk.waterCells.add(key);
+                refreshWaterForChunkAndNeighbours(chunk);
+                voxelInstances.delete(key);
+            } else {
+                const mesh = new THREE.Mesh(cubeGeometry, blockMaterials.water);
+                mesh.castShadow = false;
+                mesh.receiveShadow = true;
+                mesh.position.set(x + 0.5, y + 0.5, z + 0.5);
+                scene.add(mesh);
+                modifiedMeshes.push(mesh);
+                voxelInstances.set(key, { mesh: mesh, index: 0, chunk: 'mod', type });
+            }
+            fluidQueue.push({ x: x, y: y, z: z });
+            return;
+        }
         const mat = blockMaterials[type];
         const mesh = new THREE.Mesh(cubeGeometry, mat);
-        mesh.castShadow = (type !== 'water');
+        mesh.castShadow = true;
         mesh.receiveShadow = true;
         mesh.position.set(x + 0.5, y + 0.5, z + 0.5);
         scene.add(mesh);
         modifiedMeshes.push(mesh);
-        const key = `${x},${y},${z}`;
         voxelMap.set(key, { type: type, chunk: 'mod' });
         voxelInstances.set(key, { mesh: mesh, index: 0, chunk: 'mod', type });
-        // Update heightMap if this is the new highest solid block in the column.
-        // Non‑solid blocks like water and leaves do not count towards the
-        // height map because they should not support the player.
-        if (type !== 'water' && type !== 'leaves' && type !== 'lava') {
+        if (type !== 'leaves' && type !== 'lava') {
             const colKey = `${x},${z}`;
             if (heightMap[colKey] === undefined || y > heightMap[colKey]) {
                 heightMap[colKey] = y;
             }
-        }
-        // If placing water, enqueue it for fluid simulation so that it
-        // spreads to adjacent empty spaces over time.
-        if (type === 'water') {
-            fluidQueue.push({ x: x, y: y, z: z });
         }
     }
 
@@ -5429,14 +5616,37 @@ to better suit your requirements.
         const key = `${x},${y},${z}`;
         const info = voxelInstances.get(key);
         const oldEntry = voxelMap.get(key);
+        const entryType = oldEntry ? oldEntry.type : (info ? info.type : null);
+        if (entryType === 'water') {
+            if (info && info.chunk === 'mod') {
+                scene.remove(info.mesh);
+                const idxMod = modifiedMeshes.indexOf(info.mesh);
+                if (idxMod >= 0) modifiedMeshes.splice(idxMod, 1);
+                voxelInstances.delete(key);
+            } else if (info) {
+                voxelInstances.delete(key);
+            }
+            if (oldEntry) {
+                if (oldEntry.chunk && oldEntry.chunk !== 'mod') {
+                    const owningChunk = chunkMap.get(oldEntry.chunk);
+                    if (owningChunk && owningChunk.waterCells) {
+                        owningChunk.waterCells.delete(key);
+                    }
+                    voxelMap.delete(key);
+                    if (owningChunk) refreshWaterForChunkAndNeighbours(owningChunk);
+                } else {
+                    voxelMap.delete(key);
+                }
+            }
+            recomputeColumnHeight(x, z);
+            return;
+        }
         if (info) {
             if (info.chunk === 'mod') {
-                // Remove dynamic mesh
                 scene.remove(info.mesh);
                 const idx = modifiedMeshes.indexOf(info.mesh);
                 if (idx >= 0) modifiedMeshes.splice(idx, 1);
-            } else {
-                // Hide instanced block by scaling to zero
+            } else if (info.mesh && info.mesh.isInstancedMesh) {
                 const inst = info.mesh;
                 const idxInst = info.index;
                 const m = new THREE.Matrix4();
@@ -5446,10 +5656,6 @@ to better suit your requirements.
             }
             voxelInstances.delete(key);
         } else if (oldEntry) {
-            // Fallback: occasionally voxelInstances can lose track of a block
-            // (for example if an instance mapping was trimmed during streaming).
-            // Attempt to remove the visible geometry by searching the owning
-            // structures directly so that collisions and drops stay in sync.
             if (oldEntry.chunk === 'mod') {
                 for (let i = modifiedMeshes.length - 1; i >= 0; i--) {
                     const mesh = modifiedMeshes[i];
@@ -5465,7 +5671,7 @@ to better suit your requirements.
                 const chunk = chunkMap.get(oldEntry.chunk);
                 if (chunk && chunk.instancedByType) {
                     const inst = chunk.instancedByType.get(oldEntry.type);
-                    if (inst) {
+                    if (inst && inst.isInstancedMesh) {
                         const tmpMatrix = new THREE.Matrix4();
                         const tmpPos = new THREE.Vector3();
                         const zero = new THREE.Matrix4().makeScale(0, 0, 0);
@@ -5484,8 +5690,6 @@ to better suit your requirements.
                             }
                         }
                         if (!found) {
-                            // Ensure at least one instance matrix update occurs so that
-                            // subsequent lookups don't read stale transforms.
                             inst.instanceMatrix.needsUpdate = true;
                         }
                     }
@@ -5509,24 +5713,7 @@ to better suit your requirements.
         if (oldEntry.type === 'wood') {
             scheduleLeavesAround(x, y, z);
         }
-        // Update heightMap if needed
-        const colKey = `${x},${z}`;
-        if (heightMap[colKey] !== undefined && y >= heightMap[colKey]) {
-            // find next highest
-            let newH = -Infinity;
-            for (let yy = y - 1; yy >= 0; yy--) {
-                const e = voxelMap.get(`${x},${yy},${z}`);
-                if (e && e.type !== 'water' && e.type !== 'leaves' && e.type !== 'lava') {
-                    newH = yy;
-                    break;
-                }
-            }
-            if (newH === -Infinity) {
-                delete heightMap[colKey];
-            } else {
-                heightMap[colKey] = newH;
-            }
-        }
+        recomputeColumnHeight(x, z);
         if (dropType) {
             // Spawn a dropped item corresponding to the removed block now that the
             // column height has been updated so the drop sits atop the new surface.
