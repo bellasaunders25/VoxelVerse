@@ -973,7 +973,7 @@ to better suit your requirements.
     // lowest quarter of the world is underwater.
     const WATER_LEVEL = Math.floor(CHUNK_HEIGHT * 0.25);
     const VIEW_DISTANCE_CHUNKS = 3;
-    const WORLD_FREQUENCY = 0.02;
+    const WORLD_FREQUENCY = 0.018;
     const OCTAVES = 4;
     const PERSISTENCE = 0.5;
     // Day/night cycle configuration.  The time of day advances from 0 to 1
@@ -1001,15 +1001,15 @@ to better suit your requirements.
     // while the cavern frequency spawns larger chambers.  Threshold
     // determines how much of the stone is removed and CAVE_MIN_Y limits
     // generation to deeper levels so the surface remains intact.
-    const CAVE_BASE_FREQUENCY = 0.038;
-    const CAVE_DETAIL_FREQUENCY = 0.085;
-    const CAVERN_FREQUENCY = 0.02;
-    const CAVE_THRESHOLD = 0.6;
+    const CAVE_BASE_FREQUENCY = 0.034;
+    const CAVE_DETAIL_FREQUENCY = 0.072;
+    const CAVERN_FREQUENCY = 0.016;
+    const CAVE_THRESHOLD = 0.67;
     const CAVE_MIN_Y = 6;
-    const CAVE_VERTICAL_RIPPLE_FREQ = 0.22;
-    const CAVE_VERTICAL_RIPPLE_STRENGTH = 0.08;
-    const CAVE_CAVERN_THRESHOLD = 0.7;
-    const CAVE_CAVERN_BOOST = 0.35;
+    const CAVE_VERTICAL_RIPPLE_FREQ = 0.19;
+    const CAVE_VERTICAL_RIPPLE_STRENGTH = 0.06;
+    const CAVE_CAVERN_THRESHOLD = 0.74;
+    const CAVE_CAVERN_BOOST = 0.22;
 
     const PLAINS_MASK_FREQUENCY = 0.045;
     const PLAINS_THRESHOLD = 0.58;
@@ -1026,9 +1026,23 @@ to better suit your requirements.
     // produces an entrance that opens downward into the world.  Each
     // entrance carves a circular hole with a given radius and depth, giving
     // the player access to underground caves from the surface.
-    const ENTRANCE_CHANCE = 0.004;
+    const ENTRANCE_CHANCE = 0.0015;
     const ENTRANCE_RADIUS = 2;
-    const ENTRANCE_DEPTH = 6;
+    const ENTRANCE_DEPTH = 5;
+
+    const ISLAND_BASE_RADIUS = 640;
+    const ISLAND_VARIATION = 320;
+    const ISLAND_FALLOFF_POWER = 1.45;
+    const ISLAND_NOISE_FREQUENCY = 0.0035;
+    const ISLAND_INTERIOR_BOOST = 1.12;
+    const ISLAND_RIM_START = 0.58;
+    const ISLAND_RIM_FLOOR = 0.18;
+    const ISLAND_OCEAN_DEPTH = 22;
+    const OCEAN_BIOME_THRESHOLD = 0.32;
+    const COAST_BIOME_THRESHOLD = 0.48;
+    const SHORE_MASK_POWER = 1.65;
+    const ISLAND_TREE_MIN_FACTOR = 0.35;
+    const TREE_DENSITY_SCALE = 0.65;
     // Terrain layering configuration.  We always place 3 layers of dirt
     // directly beneath the top surface, and we want the top 10 layers of
     // stone below those to be visible and selectable.  Deeper stone
@@ -1639,14 +1653,14 @@ to better suit your requirements.
     const ITEM_STACK_LIMITS = {};
     const TOOL_TIER_SPEED = {
         wooden: 0.7,
-        stone: 0.55,
+        stone: 0.48,
         copper: 0.48,
         iron: 0.4,
         diamond: 0.28
     };
     const TOOL_TIER_PENALTY = {
         wooden: 1.28,
-        stone: 1.32,
+        stone: 1.18,
         copper: 1.34,
         iron: 1.36,
         diamond: 1.38
@@ -2569,13 +2583,30 @@ to better suit your requirements.
             deep: 'stone',
             soilLayers: DIRT_LAYERS,
             treeType: 'oak',
-            treeChance: 0.035,
+            treeChance: 0.024,
             decorations: { moss: 0.05 },
             heightOffset: 0,
             fogNear: 110,
             fogFar: 320,
             skyTint: 0x9fd3ff,
             ambientBoost: 0.02
+        },
+        ocean: {
+            key: 'ocean',
+            name: 'Azure Ocean',
+            surface: 'sand',
+            underwaterSurface: 'sand',
+            subsurface: 'sand',
+            deep: 'stone',
+            soilLayers: 5,
+            treeType: null,
+            treeChance: 0,
+            decorations: {},
+            heightOffset: -3,
+            fogNear: 85,
+            fogFar: 220,
+            skyTint: 0x6db4ff,
+            ambientBoost: -0.01
         },
         desert: {
             key: 'desert',
@@ -2586,7 +2617,7 @@ to better suit your requirements.
             deep: 'stone',
             soilLayers: 1,
             treeType: 'cactus',
-            treeChance: 0.05,
+            treeChance: 0.02,
             decorations: {},
             heightOffset: -1,
             fogNear: 130,
@@ -2603,7 +2634,7 @@ to better suit your requirements.
             deep: 'stone',
             soilLayers: 2,
             treeType: 'pine',
-            treeChance: 0.05,
+            treeChance: 0.032,
             decorations: { moss: 0.02 },
             heightOffset: 2,
             fogNear: 80,
@@ -2639,7 +2670,7 @@ to better suit your requirements.
             deep: 'stone',
             soilLayers: 4,
             treeType: 'oak',
-            treeChance: 0.07,
+            treeChance: 0.045,
             decorations: { moss: 0.12, glowstone: 0.02 },
             heightOffset: 1,
             fogNear: 60,
@@ -2656,7 +2687,7 @@ to better suit your requirements.
             deep: 'stone',
             soilLayers: 2,
             treeType: 'glowshroom',
-            treeChance: 0.08,
+            treeChance: 0.048,
             decorations: { glowstone: 0.18 },
             heightOffset: -1,
             fogNear: 70,
@@ -2674,7 +2705,7 @@ to better suit your requirements.
             deep: 'stone',
             soilLayers: 2,
             treeType: 'glowshroom',
-            treeChance: 0.06,
+            treeChance: 0.04,
             decorations: { glowstone: 0.12 },
             heightOffset: 3,
             fogNear: 85,
@@ -2689,11 +2720,25 @@ to better suit your requirements.
         if (!noiseFn) return 0.5;
         return (noiseFn(x, z, 3, 0.5, freq) + 1) / 2;
     }
+    function computeIslandFactor(x, z) {
+        if (!perlinNoise) return 1;
+        const radialDistance = Math.sqrt(x * x + z * z);
+        const archipelago = (perlinNoise(x, z, 3, 0.55, ISLAND_NOISE_FREQUENCY) + 1) / 2;
+        const effectiveRadius = ISLAND_BASE_RADIUS + archipelago * ISLAND_VARIATION;
+        if (effectiveRadius <= 0.0001) return 0;
+        const distanceRatio = THREE.MathUtils.clamp(radialDistance / effectiveRadius, 0, 2);
+        const falloff = Math.pow(Math.max(0, 1 - distanceRatio), ISLAND_FALLOFF_POWER);
+        return THREE.MathUtils.clamp(falloff, 0, 1);
+    }
+    function computeShoreMaskFromFactor(factor) {
+        return Math.pow(THREE.MathUtils.clamp(1 - factor, 0, 1), SHORE_MASK_POWER);
+    }
     function computeBiome(x, z) {
         const heat = sampleBiomeNoise(heatNoise, x, z, BIOME_FREQUENCY);
         const moisture = sampleBiomeNoise(moistureNoise, x, z, BIOME_FREQUENCY);
         const mystic = sampleBiomeNoise(mysticNoise, x, z, BIOME_FREQUENCY * 0.7);
         const skyVal = sampleBiomeNoise(skyIslandNoise, x, z, BIOME_FREQUENCY * 0.5);
+        const islandFactor = computeIslandFactor(x, z);
         let key = 'meadow';
         if (skyVal > 0.84 && heat > 0.4) {
             key = 'skylands';
@@ -2708,8 +2753,14 @@ to better suit your requirements.
         } else if (moisture > 0.72) {
             key = 'rainforest';
         }
+        if (islandFactor < OCEAN_BIOME_THRESHOLD) {
+            key = 'ocean';
+        } else if (islandFactor < COAST_BIOME_THRESHOLD && key === 'desert') {
+            key = 'meadow';
+        }
         const base = BIOME_SETTINGS[key] || BIOME_SETTINGS.meadow;
-        return { ...base, samples: { heat, moisture, mystic, sky: skyVal } };
+        const shore = computeShoreMaskFromFactor(islandFactor);
+        return { ...base, samples: { heat, moisture, mystic, sky: skyVal, island: islandFactor, shore } };
     }
     function getBiomeAt(x, z) {
         const ix = Math.floor(x);
@@ -2739,7 +2790,13 @@ to better suit your requirements.
                 const wx = worldX0 + dx;
                 const wz = worldZ0 + dz;
                 const biome = getBiomeAt(wx, wz);
-                columnBiomes.set(`${wx},${wz}`, biome);
+                const islandFactor = (biome && biome.samples && typeof biome.samples.island === 'number')
+                    ? biome.samples.island
+                    : computeIslandFactor(wx, wz);
+                const shoreMask = (biome && biome.samples && typeof biome.samples.shore === 'number')
+                    ? biome.samples.shore
+                    : computeShoreMaskFromFactor(islandFactor);
+                columnBiomes.set(`${wx},${wz}`, { biome, islandFactor, shore: shoreMask });
                 const continentNoise = (perlinNoise(wx, wz, 4, 0.5, WORLD_FREQUENCY * 0.22) + 1) / 2;
                 const ridgeNoise = (perlinNoise(wx, wz, 5, 0.5, WORLD_FREQUENCY * 0.9) + 1) / 2;
                 const detailNoise = (perlinNoise(wx, wz, 3, 0.55, WORLD_FREQUENCY * 1.6) + 1) / 2;
@@ -2765,6 +2822,11 @@ to better suit your requirements.
                     normalized = THREE.MathUtils.lerp(normalized, flatTarget, flattenStrength * 0.85);
                 }
                 normalized = THREE.MathUtils.clamp(normalized, 0, 1);
+                const interiorScale = THREE.MathUtils.lerp(ISLAND_INTERIOR_BOOST, 1, 1 - islandFactor);
+                normalized *= interiorScale;
+                const rimBlend = THREE.MathUtils.clamp((islandFactor - ISLAND_RIM_START) / (1 - ISLAND_RIM_START), 0, 1);
+                normalized = THREE.MathUtils.lerp(ISLAND_RIM_FLOOR, normalized, rimBlend);
+                normalized = THREE.MathUtils.clamp(normalized, 0, 1);
                 let h = Math.floor(normalized * (CHUNK_HEIGHT - 12)) + 4;
                 const oceanNoise = (perlinNoise(wx, wz, 3, 0.55, OCEAN_MASK_FREQUENCY) + 1) / 2;
                 if (oceanNoise < OCEAN_THRESHOLD) {
@@ -2779,6 +2841,11 @@ to better suit your requirements.
                 }
                 if (biome && typeof biome.heightOffset === 'number') {
                     h += biome.heightOffset;
+                }
+                const islandOceanStrength = Math.pow(1 - islandFactor, 1.45);
+                if (islandOceanStrength > 0) {
+                    const islandFloor = Math.floor(WATER_LEVEL - 2 - islandOceanStrength * ISLAND_OCEAN_DEPTH);
+                    h = Math.min(h, islandFloor);
                 }
                 h = Math.max(0, Math.min(CHUNK_HEIGHT - 1, h));
                 heights[`${wx},${wz}`] = h;
@@ -2976,7 +3043,10 @@ to better suit your requirements.
                 const wz = worldZ0 + lz;
                 const columnKey = `${wx},${wz}`;
                 const columnHeight = heights[columnKey];
-                const columnBiome = columnBiomes.get(columnKey) || BIOME_SETTINGS.meadow;
+                const columnData = columnBiomes.get(columnKey) || { biome: BIOME_SETTINGS.meadow, islandFactor: 1, shore: 0 };
+                const columnBiome = columnData.biome || BIOME_SETTINGS.meadow;
+                const shoreMask = columnData.shore || 0;
+                const columnIslandFactor = (typeof columnData.islandFactor === 'number') ? columnData.islandFactor : 1;
                 let soilLayers = (columnBiome && typeof columnBiome.soilLayers === 'number') ? columnBiome.soilLayers : DIRT_LAYERS;
                 // Always place bedrock at y=0
                 {
@@ -3021,6 +3091,8 @@ to better suit your requirements.
                     let deepBlock = columnBiome.deep || 'stone';
                     const belowWater = columnHeight < waterLevel - 1;
                     const coastal = !belowWater && columnHeight >= waterLevel - 2 && columnHeight <= waterLevel + 2;
+                    const strongShore = shoreMask > 0.38;
+                    const beachBand = shoreMask > 0.18;
                     const depthBelowSea = waterLevel - columnHeight;
                     if (belowWater) {
                         surfaceBlock = 'sand';
@@ -3033,10 +3105,14 @@ to better suit your requirements.
                         } else {
                             soilLayers = Math.max(soilLayers, 4);
                         }
-                    } else if (coastal) {
+                    } else if (coastal || strongShore) {
                         surfaceBlock = 'sand';
                         subsurfaceBlock = 'sand';
-                        soilLayers = Math.max(soilLayers, 3);
+                        soilLayers = Math.max(soilLayers, strongShore ? 4 : 3);
+                    } else if (beachBand) {
+                        surfaceBlock = 'sand';
+                        subsurfaceBlock = shoreMask > 0.3 ? 'sand' : subsurfaceBlock;
+                        soilLayers = Math.max(soilLayers, 2);
                     }
                     if (y === columnHeight) {
                         matKey = surfaceBlock;
@@ -3139,11 +3215,20 @@ to better suit your requirements.
                 }
                 // Tree and flora generation tailored by biome.
                 const treeType = columnBiome.treeType;
-                const treeChance = columnBiome.treeChance || 0;
+                let treeChance = columnBiome.treeChance || 0;
                 if (treeType && columnHeight >= waterLevel) {
-                    const rand = coordSeededRand(cx, cz, wx, wz)();
-                    if (rand < treeChance) {
-                        growTree(treeType, wx, columnHeight + 1, wz, columnBiome);
+                    if (columnIslandFactor <= ISLAND_TREE_MIN_FACTOR) {
+                        treeChance = 0;
+                    } else {
+                        const densityScale = TREE_DENSITY_SCALE * THREE.MathUtils.lerp(0.35, 1, columnIslandFactor);
+                        const shoreScale = 1 - shoreMask * 0.85;
+                        treeChance *= densityScale * shoreScale;
+                    }
+                    if (treeChance > 0) {
+                        const rand = coordSeededRand(cx, cz, wx, wz)();
+                        if (rand < treeChance) {
+                            growTree(treeType, wx, columnHeight + 1, wz, columnBiome);
+                        }
                     }
                 }
                 if (columnBiome.decorations) {
