@@ -1004,15 +1004,17 @@ to better suit your requirements.
     const CAVE_BASE_FREQUENCY = 0.03;
     const CAVE_DETAIL_FREQUENCY = 0.07;
     const CAVERN_FREQUENCY = 0.018;
-    const CAVE_THRESHOLD = 0.68;
+    const CAVE_THRESHOLD = 0.52;
     const CAVE_MIN_Y = 6;
     const CAVE_VERTICAL_RIPPLE_FREQ = 0.22;
     const CAVE_VERTICAL_RIPPLE_STRENGTH = 0.06;
     const CAVE_CAVERN_THRESHOLD = 0.77;
     const CAVE_CAVERN_BOOST = 0.24;
+    const CAVE_SURFACE_CLEARANCE = 5;
 
-    const RAVINE_GRID_SIZE = 64;
-    const RAVINE_CHANCE = 0.028;
+    const RAVINE_GRID_SIZE = CHUNK_SIZE;
+    const RAVINE_CHANCE = 0.3;
+    const RAVINE_EXCLUSION_RADIUS = 1;
     const RAVINE_MIN_LENGTH = 36;
     const RAVINE_MAX_LENGTH = 104;
     const RAVINE_MIN_DEPTH = 18;
@@ -1031,11 +1033,13 @@ to better suit your requirements.
     const OCEAN_MAX_DEPTH = 14;
     const OCEAN_FLOOR_JITTER = 3.5;
 
-    // Cave entrance configuration.  A small chance per column on the surface
-    // produces an entrance that opens downward into the world.  Each
-    // entrance carves a circular hole with a given radius and depth, giving
-    // the player access to underground caves from the surface.
-    const ENTRANCE_CHANCE = 0.0015;
+    // Cave entrance configuration.  A chunk-wide chance determines whether
+    // a surface entrance appears within the chunk.  When triggered, one or
+    // two circular openings are carved downwards to expose the underground
+    // network, giving the player access to caves without littering every
+    // column with holes.
+    const ENTRANCE_CHUNK_CHANCE = 0.3;
+    const ENTRANCE_ATTEMPTS = 5;
     const ENTRANCE_RADIUS = 2;
     const ENTRANCE_DEPTH = 6;
     // Terrain layering configuration.  We always place 3 layers of dirt
@@ -2567,27 +2571,56 @@ to better suit your requirements.
         };
     }
     const ravineCache = new Map();
+    const ravineChanceCache = new Map();
+    const ravineDecisionCache = new Map();
+    function getRavineChanceInfo(gx, gz) {
+        const key = `${gx},${gz}`;
+        if (ravineChanceCache.has(key)) return ravineChanceCache.get(key);
+        const seedVal = (seed ^ (gx * 1103515245) ^ (gz * 12345) ^ 0x9e3779b9) >>> 0;
+        const chance = mulberry32(seedVal)();
+        const info = { chance, seed: seedVal };
+        ravineChanceCache.set(key, info);
+        return info;
+    }
+    function cellSpawnsRavine(gx, gz) {
+        const key = `${gx},${gz}`;
+        if (ravineDecisionCache.has(key)) return ravineDecisionCache.get(key);
+        const info = getRavineChanceInfo(gx, gz);
+        let result = false;
+        if (info.chance < RAVINE_CHANCE) {
+            result = true;
+            outer: for (let dx = -RAVINE_EXCLUSION_RADIUS; dx <= RAVINE_EXCLUSION_RADIUS; dx++) {
+                for (let dz = -RAVINE_EXCLUSION_RADIUS; dz <= RAVINE_EXCLUSION_RADIUS; dz++) {
+                    if (dx === 0 && dz === 0) continue;
+                    const neighbour = getRavineChanceInfo(gx + dx, gz + dz);
+                    if (neighbour.chance < info.chance && neighbour.chance < RAVINE_CHANCE) {
+                        result = false;
+                        break outer;
+                    }
+                }
+            }
+        }
+        ravineDecisionCache.set(key, result);
+        return result;
+    }
     function getRavinesForCell(gx, gz) {
         const key = `${gx},${gz}`;
         if (ravineCache.has(key)) return ravineCache.get(key);
-        const cellSeed = (seed ^ (gx * 1103515245) ^ (gz * 12345) ^ 0x9e3779b9) >>> 0;
-        const rng = mulberry32(cellSeed);
         const ravines = [];
-        if (rng() < RAVINE_CHANCE) {
-            const count = rng() < 0.18 ? 2 : 1;
-            for (let i = 0; i < count; i++) {
-                const startX = (gx + rng()) * RAVINE_GRID_SIZE;
-                const startZ = (gz + rng()) * RAVINE_GRID_SIZE;
-                const angle = rng() * Math.PI * 2;
-                const dirX = Math.cos(angle);
-                const dirZ = Math.sin(angle);
-                const length = RAVINE_MIN_LENGTH + rng() * (RAVINE_MAX_LENGTH - RAVINE_MIN_LENGTH);
-                const baseWidth = RAVINE_BASE_WIDTH + rng() * RAVINE_WIDTH_VARIATION;
-                const depth = RAVINE_MIN_DEPTH + rng() * (RAVINE_MAX_DEPTH - RAVINE_MIN_DEPTH);
-                const curve = (rng() - 0.5) * 0.65;
-                const wobble = (rng() - 0.5) * 0.35;
-                ravines.push({ startX, startZ, dirX, dirZ, length, baseWidth, depth, curve, wobble });
-            }
+        if (cellSpawnsRavine(gx, gz)) {
+            const info = getRavineChanceInfo(gx, gz);
+            const rng = mulberry32(info.seed ^ 0xb5297a4d);
+            const startX = (gx + rng()) * RAVINE_GRID_SIZE;
+            const startZ = (gz + rng()) * RAVINE_GRID_SIZE;
+            const angle = rng() * Math.PI * 2;
+            const dirX = Math.cos(angle);
+            const dirZ = Math.sin(angle);
+            const length = RAVINE_MIN_LENGTH + rng() * (RAVINE_MAX_LENGTH - RAVINE_MIN_LENGTH);
+            const baseWidth = RAVINE_BASE_WIDTH + rng() * RAVINE_WIDTH_VARIATION;
+            const depth = RAVINE_MIN_DEPTH + rng() * (RAVINE_MAX_DEPTH - RAVINE_MIN_DEPTH);
+            const curve = (rng() - 0.5) * 0.65;
+            const wobble = (rng() - 0.5) * 0.35;
+            ravines.push({ startX, startZ, dirX, dirZ, length, baseWidth, depth, curve, wobble });
         }
         ravineCache.set(key, ravines);
         return ravines;
@@ -2888,50 +2921,45 @@ to better suit your requirements.
             ravineColumnCache.set(key, best);
             return best;
         }
-        // Determine cave entrances for this chunk.  A small chance per column
-        // spawns an entrance centre; a circular area around the centre is
-        // carved out to form the opening.  Entrance cells are stored in a
-        // set keyed by "x,z".  We update the global height map to reflect
-        // the lowered surface at these locations so the player can fall
-        // naturally into the hole.
+        // Determine cave entrances for this chunk.  A chunk-level roll decides
+        // whether one or two entrance centres should be carved.  Each centre
+        // cuts a circular opening from the surface and marks the affected
+        // columns so the global height map reflects the lowered terrain and
+        // the player can fall naturally into the hole.
         const entranceCells = new Set();
-        for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-            for (let lz = 0; lz < CHUNK_SIZE; lz++) {
-                const wx = worldX0 + lx;
-                const wz = worldZ0 + lz;
-                const colKey = `${wx},${wz}`;
-                const colHeight = heights[colKey];
-                // Only spawn entrances on columns that are sufficiently above the water level.
-                // Use the constant 4 (default water level) directly here because
-                // waterLevel has not yet been defined in this scope at runtime.
-                if (colHeight > 4 + 2) {
-                    const ravineInfo = getRavineInfo(wx, wz, colHeight);
-                    if (ravineInfo) continue;
-                    const rSeed = (seed ^ (wx * 897689) ^ (wz * 354331) ^ 0xCAFEBABE) >>> 0;
-                    const rng = mulberry32(rSeed);
-                    if (rng() < ENTRANCE_CHANCE) {
-                        for (let dx = -ENTRANCE_RADIUS; dx <= ENTRANCE_RADIUS; dx++) {
-                            for (let dz = -ENTRANCE_RADIUS; dz <= ENTRANCE_RADIUS; dz++) {
-                                if (dx*dx + dz*dz <= ENTRANCE_RADIUS * ENTRANCE_RADIUS) {
-                                    const ex = wx + dx;
-                                    const ez = wz + dz;
-                                    entranceCells.add(`${ex},${ez}`);
-                                    // Reduce the heightMap for the entrance cell so the
-                                    // player can fall down.  Ensure we don't drop below 0.
-                                    const eKey = `${ex},${ez}`;
-                                    const hVal = heights[eKey];
-                                    if (hVal !== undefined) {
-                                        const newH = Math.max(0, hVal - ENTRANCE_DEPTH);
-                                        // Only update if this column is part of this chunk; heightMap
-                                        // is keyed by world x,z and updated here.
-                                        if (heightMap[eKey] === undefined || heightMap[eKey] > newH) {
-                                            heightMap[eKey] = newH;
-                                        }
-                                    }
+        const entranceSeed = (seed ^ (cx * 4213721) ^ (cz * 982451653) ^ 0xCAFEBABE) >>> 0;
+        const entranceRng = mulberry32(entranceSeed);
+        if (entranceRng() < ENTRANCE_CHUNK_CHANCE) {
+            const entranceCount = entranceRng() < 0.22 ? 2 : 1;
+            for (let i = 0; i < entranceCount; i++) {
+                let attempts = ENTRANCE_ATTEMPTS;
+                while (attempts-- > 0) {
+                    const lx = Math.floor(entranceRng() * CHUNK_SIZE);
+                    const lz = Math.floor(entranceRng() * CHUNK_SIZE);
+                    const wx = worldX0 + lx;
+                    const wz = worldZ0 + lz;
+                    const colKey = `${wx},${wz}`;
+                    const colHeight = heights[colKey];
+                    if (colHeight === undefined) continue;
+                    if (colHeight <= WATER_LEVEL + 2) continue;
+                    if (getRavineInfo(wx, wz, colHeight)) continue;
+                    for (let dx = -ENTRANCE_RADIUS; dx <= ENTRANCE_RADIUS; dx++) {
+                        for (let dz = -ENTRANCE_RADIUS; dz <= ENTRANCE_RADIUS; dz++) {
+                            if (dx * dx + dz * dz > ENTRANCE_RADIUS * ENTRANCE_RADIUS) continue;
+                            const ex = wx + dx;
+                            const ez = wz + dz;
+                            const cellKey = `${ex},${ez}`;
+                            entranceCells.add(cellKey);
+                            const hVal = heights[cellKey];
+                            if (hVal !== undefined) {
+                                const newH = Math.max(0, hVal - ENTRANCE_DEPTH);
+                                if (heightMap[cellKey] === undefined || heightMap[cellKey] > newH) {
+                                    heightMap[cellKey] = newH;
                                 }
                             }
                         }
                     }
+                    break;
                 }
             }
         }
@@ -3096,6 +3124,7 @@ to better suit your requirements.
                 // for bedrock.  Without this guard, a terrain block placed at
                 // y=0 would overwrite the bedrock entry in voxelMap and
                 // result in an unbreakable invisible block beneath the dirt.
+                const maxCarveY = columnHeight - Math.max(DIRT_LAYERS, CAVE_SURFACE_CLEARANCE);
                 for (let y = 1; y <= columnHeight; y++) {
                     // Determine if block is exposed (visible) to avoid drawing hidden blocks
                     // We'll still record voxels for collision and picking even if hidden.  For
@@ -3202,7 +3231,7 @@ to better suit your requirements.
                     }
                     // Carve caves out of stone below the dirt layers using layered noise.
                     let carved = carvedByRavine;
-                    if (!carved && matKey === 'stone' && y <= columnHeight - DIRT_LAYERS) {
+                    if (!carved && matKey === 'stone' && y <= maxCarveY) {
                         const baseVal = (caveNoisePrimary(wx, y * 0.72, wz, 4, 0.55, CAVE_BASE_FREQUENCY) + 1) / 2;
                         const detailVal = (caveNoiseDetail(wx, y * 1.05, wz, 3, 0.6, CAVE_DETAIL_FREQUENCY) + 1) / 2;
                         const cavernVal = (cavernNoise(wx, y * 0.55, wz, 2, 0.58, CAVERN_FREQUENCY) + 1) / 2;
