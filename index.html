@@ -2715,10 +2715,10 @@ to better suit your requirements.
                 const biome = getBiomeAt(wx, wz);
                 columnBiomes.set(`${wx},${wz}`, biome);
                 const continentNoise = (perlinNoise(wx, wz, 4, 0.5, WORLD_FREQUENCY * 0.22) + 1) / 2;
-                const ridgeNoise = (perlinNoise(wx, wz, 5, 0.5, WORLD_FREQUENCY * 0.78) + 1) / 2;
-                const detailNoise = (perlinNoise(wx, wz, 3, 0.55, WORLD_FREQUENCY * 1.4) + 1) / 2;
-                const mountainNoise = Math.pow(ridgeNoise, 1.35);
-                let normalized = continentNoise * 0.6 + mountainNoise * 0.25 + detailNoise * 0.15;
+                const ridgeNoise = (perlinNoise(wx, wz, 5, 0.5, WORLD_FREQUENCY * 0.65) + 1) / 2;
+                const detailNoise = (perlinNoise(wx, wz, 3, 0.55, WORLD_FREQUENCY * 1.1) + 1) / 2;
+                const mountainNoise = Math.pow(ridgeNoise, 1.2);
+                let normalized = continentNoise * 0.68 + mountainNoise * 0.2 + detailNoise * 0.12;
                 const plateauNoise = (perlinNoise(wx, wz, 2, 0.6, WORLD_FREQUENCY * 0.1) + 1) / 2;
                 if (plateauNoise > 0.58) {
                     const strength = Math.min(1, (plateauNoise - 0.58) / 0.42);
@@ -2762,6 +2762,43 @@ to better suit your requirements.
                     heightMap[key] = h;
                 }
             }
+        }
+
+        // Apply a gentle smoothing pass to interior columns so sudden trenches
+        // collapse into rolling hills.  Weight the current column slightly
+        // higher than its neighbours to preserve general terrain shapes while
+        // softening extreme drops.
+        const smoothedHeights = {};
+        for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+            for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+                const wx = worldX0 + lx;
+                const wz = worldZ0 + lz;
+                const columnKey = `${wx},${wz}`;
+                const baseHeight = heights[columnKey];
+                if (baseHeight === undefined) continue;
+                let weightedSum = 0;
+                let weightTotal = 0;
+                for (let ox = -1; ox <= 1; ox++) {
+                    for (let oz = -1; oz <= 1; oz++) {
+                        const sample = heights[`${wx + ox},${wz + oz}`];
+                        if (sample === undefined) continue;
+                        const weight = (ox === 0 && oz === 0) ? 4 : ((Math.abs(ox) + Math.abs(oz)) === 1 ? 2 : 1);
+                        weightedSum += sample * weight;
+                        weightTotal += weight;
+                    }
+                }
+                const neighbourAverage = weightTotal > 0 ? weightedSum / weightTotal : baseHeight;
+                let gentleHeight = THREE.MathUtils.lerp(baseHeight, neighbourAverage, 0.55);
+                // Keep the landscape mostly above the water line so surface
+                // "ravines" become shallow dips instead of deep flooded
+                // chasms.
+                gentleHeight = Math.max(gentleHeight, WATER_LEVEL - 2);
+                smoothedHeights[columnKey] = Math.round(gentleHeight);
+            }
+        }
+        for (const [key, value] of Object.entries(smoothedHeights)) {
+            heights[key] = value;
+            heightMap[key] = value;
         }
 
         // Matrix lists and world coordinate lists for instanced meshes
