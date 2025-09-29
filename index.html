@@ -1375,15 +1375,18 @@ to better suit your requirements.
     coalTexture.magFilter  = THREE.LinearFilter;
     coalTexture.minFilter  = THREE.LinearMipmapLinearFilter;
     coalTexture.anisotropy = 4;
-    const waterUniforms = {
-        time: { value: 0 },
-        shallowColor: { value: new THREE.Color(0x48b8ff) },
-        deepColor: { value: new THREE.Color(0x133b68) },
-        foamColor: { value: new THREE.Color(0xffffff) },
-        sunDirection: { value: new THREE.Vector3(0, 1, 0) },
-        waterLevel: { value: WATER_LEVEL },
-        opacity: { value: 0.72 }
-    };
+    const waterUniforms = THREE.UniformsUtils.merge([
+        THREE.UniformsLib.fog,
+        {
+            time: { value: 0 },
+            shallowColor: { value: new THREE.Color(0x48b8ff) },
+            deepColor: { value: new THREE.Color(0x133b68) },
+            foamColor: { value: new THREE.Color(0xffffff) },
+            sunDirection: { value: new THREE.Vector3(0, 1, 0) },
+            waterLevel: { value: WATER_LEVEL },
+            opacity: { value: 0.72 }
+        }
+    ]);
     const waterMaterial = new THREE.ShaderMaterial({
         uniforms: waterUniforms,
         transparent: true,
@@ -3403,6 +3406,34 @@ to better suit your requirements.
                 const columnHeight = heights[columnKey];
                 const columnBiome = columnBiomes.get(columnKey) || BIOME_SETTINGS.meadow;
                 let soilLayers = (columnBiome && typeof columnBiome.soilLayers === 'number') ? columnBiome.soilLayers : DIRT_LAYERS;
+                const waterAllowedForColumn = allowWater && !columnBiome.dry;
+                const baseSurfaceFallback = columnBiome.surface || 'grass';
+                const baseUnderwaterFallback = columnBiome.underwaterSurface || baseSurfaceFallback || 'sand';
+                let surfaceBlock = waterAllowedForColumn && columnHeight < waterLevel
+                    ? chooseFromPalette(columnBiome.underwaterSurfacePalette, cx, cz, wx, wz, baseUnderwaterFallback)
+                    : chooseFromPalette(columnBiome.surfacePalette, cx, cz, wx, wz, baseSurfaceFallback);
+                let subsurfaceBlock = chooseFromPalette(columnBiome.subsurfacePalette, cx, cz, wx, wz, columnBiome.subsurface || 'dirt');
+                let deepBlock = chooseFromPalette(columnBiome.deepPalette, cx, cz, wx, wz, columnBiome.deep || 'stone');
+                const belowWater = waterAllowedForColumn && columnHeight < waterLevel - 1;
+                const coastal = waterAllowedForColumn && columnHeight >= waterLevel - 2 && columnHeight <= waterLevel + 2;
+                const depthBelowSea = waterLevel - columnHeight;
+                if (belowWater) {
+                    surfaceBlock = 'sand';
+                    subsurfaceBlock = 'sand';
+                    deepBlock = 'stone';
+                    if (depthBelowSea > 8) {
+                        soilLayers = Math.max(soilLayers, 6);
+                    } else if (depthBelowSea > 4) {
+                        soilLayers = Math.max(soilLayers, 5);
+                    } else {
+                        soilLayers = Math.max(soilLayers, 4);
+                    }
+                } else if (coastal) {
+                    surfaceBlock = 'sand';
+                    subsurfaceBlock = 'sand';
+                    soilLayers = Math.max(soilLayers, 3);
+                }
+                const dryFillBlock = surfaceBlock || columnBiome.surface || 'sand';
                 // Always place bedrock at y=0
                 {
                     const m = new THREE.Matrix4();
@@ -3439,33 +3470,6 @@ to better suit your requirements.
                     // water level), the next DIRT_LAYERS blocks become dirt, and
                     // everything below becomes stone.
                     let matKey;
-                    const waterAllowedForColumn = allowWater && !columnBiome.dry;
-                    const baseSurfaceFallback = columnBiome.surface || 'grass';
-                    const baseUnderwaterFallback = columnBiome.underwaterSurface || baseSurfaceFallback || 'sand';
-                    let surfaceBlock = waterAllowedForColumn && columnHeight < waterLevel
-                        ? chooseFromPalette(columnBiome.underwaterSurfacePalette, cx, cz, wx, wz, baseUnderwaterFallback)
-                        : chooseFromPalette(columnBiome.surfacePalette, cx, cz, wx, wz, baseSurfaceFallback);
-                    let subsurfaceBlock = chooseFromPalette(columnBiome.subsurfacePalette, cx, cz, wx, wz, columnBiome.subsurface || 'dirt');
-                    let deepBlock = chooseFromPalette(columnBiome.deepPalette, cx, cz, wx, wz, columnBiome.deep || 'stone');
-                    const belowWater = waterAllowedForColumn && columnHeight < waterLevel - 1;
-                    const coastal = waterAllowedForColumn && columnHeight >= waterLevel - 2 && columnHeight <= waterLevel + 2;
-                    const depthBelowSea = waterLevel - columnHeight;
-                    if (belowWater) {
-                        surfaceBlock = 'sand';
-                        subsurfaceBlock = 'sand';
-                        deepBlock = 'stone';
-                        if (depthBelowSea > 8) {
-                            soilLayers = Math.max(soilLayers, 6);
-                        } else if (depthBelowSea > 4) {
-                            soilLayers = Math.max(soilLayers, 5);
-                        } else {
-                            soilLayers = Math.max(soilLayers, 4);
-                        }
-                    } else if (coastal) {
-                        surfaceBlock = 'sand';
-                        subsurfaceBlock = 'sand';
-                        soilLayers = Math.max(soilLayers, 3);
-                    }
                     if (y === columnHeight) {
                         matKey = surfaceBlock;
                     } else if (soilLayers > 0 && y >= columnHeight - soilLayers) {
@@ -3565,7 +3569,7 @@ to better suit your requirements.
                         }
                     }
                 } else if (!waterAllowedForColumn && columnHeight < waterLevel) {
-                    const dryFill = surfaceBlock || columnBiome.surface || 'sand';
+                    const dryFill = dryFillBlock;
                     for (let y = columnHeight + 1; y <= waterLevel; y++) {
                         queueBlock(dryFill, wx, y, wz);
                     }
