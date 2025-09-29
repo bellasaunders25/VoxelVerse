@@ -726,6 +726,110 @@ to better suit your requirements.
             font-size: 1.2rem;
             margin-top: 12px;
         }
+        .world-config-overlay {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: rgba(6, 8, 14, 0.82);
+            backdrop-filter: blur(6px);
+            z-index: 420;
+            padding: 24px;
+        }
+        .world-config-overlay.open {
+            display: flex;
+        }
+        .world-config-panel {
+            width: min(560px, 92vw);
+            background: linear-gradient(180deg, rgba(44, 50, 64, 0.95), rgba(26, 29, 36, 0.96));
+            border-radius: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 28px 60px rgba(0, 0, 0, 0.55);
+            padding: 26px 28px 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            color: #eef3ff;
+        }
+        .world-config-panel h2 {
+            margin: 0;
+            font-size: 1.8rem;
+            letter-spacing: 0.05em;
+        }
+        .world-config-description {
+            font-size: 0.95rem;
+            line-height: 1.45;
+            color: rgba(230, 236, 255, 0.78);
+        }
+        .world-config-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+            gap: 14px;
+        }
+        .world-config-group {
+            background: rgba(14, 18, 24, 0.55);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 10px;
+            padding: 14px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .world-config-group h3 {
+            margin: 0;
+            font-size: 1.05rem;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+            color: rgba(200, 224, 255, 0.9);
+        }
+        .world-config-select {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            background: rgba(20, 24, 32, 0.8);
+            color: #f4f7ff;
+            font-size: 0.95rem;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        .world-config-select:focus {
+            outline: none;
+            border-color: rgba(127, 206, 255, 0.75);
+            box-shadow: 0 0 0 2px rgba(127, 206, 255, 0.2);
+        }
+        .world-toggle-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 10px;
+        }
+        .world-toggle {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(18, 21, 30, 0.65);
+            cursor: pointer;
+            transition: border-color 0.2s ease, background 0.2s ease;
+        }
+        .world-toggle input {
+            width: 18px;
+            height: 18px;
+        }
+        .world-toggle:hover {
+            border-color: rgba(127, 206, 255, 0.6);
+            background: rgba(22, 30, 42, 0.75);
+        }
+        .world-config-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+        }
+        .world-config-actions .menu-btn {
+            min-width: 130px;
+        }
         @keyframes loadingAnim {
             from { left: -50%; }
             to   { left: 100%; }
@@ -945,6 +1049,50 @@ to better suit your requirements.
         </div>
     </div>
 
+    <div id="worldConfigOverlay" class="world-config-overlay" role="dialog" aria-modal="true" aria-labelledby="worldConfigTitle">
+        <div class="world-config-panel">
+            <h2 id="worldConfigTitle">World Settings</h2>
+            <p class="world-config-description">Tune how your world is generated before diving in. Mix and match terrain styles with underground features to create flat creative canvases, rolling hills or towering mountain ranges.</p>
+            <div class="world-config-grid">
+                <div class="world-config-group">
+                    <h3>Terrain Shape</h3>
+                    <label for="terrainStyleSelect">Terrain style</label>
+                    <select id="terrainStyleSelect" class="world-config-select">
+                        <option value="balanced">Balanced</option>
+                        <option value="flat">Super Flat</option>
+                        <option value="hills">Rolling Hills</option>
+                        <option value="mountains">Jagged Mountains</option>
+                    </select>
+                </div>
+                <div class="world-config-group">
+                    <h3>World Features</h3>
+                    <div class="world-toggle-list">
+                        <label class="world-toggle" for="toggleTrees">
+                            <input type="checkbox" id="toggleTrees" checked />
+                            <span>Trees &amp; flora</span>
+                        </label>
+                        <label class="world-toggle" for="toggleCaves">
+                            <input type="checkbox" id="toggleCaves" checked />
+                            <span>Caves</span>
+                        </label>
+                        <label class="world-toggle" for="toggleRavines">
+                            <input type="checkbox" id="toggleRavines" checked />
+                            <span>Ravines</span>
+                        </label>
+                        <label class="world-toggle" for="toggleWater">
+                            <input type="checkbox" id="toggleWater" checked />
+                            <span>Lakes &amp; oceans</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="world-config-actions">
+                <button id="worldConfigCancel" class="menu-btn">Back</button>
+                <button id="worldConfigConfirm" class="menu-btn play-btn">Create World</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Loading screen displayed during world generation -->
     <div id="loadingScreen" class="loading-screen">
         <img class="loading-logo" src="https://i.postimg.cc/brdvY1ty/logo.png" alt="VoxelVerse Logo" />
@@ -972,6 +1120,26 @@ to better suit your requirements.
     // raise or lower the sea level globally.  For example 0.25 means the
     // lowest quarter of the world is underwater.
     const WATER_LEVEL = Math.floor(CHUNK_HEIGHT * 0.25);
+    const DEFAULT_WORLD_OPTIONS = {
+        terrainStyle: 'balanced',
+        enableTrees: true,
+        enableCaves: true,
+        enableRavines: true,
+        enableWater: true
+    };
+    let worldOptions = { ...DEFAULT_WORLD_OPTIONS };
+    function setWorldOptions(options = {}) {
+        const merged = { ...DEFAULT_WORLD_OPTIONS, ...options };
+        merged.terrainStyle = ['balanced', 'flat', 'hills', 'mountains'].includes(merged.terrainStyle)
+            ? merged.terrainStyle
+            : DEFAULT_WORLD_OPTIONS.terrainStyle;
+        merged.enableTrees = options.enableTrees !== undefined ? !!options.enableTrees : DEFAULT_WORLD_OPTIONS.enableTrees;
+        merged.enableCaves = options.enableCaves !== undefined ? !!options.enableCaves : DEFAULT_WORLD_OPTIONS.enableCaves;
+        merged.enableRavines = options.enableRavines !== undefined ? !!options.enableRavines : DEFAULT_WORLD_OPTIONS.enableRavines;
+        merged.enableWater = options.enableWater !== undefined ? !!options.enableWater : DEFAULT_WORLD_OPTIONS.enableWater;
+        worldOptions = merged;
+        biomeCache.clear();
+    }
     const VIEW_DISTANCE_CHUNKS = 3;
     const WORLD_FREQUENCY = 0.02;
     const OCTAVES = 4;
@@ -1015,12 +1183,22 @@ to better suit your requirements.
     const PLAINS_THRESHOLD = 0.58;
     const PLAINS_BASE = 0.28;
     const PLAINS_VARIATION = 0.24;
+    const TERRAIN_STYLE_PROFILES = {
+        balanced: { continent: 0.52, mountain: 0.34, detail: 0.14, flatten: 0.12, heightBias: 0 },
+        flat: { continent: 0.74, mountain: 0.06, detail: 0.2, flatten: 0.82, heightBias: -0.08 },
+        hills: { continent: 0.58, mountain: 0.18, detail: 0.24, flatten: 0.38, heightBias: -0.02 },
+        mountains: { continent: 0.4, mountain: 0.5, detail: 0.1, flatten: 0.05, heightBias: 0.12 }
+    };
 
     const OCEAN_MASK_FREQUENCY = 0.12;
     const OCEAN_THRESHOLD = 0.46;
     const OCEAN_SHELF_BLEND = 0.12;
     const OCEAN_MAX_DEPTH = 14;
     const OCEAN_FLOOR_JITTER = 3.5;
+    const RAVINE_MASK_FREQUENCY = 0.018;
+    const RAVINE_THRESHOLD = 0.68;
+    const RAVINE_MAX_DEPTH = 18;
+    const RAVINE_PROFILE_EXPONENT = 1.35;
 
     // Cave entrance configuration.  A small chance per column on the surface
     // produces an entrance that opens downward into the world.  Each
@@ -1040,6 +1218,7 @@ to better suit your requirements.
     // Height of the player in world units.  Each block in the world is one unit tall,
     // so a two‑block tall player has a height of 2.
     const PLAYER_HEIGHT = 2;
+    const PLAYER_RADIUS = 0.35;
     const MOVE_SPEED = 8;          // units per second
     const JUMP_VELOCITY = 7;       // upward velocity when jumping
     const GRAVITY = 20;            // downward acceleration (units/s^2)
@@ -1196,12 +1375,83 @@ to better suit your requirements.
     coalTexture.magFilter  = THREE.LinearFilter;
     coalTexture.minFilter  = THREE.LinearMipmapLinearFilter;
     coalTexture.anisotropy = 4;
+    const waterUniforms = {
+        time: { value: 0 },
+        shallowColor: { value: new THREE.Color(0x48b8ff) },
+        deepColor: { value: new THREE.Color(0x133b68) },
+        foamColor: { value: new THREE.Color(0xffffff) },
+        sunDirection: { value: new THREE.Vector3(0, 1, 0) },
+        waterLevel: { value: WATER_LEVEL },
+        opacity: { value: 0.72 }
+    };
+    const waterMaterial = new THREE.ShaderMaterial({
+        uniforms: waterUniforms,
+        transparent: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        fog: true,
+        vertexShader: `
+            uniform float time;
+            varying vec3 vWorldPosition;
+            varying vec3 vNormal;
+            varying float vWaveStrength;
+            #include <fog_pars_vertex>
+            void main() {
+                vec3 pos = position;
+                vec3 nrm = normal;
+                float wave = 0.0;
+                if (normal.y > 0.9) {
+                    float wave1 = sin((position.x + position.z) * 0.35 + time * 0.6);
+                    float wave2 = sin((position.x - position.z) * 0.2 + time * 0.9);
+                    wave = (wave1 + wave2) * 0.06;
+                    pos.y += wave;
+                    float dx = cos((position.x + position.z) * 0.35 + time * 0.6) * 0.35 * 0.06;
+                    float dz = cos((position.x - position.z) * 0.2 + time * 0.9) * 0.2 * 0.06;
+                    nrm = normalize(vec3(-dx, 1.0, -dz));
+                }
+                vec4 worldPos = modelMatrix * vec4(pos, 1.0);
+                vWorldPosition = worldPos.xyz;
+                vNormal = normalize(normalMatrix * nrm);
+                vWaveStrength = wave;
+                vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+                gl_Position = projectionMatrix * mvPosition;
+                #include <fog_vertex>
+            }
+        `,
+        fragmentShader: `
+            uniform vec3 shallowColor;
+            uniform vec3 deepColor;
+            uniform vec3 foamColor;
+            uniform vec3 sunDirection;
+            uniform float opacity;
+            uniform float waterLevel;
+            varying vec3 vWorldPosition;
+            varying vec3 vNormal;
+            varying float vWaveStrength;
+            #include <fog_pars_fragment>
+            void main() {
+                vec3 normal = normalize(vNormal);
+                vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+                vec3 lightDir = normalize(sunDirection);
+                float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), 3.0);
+                float diffuse = max(dot(normal, lightDir), 0.0);
+                float waveFoam = smoothstep(0.04, 0.12, abs(vWaveStrength));
+                float heightMix = clamp((vWorldPosition.y - (waterLevel - 4.0)) / 8.0, 0.0, 1.0);
+                vec3 baseColor = mix(deepColor, shallowColor, heightMix);
+                vec3 foam = foamColor * (waveFoam * 0.35 + diffuse * 0.15);
+                vec3 color = baseColor + foam + vec3(0.35) * fresnel;
+                float finalAlpha = opacity * (0.7 + fresnel * 0.3);
+                gl_FragColor = vec4(color, finalAlpha);
+                #include <fog_fragment>
+            }
+        `
+    });
     const blockMaterials = {
         grass: new THREE.MeshStandardMaterial({ map: grassTexture }),
         dirt:  new THREE.MeshStandardMaterial({ map: dirtTexture }),
         stone: new THREE.MeshStandardMaterial({ map: stoneTexture }),
         sand:  new THREE.MeshStandardMaterial({ map: sandTexture }),
-        water: new THREE.MeshStandardMaterial({ color: 0x4a7ad1, transparent: true, opacity: 0.6 }),
+        water: waterMaterial,
         wood:  new THREE.MeshStandardMaterial({ map: woodTexture }),
         leaves:new THREE.MeshStandardMaterial({ map: leavesTexture, transparent: true, alphaTest: 0.5, side: THREE.DoubleSide }),
         bedrock: new THREE.MeshStandardMaterial({ map: bedrockTexture }),
@@ -1448,6 +1698,7 @@ to better suit your requirements.
 
     let swimBobTime = 0;
     let swimBobOffset = 0;
+    let waterTime = 0;
     let underwaterAudioActive = false;
     let musicUnderwaterFilter = null;
     const underwaterSfxFilters = new WeakMap();
@@ -2621,14 +2872,15 @@ to better suit your requirements.
             subsurface: 'sand',
             deep: 'stone',
             soilLayers: 1,
-            treeType: 'cactus',
-            treeChance: 0.05,
+            treeType: null,
+            treeChance: 0,
             decorations: {},
             heightOffset: -1,
             fogNear: 130,
             fogFar: 360,
             skyTint: 0xf2d7a2,
-            ambientBoost: 0
+            ambientBoost: 0,
+            dry: true
         },
         taiga: {
             key: 'taiga',
@@ -2745,14 +2997,118 @@ to better suit your requirements.
             key = 'rainforest';
         }
         const base = BIOME_SETTINGS[key] || BIOME_SETTINGS.meadow;
-        return { ...base, samples: { heat, moisture, mystic, sky: skyVal } };
+        return { ...base, key, samples: { heat, moisture, mystic, sky: skyVal } };
+    }
+    function buildPalette(contributions, prop) {
+        const map = new Map();
+        contributions.forEach(({ settings, weight }) => {
+            const value = settings[prop];
+            if (value === undefined || value === null) return;
+            map.set(value, (map.get(value) || 0) + weight);
+        });
+        return Array.from(map.entries())
+            .map(([value, weight]) => ({ value, weight }))
+            .sort((a, b) => b.weight - a.weight);
+    }
+    function blendNumeric(contributions, prop, fallback = 0) {
+        let sum = 0;
+        let total = 0;
+        contributions.forEach(({ settings, weight }) => {
+            const value = settings[prop];
+            if (typeof value === 'number' && Number.isFinite(value)) {
+                sum += value * weight;
+                total += weight;
+            }
+        });
+        if (total === 0) return fallback;
+        return sum / total;
+    }
+    function blendColor(contributions, prop, fallback = 0xffffff) {
+        let total = 0;
+        const color = new THREE.Color(0, 0, 0);
+        contributions.forEach(({ settings, weight }) => {
+            const value = settings[prop];
+            if (value === undefined) return;
+            const c = new THREE.Color(value);
+            color.r += c.r * weight;
+            color.g += c.g * weight;
+            color.b += c.b * weight;
+            total += weight;
+        });
+        if (total === 0) {
+            return fallback;
+        }
+        color.multiplyScalar(1 / total);
+        return color.getHex();
+    }
+    function blendDecorations(contributions) {
+        const acc = {};
+        contributions.forEach(({ settings, weight }) => {
+            if (!settings.decorations) return;
+            for (const [key, value] of Object.entries(settings.decorations)) {
+                if (typeof value !== 'number') continue;
+                acc[key] = (acc[key] || 0) + value * weight;
+            }
+        });
+        return acc;
+    }
+    function blendBiomeAt(x, z) {
+        const offsets = [
+            [0, 0],
+            [0.47, 0.18],
+            [0.18, 0.47],
+            [0.55, 0.55]
+        ];
+        const contributionsMap = new Map();
+        const weight = 1 / offsets.length;
+        offsets.forEach(([ox, oz]) => {
+            const sample = computeBiome(x + ox, z + oz);
+            const entry = contributionsMap.get(sample.key);
+            if (entry) entry.weight += weight;
+            else contributionsMap.set(sample.key, { settings: sample, weight });
+        });
+        const contributions = Array.from(contributionsMap.values()).sort((a, b) => b.weight - a.weight);
+        const surfacePalette = buildPalette(contributions, 'surface');
+        const underwaterPalette = buildPalette(contributions, 'underwaterSurface');
+        const subsurfacePalette = buildPalette(contributions, 'subsurface');
+        const deepPalette = buildPalette(contributions, 'deep');
+        const treePalette = buildPalette(contributions, 'treeType');
+        const soilLayers = Math.max(1, Math.round(blendNumeric(contributions, 'soilLayers', DIRT_LAYERS)));
+        const result = {
+            key: contributions[0].settings.key,
+            name: contributions[0].settings.name,
+            weights: contributions,
+            surfacePalette,
+            underwaterSurfacePalette: underwaterPalette,
+            subsurfacePalette,
+            deepPalette,
+            treePalette: treePalette.filter((entry) => entry.value),
+            soilLayers,
+            treeChance: blendNumeric(contributions, 'treeChance', 0),
+            heightOffset: blendNumeric(contributions, 'heightOffset', 0),
+            fogNear: blendNumeric(contributions, 'fogNear', DEFAULT_FOG_RANGE.near),
+            fogFar: blendNumeric(contributions, 'fogFar', DEFAULT_FOG_RANGE.far),
+            ambientBoost: blendNumeric(contributions, 'ambientBoost', 0),
+            skyTint: blendColor(contributions, 'skyTint', 0x87ceeb),
+            freezeWater: contributions.some((c) => c.settings.freezeWater && c.weight > 0.25),
+            skyIslands: contributions.some((c) => c.settings.skyIslands && c.weight > 0.25),
+            dry: contributions.some((c) => c.settings.dry && c.weight > 0.25),
+            glowstoneInStone: blendNumeric(contributions, 'glowstoneInStone', 0),
+            decorations: blendDecorations(contributions)
+        };
+        result.surface = surfacePalette.length ? surfacePalette[0].value : contributions[0].settings.surface;
+        result.underwaterSurface = underwaterPalette.length ? underwaterPalette[0].value : contributions[0].settings.underwaterSurface;
+        result.subsurface = subsurfacePalette.length ? subsurfacePalette[0].value : contributions[0].settings.subsurface;
+        result.deep = deepPalette.length ? deepPalette[0].value : contributions[0].settings.deep;
+        result.treeType = treePalette.length ? treePalette[0].value : contributions[0].settings.treeType;
+        return result;
     }
     function getBiomeAt(x, z) {
         const ix = Math.floor(x);
         const iz = Math.floor(z);
         const key = `${ix},${iz}`;
         if (biomeCache.has(key)) return biomeCache.get(key);
-        const biome = computeBiome(ix, iz);
+        const biome = blendBiomeAt(ix + 0.5, iz + 0.5);
         biomeCache.set(key, biome);
         return biome;
     }
@@ -2762,6 +3118,20 @@ to better suit your requirements.
         return mulberry32(s);
     }
 
+    function chooseFromPalette(palette, cx, cz, wx, wz, fallback) {
+        if (!palette || palette.length === 0) return fallback;
+        const total = palette.reduce((sum, entry) => sum + entry.weight, 0);
+        if (total <= 0) return fallback;
+        const rng = coordSeededRand(cx, cz, wx, wz)();
+        let accum = 0;
+        for (const entry of palette) {
+            const share = entry.weight / total;
+            accum += share;
+            if (rng <= accum) return entry.value;
+        }
+        return palette[0].value ?? fallback;
+    }
+
     // --- Chunk generation ---
     function generateChunk(cx, cz) {
         const chunkKeyString = `${cx},${cz}`;
@@ -2769,6 +3139,11 @@ to better suit your requirements.
         const columnBiomes = new Map();
         const worldX0 = cx * CHUNK_SIZE;
         const worldZ0 = cz * CHUNK_SIZE;
+        const terrainProfile = TERRAIN_STYLE_PROFILES[worldOptions.terrainStyle] || TERRAIN_STYLE_PROFILES.balanced;
+        const allowCaves = !!worldOptions.enableCaves;
+        const allowRavines = !!worldOptions.enableRavines;
+        const allowTrees = !!worldOptions.enableTrees;
+        const allowWater = !!worldOptions.enableWater;
         // Compute height map for this chunk (with border for neighbours)
         for (let dx = -1; dx <= CHUNK_SIZE; dx++) {
             for (let dz = -1; dz <= CHUNK_SIZE; dz++) {
@@ -2780,7 +3155,12 @@ to better suit your requirements.
                 const ridgeNoise = (perlinNoise(wx, wz, 5, 0.5, WORLD_FREQUENCY * 0.9) + 1) / 2;
                 const detailNoise = (perlinNoise(wx, wz, 3, 0.55, WORLD_FREQUENCY * 1.6) + 1) / 2;
                 const mountainNoise = Math.pow(ridgeNoise, 1.6);
-                let normalized = continentNoise * 0.52 + mountainNoise * 0.34 + detailNoise * 0.14;
+                const weightSum = terrainProfile.continent + terrainProfile.mountain + terrainProfile.detail;
+                let normalized = (
+                    continentNoise * terrainProfile.continent +
+                    mountainNoise * terrainProfile.mountain +
+                    detailNoise * terrainProfile.detail
+                ) / Math.max(weightSum, 0.0001);
                 const plateauNoise = (perlinNoise(wx, wz, 2, 0.6, WORLD_FREQUENCY * 0.12) + 1) / 2;
                 if (plateauNoise > 0.58) {
                     const strength = Math.min(1, (plateauNoise - 0.58) / 0.42);
@@ -2797,8 +3177,12 @@ to better suit your requirements.
                 if (isMeadowy) {
                     flattenStrength = Math.max(flattenStrength, 0.45);
                 }
-                if (flattenStrength > 0) {
-                    normalized = THREE.MathUtils.lerp(normalized, flatTarget, flattenStrength * 0.85);
+                const combinedFlatten = Math.min(1, Math.max(flattenStrength, terrainProfile.flatten || 0));
+                if (combinedFlatten > 0) {
+                    normalized = THREE.MathUtils.lerp(normalized, flatTarget, combinedFlatten * 0.85);
+                }
+                if (terrainProfile.heightBias) {
+                    normalized += terrainProfile.heightBias;
                 }
                 normalized = THREE.MathUtils.clamp(normalized, 0, 1);
                 let h = Math.floor(normalized * (CHUNK_HEIGHT - 12)) + 4;
@@ -2812,6 +3196,13 @@ to better suit your requirements.
                     const floorOffset = Math.round(floorNoise * OCEAN_FLOOR_JITTER);
                     const oceanFloor = Math.floor(WATER_LEVEL - 2 - depth - floorOffset);
                     h = Math.min(h, oceanFloor);
+                }
+                if (allowRavines) {
+                    const ravineBase = (perlinNoise(wx, wz, 2, 0.6, RAVINE_MASK_FREQUENCY) + 1) / 2;
+                    if (ravineBase > RAVINE_THRESHOLD) {
+                        const strength = Math.pow((ravineBase - RAVINE_THRESHOLD) / (1 - RAVINE_THRESHOLD), RAVINE_PROFILE_EXPONENT);
+                        h -= RAVINE_MAX_DEPTH * strength;
+                    }
                 }
                 if (biome && typeof biome.heightOffset === 'number') {
                     h += biome.heightOffset;
@@ -2832,35 +3223,33 @@ to better suit your requirements.
         // the lowered surface at these locations so the player can fall
         // naturally into the hole.
         const entranceCells = new Set();
-        for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-            for (let lz = 0; lz < CHUNK_SIZE; lz++) {
-                const wx = worldX0 + lx;
-                const wz = worldZ0 + lz;
-                const colKey = `${wx},${wz}`;
-                const colHeight = heights[colKey];
-                // Only spawn entrances on columns that are sufficiently above the water level.
-                // Use the constant 4 (default water level) directly here because
-                // waterLevel has not yet been defined in this scope at runtime.
-                if (colHeight > 4 + 2) {
-                    const rSeed = (seed ^ (wx * 897689) ^ (wz * 354331) ^ 0xCAFEBABE) >>> 0;
-                    const rng = mulberry32(rSeed);
-                    if (rng() < ENTRANCE_CHANCE) {
-                        for (let dx = -ENTRANCE_RADIUS; dx <= ENTRANCE_RADIUS; dx++) {
-                            for (let dz = -ENTRANCE_RADIUS; dz <= ENTRANCE_RADIUS; dz++) {
-                                if (dx*dx + dz*dz <= ENTRANCE_RADIUS * ENTRANCE_RADIUS) {
-                                    const ex = wx + dx;
-                                    const ez = wz + dz;
-                                    entranceCells.add(`${ex},${ez}`);
-                                    // Reduce the heightMap for the entrance cell so the
-                                    // player can fall down.  Ensure we don't drop below 0.
-                                    const eKey = `${ex},${ez}`;
-                                    const hVal = heights[eKey];
-                                    if (hVal !== undefined) {
-                                        const newH = Math.max(0, hVal - ENTRANCE_DEPTH);
-                                        // Only update if this column is part of this chunk; heightMap
-                                        // is keyed by world x,z and updated here.
-                                        if (heightMap[eKey] === undefined || heightMap[eKey] > newH) {
-                                            heightMap[eKey] = newH;
+        if (allowCaves) {
+            for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+                for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+                    const wx = worldX0 + lx;
+                    const wz = worldZ0 + lz;
+                    const colKey = `${wx},${wz}`;
+                    const colHeight = heights[colKey];
+                    // Only spawn entrances on columns that are sufficiently above the water level.
+                    // Use the constant 4 (default water level) directly here because
+                    // waterLevel has not yet been defined in this scope at runtime.
+                    if (colHeight > 4 + 2) {
+                        const rSeed = (seed ^ (wx * 897689) ^ (wz * 354331) ^ 0xCAFEBABE) >>> 0;
+                        const rng = mulberry32(rSeed);
+                        if (rng() < ENTRANCE_CHANCE) {
+                            for (let dx = -ENTRANCE_RADIUS; dx <= ENTRANCE_RADIUS; dx++) {
+                                for (let dz = -ENTRANCE_RADIUS; dz <= ENTRANCE_RADIUS; dz++) {
+                                    if (dx*dx + dz*dz <= ENTRANCE_RADIUS * ENTRANCE_RADIUS) {
+                                        const ex = wx + dx;
+                                        const ez = wz + dz;
+                                        entranceCells.add(`${ex},${ez}`);
+                                        const eKey = `${ex},${ez}`;
+                                        const hVal = heights[eKey];
+                                        if (hVal !== undefined) {
+                                            const newH = Math.max(0, hVal - ENTRANCE_DEPTH);
+                                            if (heightMap[eKey] === undefined || heightMap[eKey] > newH) {
+                                                heightMap[eKey] = newH;
+                                            }
                                         }
                                     }
                                 }
@@ -3050,13 +3439,16 @@ to better suit your requirements.
                     // water level), the next DIRT_LAYERS blocks become dirt, and
                     // everything below becomes stone.
                     let matKey;
-                    let surfaceBlock = (columnHeight < waterLevel)
-                        ? (columnBiome.underwaterSurface || columnBiome.surface || 'sand')
-                        : (columnBiome.surface || 'grass');
-                    let subsurfaceBlock = columnBiome.subsurface || 'dirt';
-                    let deepBlock = columnBiome.deep || 'stone';
-                    const belowWater = columnHeight < waterLevel - 1;
-                    const coastal = !belowWater && columnHeight >= waterLevel - 2 && columnHeight <= waterLevel + 2;
+                    const waterAllowedForColumn = allowWater && !columnBiome.dry;
+                    const baseSurfaceFallback = columnBiome.surface || 'grass';
+                    const baseUnderwaterFallback = columnBiome.underwaterSurface || baseSurfaceFallback || 'sand';
+                    let surfaceBlock = waterAllowedForColumn && columnHeight < waterLevel
+                        ? chooseFromPalette(columnBiome.underwaterSurfacePalette, cx, cz, wx, wz, baseUnderwaterFallback)
+                        : chooseFromPalette(columnBiome.surfacePalette, cx, cz, wx, wz, baseSurfaceFallback);
+                    let subsurfaceBlock = chooseFromPalette(columnBiome.subsurfacePalette, cx, cz, wx, wz, columnBiome.subsurface || 'dirt');
+                    let deepBlock = chooseFromPalette(columnBiome.deepPalette, cx, cz, wx, wz, columnBiome.deep || 'stone');
+                    const belowWater = waterAllowedForColumn && columnHeight < waterLevel - 1;
+                    const coastal = waterAllowedForColumn && columnHeight >= waterLevel - 2 && columnHeight <= waterLevel + 2;
                     const depthBelowSea = waterLevel - columnHeight;
                     if (belowWater) {
                         surfaceBlock = 'sand';
@@ -3116,7 +3508,7 @@ to better suit your requirements.
                     }
                     // Carve caves out of stone below the dirt layers using layered noise.
                     let carved = false;
-                    if (matKey === 'stone' && y <= columnHeight - DIRT_LAYERS) {
+                    if (allowCaves && matKey === 'stone' && y <= columnHeight - DIRT_LAYERS) {
                         const baseVal = (caveNoisePrimary(wx, y * 0.72, wz, 4, 0.55, CAVE_BASE_FREQUENCY) + 1) / 2;
                         const detailVal = (caveNoiseDetail(wx, y * 1.05, wz, 3, 0.6, CAVE_DETAIL_FREQUENCY) + 1) / 2;
                         const cavernVal = (cavernNoise(wx, y * 0.55, wz, 2, 0.58, CAVERN_FREQUENCY) + 1) / 2;
@@ -3157,7 +3549,7 @@ to better suit your requirements.
                     positionsByType[matKey].push({ x: wx, y, z: wz });
                 }
                 // Water generation loop
-                if (columnHeight < waterLevel) {
+                if (waterAllowed && columnHeight < waterLevel) {
                     for (let y = columnHeight + 1; y <= waterLevel; y++) {
                         const waterType = (columnBiome.freezeWater && y === waterLevel) ? 'ice' : 'water';
                         voxelMap.set(`${wx},${y},${wz}`, { type: waterType, chunk: chunkKeyString });
@@ -3172,10 +3564,17 @@ to better suit your requirements.
                             }
                         }
                     }
+                } else if (!waterAllowed && columnHeight < waterLevel) {
+                    const dryFill = surfaceBlock || columnBiome.surface || 'sand';
+                    for (let y = columnHeight + 1; y <= waterLevel; y++) {
+                        queueBlock(dryFill, wx, y, wz);
+                    }
                 }
                 // Tree and flora generation tailored by biome.
-                const treeType = columnBiome.treeType;
-                const treeChance = columnBiome.treeChance || 0;
+                const treeChance = allowTrees ? (columnBiome.treeChance || 0) : 0;
+                const treeType = (allowTrees && treeChance > 0)
+                    ? chooseFromPalette(columnBiome.treePalette, cx, cz, wx * 17, wz * 29, columnBiome.treeType)
+                    : null;
                 if (treeType && columnHeight >= waterLevel) {
                     const rand = coordSeededRand(cx, cz, wx, wz)();
                     if (rand < treeChance) {
@@ -3868,6 +4267,30 @@ to better suit your requirements.
         return -Infinity;
     }
 
+    function hasHorizontalCollision(x, z, yStart, yEnd) {
+        const offsets = [
+            [0, 0],
+            [PLAYER_RADIUS, 0],
+            [-PLAYER_RADIUS, 0],
+            [0, PLAYER_RADIUS],
+            [0, -PLAYER_RADIUS],
+            [PLAYER_RADIUS, PLAYER_RADIUS],
+            [PLAYER_RADIUS, -PLAYER_RADIUS],
+            [-PLAYER_RADIUS, PLAYER_RADIUS],
+            [-PLAYER_RADIUS, -PLAYER_RADIUS]
+        ];
+        for (const [ox, oz] of offsets) {
+            const cellX = Math.floor(x + ox);
+            const cellZ = Math.floor(z + oz);
+            for (let y = yStart; y <= yEnd; y++) {
+                if (isSolid(cellX, y, cellZ)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     function worldToChunkKey(x, z) {
         const cx = Math.floor(x / CHUNK_SIZE);
         const cz = Math.floor(z / CHUNK_SIZE);
@@ -4132,6 +4555,14 @@ to better suit your requirements.
         updateSky(delta);
         updateClouds(delta);
         updateAmbientCreatures(delta);
+        waterTime += delta;
+        if (blockMaterials.water && blockMaterials.water.uniforms) {
+            blockMaterials.water.uniforms.time.value = waterTime;
+            blockMaterials.water.uniforms.waterLevel.value = WATER_LEVEL;
+            if (sunLight) {
+                blockMaterials.water.uniforms.sunDirection.value.copy(sunLight.position).normalize();
+            }
+        }
         // Determine movement direction on the XZ plane
         const forward = new THREE.Vector3(0,0,-1).applyAxisAngle(new THREE.Vector3(0,1,0), player.yaw);
         const right  = new THREE.Vector3(1,0,0).applyAxisAngle(new THREE.Vector3(0,1,0), player.yaw);
@@ -4183,27 +4614,24 @@ to better suit your requirements.
             }
             if (!supported) allowMove = false;
         }
-        // Horizontal collision detection with solid voxels (trees etc.)
-        let blocked = false;
-        const floorCurX = Math.floor(player.position.x);
-        const floorCurZ = Math.floor(player.position.z);
-        const floorNewX = Math.floor(newX);
-        const floorNewZ = Math.floor(newZ);
-        if ((floorNewX !== floorCurX) || (floorNewZ !== floorCurZ)) {
-            // Vertical range excluding the ground block
-            const yStart = Math.floor((player.position.y - PLAYER_HEIGHT/2) + 0.001) + 1;
-            const yEnd   = Math.floor((player.position.y + PLAYER_HEIGHT/2) - 0.001);
-            for (let y = yStart; y <= yEnd; y++) {
-                if (isSolid(floorNewX, y, floorNewZ)) {
-                    blocked = true;
-                    break;
-                }
+        const yStart = Math.floor((player.position.y - PLAYER_HEIGHT/2) + 0.001) + 1;
+        const yEnd   = Math.floor((player.position.y + PLAYER_HEIGHT/2) - 0.001);
+        const collisionMinY = Math.min(yStart, yEnd);
+        const collisionMaxY = Math.max(yStart, yEnd);
+        let targetX = player.position.x;
+        let targetZ = player.position.z;
+        if (allowMove) {
+            const attemptX = newX;
+            if (!hasHorizontalCollision(attemptX, targetZ, collisionMinY, collisionMaxY)) {
+                targetX = attemptX;
+            }
+            const attemptZ = newZ;
+            if (!hasHorizontalCollision(targetX, attemptZ, collisionMinY, collisionMaxY)) {
+                targetZ = attemptZ;
             }
         }
-        if (!blocked && allowMove) {
-            player.position.x = newX;
-            player.position.z = newZ;
-        }
+        player.position.x = targetX;
+        player.position.z = targetZ;
         waterState = sampleWaterState(player.position.x, player.position.y, player.position.z);
         waterSurfaceY = waterState.surfaceY;
         player.inWater = waterState.inWater;
@@ -6550,7 +6978,9 @@ to better suit your requirements.
             updateVisibleChunks(true);
         },
         getSeed: () => seed,
-        startGame: startGame
+        startGame: startGame,
+        setWorldOptions: (opts) => setWorldOptions(opts),
+        getWorldOptions: () => ({ ...worldOptions })
     };
 })();
 </script>
@@ -6641,36 +7071,81 @@ to better suit your requirements.
             });
         });
     }
-    // Handle Play button: fade out menu, fade music, show loading screen and start the game.
-    function setupPlayButton() {
-        const playBtn = document.getElementById('playButton');
+    function gatherWorldOptionsFromForm() {
+        const terrainSelect = document.getElementById('terrainStyleSelect');
+        const toggleTrees = document.getElementById('toggleTrees');
+        const toggleCaves = document.getElementById('toggleCaves');
+        const toggleRavines = document.getElementById('toggleRavines');
+        const toggleWater = document.getElementById('toggleWater');
+        return {
+            terrainStyle: terrainSelect ? terrainSelect.value : 'balanced',
+            enableTrees: toggleTrees ? toggleTrees.checked : true,
+            enableCaves: toggleCaves ? toggleCaves.checked : true,
+            enableRavines: toggleRavines ? toggleRavines.checked : true,
+            enableWater: toggleWater ? toggleWater.checked : true
+        };
+    }
+    function openWorldConfigModal() {
+        const overlay = document.getElementById('worldConfigOverlay');
+        if (overlay) overlay.classList.add('open');
+    }
+    function closeWorldConfigModal() {
+        const overlay = document.getElementById('worldConfigOverlay');
+        if (overlay) overlay.classList.remove('open');
+    }
+    function startGameSequence(worldOptions) {
         const mainMenu = document.getElementById('mainMenu');
         const loadingScreen = document.getElementById('loadingScreen');
-        if (!playBtn) return;
-        playBtn.addEventListener('click', () => {
+        if (mainMenu && mainMenu.dataset.starting === 'true') return;
+        if (mainMenu) {
+            mainMenu.dataset.starting = 'true';
             mainMenu.style.transition = 'opacity 0.6s ease-out';
             mainMenu.style.opacity = '0';
             mainMenu.style.pointerEvents = 'none';
-            // Fade out menu music over 1.5 seconds
-            if (menuMusicAudio) {
-                fadeOutAudio(menuMusicAudio, 1500);
+        }
+        closeWorldConfigModal();
+        if (menuMusicAudio) {
+            fadeOutAudio(menuMusicAudio, 1500);
+        }
+        if (loadingScreen) loadingScreen.classList.add('visible');
+        if (window._voxelWorld && typeof window._voxelWorld.setWorldOptions === 'function') {
+            window._voxelWorld.setWorldOptions(worldOptions || {});
+        }
+        setTimeout(() => {
+            if (window._voxelWorld && typeof window._voxelWorld.startGame === 'function') {
+                window._voxelWorld.startGame();
             }
-            // Show loading screen
-            if (loadingScreen) loadingScreen.classList.add('visible');
-            // Start the game after a brief delay
             setTimeout(() => {
-                if (window._voxelWorld && typeof window._voxelWorld.startGame === 'function') {
-                    window._voxelWorld.startGame();
-                }
-                // Hide loading screen once the world has had a moment to generate
-                setTimeout(() => {
-                    if (loadingScreen) loadingScreen.classList.remove('visible');
-                }, 2500);
-            }, 1200);
+                if (loadingScreen) loadingScreen.classList.remove('visible');
+            }, 2500);
+        }, 1200);
+    }
+    function setupWorldConfigModal() {
+        const confirmBtn = document.getElementById('worldConfigConfirm');
+        const cancelBtn = document.getElementById('worldConfigCancel');
+        if (cancelBtn) {
+            cancelBtn.addEventListener('click', () => {
+                closeWorldConfigModal();
+            });
+        }
+        if (confirmBtn) {
+            confirmBtn.addEventListener('click', () => {
+                const options = gatherWorldOptionsFromForm();
+                startGameSequence(options);
+            });
+        }
+    }
+    // Handle Play button: fade out menu, fade music, show loading screen and start the game.
+    function setupPlayButton() {
+        const playBtn = document.getElementById('playButton');
+        if (!playBtn) return;
+        playBtn.addEventListener('click', () => {
+            openWorldConfigModal();
         });
     }
     window.addEventListener('DOMContentLoaded', () => {
         setupButtonSounds();
+        setupWorldConfigModal();
         setupPlayButton();
         // Hook up the Options button on the main menu to show the
         // options overlay.  When clicked from the main menu the
