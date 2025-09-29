@@ -3549,7 +3549,7 @@ to better suit your requirements.
                     positionsByType[matKey].push({ x: wx, y, z: wz });
                 }
                 // Water generation loop
-                if (waterAllowed && columnHeight < waterLevel) {
+                if (waterAllowedForColumn && columnHeight < waterLevel) {
                     for (let y = columnHeight + 1; y <= waterLevel; y++) {
                         const waterType = (columnBiome.freezeWater && y === waterLevel) ? 'ice' : 'water';
                         voxelMap.set(`${wx},${y},${wz}`, { type: waterType, chunk: chunkKeyString });
@@ -3564,7 +3564,7 @@ to better suit your requirements.
                             }
                         }
                     }
-                } else if (!waterAllowed && columnHeight < waterLevel) {
+                } else if (!waterAllowedForColumn && columnHeight < waterLevel) {
                     const dryFill = surfaceBlock || columnBiome.surface || 'sand';
                     for (let y = columnHeight + 1; y <= waterLevel; y++) {
                         queueBlock(dryFill, wx, y, wz);
