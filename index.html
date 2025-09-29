@@ -1185,7 +1185,15 @@ to better suit your requirements.
     const PLAINS_VARIATION = 0.24;
     const TERRAIN_STYLE_PROFILES = {
         balanced: { continent: 0.52, mountain: 0.34, detail: 0.14, flatten: 0.12, heightBias: 0 },
-        flat: { continent: 0.74, mountain: 0.06, detail: 0.2, flatten: 0.82, heightBias: -0.08 },
+        flat: {
+            continent: 0,
+            mountain: 0,
+            detail: 0,
+            flatten: 1,
+            heightBias: 0,
+            baseHeight: 0.3,
+            forceFlat: true
+        },
         hills: { continent: 0.58, mountain: 0.18, detail: 0.24, flatten: 0.38, heightBias: -0.02 },
         mountains: { continent: 0.4, mountain: 0.5, detail: 0.1, flatten: 0.05, heightBias: 0.12 }
     };
@@ -3147,6 +3155,7 @@ to better suit your requirements.
         const allowRavines = !!worldOptions.enableRavines;
         const allowTrees = !!worldOptions.enableTrees;
         const allowWater = !!worldOptions.enableWater;
+        const allowSurfaceEntrances = allowCaves && allowRavines && !terrainProfile.forceFlat;
         // Compute height map for this chunk (with border for neighbours)
         for (let dx = -1; dx <= CHUNK_SIZE; dx++) {
             for (let dz = -1; dz <= CHUNK_SIZE; dz++) {
@@ -3154,60 +3163,68 @@ to better suit your requirements.
                 const wz = worldZ0 + dz;
                 const biome = getBiomeAt(wx, wz);
                 columnBiomes.set(`${wx},${wz}`, biome);
-                const continentNoise = (perlinNoise(wx, wz, 4, 0.5, WORLD_FREQUENCY * 0.22) + 1) / 2;
-                const ridgeNoise = (perlinNoise(wx, wz, 5, 0.5, WORLD_FREQUENCY * 0.9) + 1) / 2;
-                const detailNoise = (perlinNoise(wx, wz, 3, 0.55, WORLD_FREQUENCY * 1.6) + 1) / 2;
-                const mountainNoise = Math.pow(ridgeNoise, 1.6);
-                const weightSum = terrainProfile.continent + terrainProfile.mountain + terrainProfile.detail;
-                let normalized = (
-                    continentNoise * terrainProfile.continent +
-                    mountainNoise * terrainProfile.mountain +
-                    detailNoise * terrainProfile.detail
-                ) / Math.max(weightSum, 0.0001);
-                const plateauNoise = (perlinNoise(wx, wz, 2, 0.6, WORLD_FREQUENCY * 0.12) + 1) / 2;
-                if (plateauNoise > 0.58) {
-                    const strength = Math.min(1, (plateauNoise - 0.58) / 0.42);
-                    const flatTarget = Math.round(normalized * 12) / 12;
-                    normalized = THREE.MathUtils.lerp(normalized, flatTarget, strength * 0.7);
+                let normalized;
+                if (terrainProfile.forceFlat) {
+                    const base = typeof terrainProfile.baseHeight === 'number' ? terrainProfile.baseHeight : 0.2;
+                    normalized = THREE.MathUtils.clamp(base, 0, 1);
+                } else {
+                    const continentNoise = (perlinNoise(wx, wz, 4, 0.5, WORLD_FREQUENCY * 0.22) + 1) / 2;
+                    const ridgeNoise = (perlinNoise(wx, wz, 5, 0.5, WORLD_FREQUENCY * 0.9) + 1) / 2;
+                    const detailNoise = (perlinNoise(wx, wz, 3, 0.55, WORLD_FREQUENCY * 1.6) + 1) / 2;
+                    const mountainNoise = Math.pow(ridgeNoise, 1.6);
+                    const weightSum = terrainProfile.continent + terrainProfile.mountain + terrainProfile.detail;
+                    normalized = (
+                        continentNoise * terrainProfile.continent +
+                        mountainNoise * terrainProfile.mountain +
+                        detailNoise * terrainProfile.detail
+                    ) / Math.max(weightSum, 0.0001);
+                    const plateauNoise = (perlinNoise(wx, wz, 2, 0.6, WORLD_FREQUENCY * 0.12) + 1) / 2;
+                    if (plateauNoise > 0.58) {
+                        const strength = Math.min(1, (plateauNoise - 0.58) / 0.42);
+                        const flatTarget = Math.round(normalized * 12) / 12;
+                        normalized = THREE.MathUtils.lerp(normalized, flatTarget, strength * 0.7);
+                    }
+                    const flattenMask = (perlinNoise(wx, wz, 3, 0.6, PLAINS_MASK_FREQUENCY) + 1) / 2;
+                    const flatTarget = PLAINS_BASE + continentNoise * PLAINS_VARIATION;
+                    const isMeadowy = biome && (biome.key === 'meadow' || biome.key === 'desert');
+                    let flattenStrength = 0;
+                    if (flattenMask > PLAINS_THRESHOLD) {
+                        flattenStrength = Math.min(1, (flattenMask - PLAINS_THRESHOLD) / (1 - PLAINS_THRESHOLD));
+                    }
+                    if (isMeadowy) {
+                        flattenStrength = Math.max(flattenStrength, 0.45);
+                    }
+                    const combinedFlatten = Math.min(1, Math.max(flattenStrength, terrainProfile.flatten || 0));
+                    if (combinedFlatten > 0) {
+                        normalized = THREE.MathUtils.lerp(normalized, flatTarget, combinedFlatten * 0.85);
+                    }
+                    if (terrainProfile.heightBias) {
+                        normalized += terrainProfile.heightBias;
+                    }
+                    normalized = THREE.MathUtils.clamp(normalized, 0, 1);
                 }
-                const flattenMask = (perlinNoise(wx, wz, 3, 0.6, PLAINS_MASK_FREQUENCY) + 1) / 2;
-                const flatTarget = PLAINS_BASE + continentNoise * PLAINS_VARIATION;
-                const isMeadowy = biome && (biome.key === 'meadow' || biome.key === 'desert');
-                let flattenStrength = 0;
-                if (flattenMask > PLAINS_THRESHOLD) {
-                    flattenStrength = Math.min(1, (flattenMask - PLAINS_THRESHOLD) / (1 - PLAINS_THRESHOLD));
-                }
-                if (isMeadowy) {
-                    flattenStrength = Math.max(flattenStrength, 0.45);
-                }
-                const combinedFlatten = Math.min(1, Math.max(flattenStrength, terrainProfile.flatten || 0));
-                if (combinedFlatten > 0) {
-                    normalized = THREE.MathUtils.lerp(normalized, flatTarget, combinedFlatten * 0.85);
-                }
-                if (terrainProfile.heightBias) {
-                    normalized += terrainProfile.heightBias;
-                }
-                normalized = THREE.MathUtils.clamp(normalized, 0, 1);
                 let h = Math.floor(normalized * (CHUNK_HEIGHT - 12)) + 4;
-                const oceanNoise = (perlinNoise(wx, wz, 3, 0.55, OCEAN_MASK_FREQUENCY) + 1) / 2;
-                if (oceanNoise < OCEAN_THRESHOLD) {
-                    const denom = Math.max(OCEAN_SHELF_BLEND, 0.0001);
-                    const shelfFactor = Math.min(1, Math.max(0, (OCEAN_THRESHOLD - oceanNoise) / denom));
-                    const depthStrength = Math.pow((OCEAN_THRESHOLD - oceanNoise) / OCEAN_THRESHOLD, 1.2);
-                    const floorNoise = (perlinNoise(wx, wz, 2, 0.55, WORLD_FREQUENCY * 1.8) + 1) / 2;
-                    const depth = OCEAN_MAX_DEPTH * (0.35 + 0.65 * depthStrength) * shelfFactor;
-                    const floorOffset = Math.round(floorNoise * OCEAN_FLOOR_JITTER);
-                    const oceanFloor = Math.floor(WATER_LEVEL - 2 - depth - floorOffset);
-                    h = Math.min(h, oceanFloor);
+                if (!terrainProfile.forceFlat) {
+                    const oceanNoise = (perlinNoise(wx, wz, 3, 0.55, OCEAN_MASK_FREQUENCY) + 1) / 2;
+                    if (oceanNoise < OCEAN_THRESHOLD) {
+                        const denom = Math.max(OCEAN_SHELF_BLEND, 0.0001);
+                        const shelfFactor = Math.min(1, Math.max(0, (OCEAN_THRESHOLD - oceanNoise) / denom));
+                        const depthStrength = Math.pow((OCEAN_THRESHOLD - oceanNoise) / OCEAN_THRESHOLD, 1.2);
+                        const floorNoise = (perlinNoise(wx, wz, 2, 0.55, WORLD_FREQUENCY * 1.8) + 1) / 2;
+                        const depth = OCEAN_MAX_DEPTH * (0.35 + 0.65 * depthStrength) * shelfFactor;
+                        const floorOffset = Math.round(floorNoise * OCEAN_FLOOR_JITTER);
+                        const oceanFloor = Math.floor(WATER_LEVEL - 2 - depth - floorOffset);
+                        h = Math.min(h, oceanFloor);
+                    }
                 }
-                if (allowRavines) {
+                if (allowRavines && !terrainProfile.forceFlat) {
                     const ravineBase = (perlinNoise(wx, wz, 2, 0.6, RAVINE_MASK_FREQUENCY) + 1) / 2;
                     if (ravineBase > RAVINE_THRESHOLD) {
                         const strength = Math.pow((ravineBase - RAVINE_THRESHOLD) / (1 - RAVINE_THRESHOLD), RAVINE_PROFILE_EXPONENT);
                         h -= RAVINE_MAX_DEPTH * strength;
                     }
                 }
-                if (biome && typeof biome.heightOffset === 'number') {
+                if (!terrainProfile.forceFlat && biome && typeof biome.heightOffset === 'number') {
                     h += biome.heightOffset;
                 }
                 h = Math.max(0, Math.min(CHUNK_HEIGHT - 1, h));
@@ -3226,7 +3243,7 @@ to better suit your requirements.
         // the lowered surface at these locations so the player can fall
         // naturally into the hole.
         const entranceCells = new Set();
-        if (allowCaves) {
+        if (allowSurfaceEntrances) {
             for (let lx = 0; lx < CHUNK_SIZE; lx++) {
                 for (let lz = 0; lz < CHUNK_SIZE; lz++) {
                     const wx = worldX0 + lx;
