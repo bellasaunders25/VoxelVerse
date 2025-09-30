@@ -1383,6 +1383,7 @@ to better suit your requirements.
     // Height of the player in world units.  Each block in the world is one unit tall,
     // so a two‑block tall player has a height of 2.
     const PLAYER_HEIGHT = 2;
+    const PLAYER_CAMERA_EYE_OFFSET = 0.62; // raise the camera so the view sits near the top of the 2-block-tall player
     const PLAYER_RADIUS = 0.35;
     const MOVE_SPEED = 8;          // units per second
     const JUMP_VELOCITY = 7;       // upward velocity when jumping
@@ -2100,9 +2101,9 @@ to better suit your requirements.
         if (!doorMaterials) return null;
         const thickness = 0.14;
         const width = 0.7;
-        const halfHeight = 0.55;
-        const topGeom = new THREE.BoxGeometry(width, halfHeight, thickness);
-        const bottomGeom = new THREE.BoxGeometry(width, halfHeight, thickness);
+        const sectionHeight = 0.55;
+        const topGeom = new THREE.BoxGeometry(width, sectionHeight, thickness);
+        const bottomGeom = new THREE.BoxGeometry(width, sectionHeight, thickness);
         const createMaterials = (isTop) => [
             doorMaterials.side.clone(),
             doorMaterials.side.clone(),
@@ -2115,8 +2116,8 @@ to better suit your requirements.
         const bottomMaterials = createMaterials(false);
         const topMesh = new THREE.Mesh(topGeom, topMaterials);
         const bottomMesh = new THREE.Mesh(bottomGeom, bottomMaterials);
-        topMesh.position.y = 0.55;
-        bottomMesh.position.y = -0.02;
+        topMesh.position.y = sectionHeight * 0.5;
+        bottomMesh.position.y = -sectionHeight * 0.5;
         const group = new THREE.Group();
         group.add(topMesh, bottomMesh);
         group.rotation.set(-0.45, Math.PI / 4, 0);
@@ -2154,12 +2155,13 @@ to better suit your requirements.
 
     function createDoorHandMesh() {
         if (!doorMaterials) return null;
-        const bottomGeom = new THREE.BoxGeometry(0.18, 0.95, 0.1);
-        const topGeom = new THREE.BoxGeometry(0.18, 0.95, 0.1);
+        const panelHeight = 1;
+        const bottomGeom = new THREE.BoxGeometry(0.18, panelHeight, 0.1);
+        const topGeom = new THREE.BoxGeometry(0.18, panelHeight, 0.1);
         const bottomMesh = new THREE.Mesh(bottomGeom, createDoorHalfMaterials(false));
         const topMesh = new THREE.Mesh(topGeom, createDoorHalfMaterials(true));
         bottomMesh.position.set(0, -0.5, 0);
-        topMesh.position.set(0, 0.45, 0);
+        topMesh.position.set(0, 0.5, 0);
         const group = new THREE.Group();
         group.add(bottomMesh, topMesh);
         group.scale.set(0.68, 0.68, 0.68);
@@ -3923,11 +3925,12 @@ to better suit your requirements.
             }
             for (const cell of footprint) {
                 const { wx, wz, columnHeight, lx, lz } = cell;
+                const isDoorCell = (lx === doorLocal.x && lz === doorLocal.z);
                 for (let fillY = columnHeight; fillY < baseY; fillY++) {
                     queueBlock('cobblestone', wx, fillY, wz);
                 }
                 queueBlock('cobblestone', wx, baseY, wz);
-                if (!(lx === furnaceLocal.x && lz === furnaceLocal.z)) {
+                if (!(lx === furnaceLocal.x && lz === furnaceLocal.z) && !isDoorCell) {
                     queueBlock('oak_planks', wx, baseY + 1, wz);
                 }
             }
@@ -3936,7 +3939,6 @@ to better suit your requirements.
             const stepX = doorWorldX + front[0];
             const stepZ = doorWorldZ + front[1];
             queueBlock('cobblestone', stepX, baseY, stepZ);
-            queueBlock('cobblestone', stepX, baseY + 1, stepZ);
             for (let lx = 0; lx < baseWidth; lx++) {
                 for (let lz = 0; lz < baseLength; lz++) {
                     const perimeter = (lx === 0 || lx === baseWidth - 1 || lz === 0 || lz === baseLength - 1);
@@ -4500,6 +4502,7 @@ to better suit your requirements.
         scene.fog = new THREE.Fog(0x87ceeb, 150, 400);
         camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 2000);
         camera.position.copy(player.position);
+        camera.position.y += PLAYER_CAMERA_EYE_OFFSET;
         // Attach the camera to the scene so that child objects (like the first-person
         // hand) render correctly. Without this, any meshes parented to the camera are
         // not traversed during rendering and remain invisible.
@@ -5559,6 +5562,7 @@ to better suit your requirements.
         // the player itself remains unchanged so collision detection
         // continues to work correctly.
         camera.position.copy(player.position);
+        camera.position.y += PLAYER_CAMERA_EYE_OFFSET;
         camera.position.y -= player.crouchOffset;
         camera.position.y += swimBobOffset;
         // Update highlight position based on current look direction.  We
@@ -7548,8 +7552,9 @@ to better suit your requirements.
         if (!below || below.type === 'water' || below.type === 'lava' || below.type === 'oak_door_lower' || below.type === 'oak_door_upper') return null;
         const hingePos = DOOR_HINGE_POSITIONS[orientation & 3];
         const panelOffset = DOOR_PANEL_OFFSETS[orientation & 3];
-        const bottomGeom = new THREE.BoxGeometry(0.92, 0.98, 0.16);
-        const topGeom = new THREE.BoxGeometry(0.92, 0.98, 0.16);
+        const panelHeight = 1;
+        const bottomGeom = new THREE.BoxGeometry(0.92, panelHeight, 0.16);
+        const topGeom = new THREE.BoxGeometry(0.92, panelHeight, 0.16);
         const bottomMaterials = createDoorHalfMaterials(false);
         const topMaterials = createDoorHalfMaterials(true);
         const bottomMesh = new THREE.Mesh(bottomGeom, bottomMaterials);
