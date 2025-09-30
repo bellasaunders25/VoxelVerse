@@ -3817,6 +3817,37 @@ to better suit your requirements.
             }
         }
 
+        function clearBlock(x, y, z) {
+            const key = `${x},${y},${z}`;
+            const existing = voxelMap.get(key);
+            if (!existing) return;
+            voxelMap.delete(key);
+            const { type } = existing;
+            const positions = positionsByType[type];
+            const mats = matrices[type];
+            if (positions) {
+                const idx = positions.findIndex(p => p.x === x && p.y === y && p.z === z);
+                if (idx !== -1) {
+                    positions.splice(idx, 1);
+                    if (mats) {
+                        mats.splice(idx, 1);
+                    }
+                }
+            }
+            if (type === 'water') {
+                const waterIdx = waterCells.findIndex(p => p.x === x && p.y === y && p.z === z);
+                if (waterIdx !== -1) {
+                    waterCells.splice(waterIdx, 1);
+                }
+            }
+            if (type !== 'water' && type !== 'leaves' && type !== 'lava') {
+                const colKey = `${x},${z}`;
+                if (heightMap[colKey] !== undefined) {
+                    heightMap[colKey] = -Infinity;
+                }
+            }
+        }
+
         function tryPlaceVillageHouse() {
             const chance = coordSeededRand(cx, cz, worldX0 + 13, worldZ0 + 91)();
             if (chance > 0.14) return;
@@ -3866,8 +3897,30 @@ to better suit your requirements.
                 }
             }
             if (!Number.isFinite(minHeight) || !Number.isFinite(maxHeight)) return;
-            if (maxHeight - minHeight > 1) return;
+            if (maxHeight !== minHeight) return;
             const baseY = minHeight;
+            const clearanceMargin = 1;
+            const minClearX = baseX - clearanceMargin;
+            const maxClearX = baseX + rotatedWidth - 1 + clearanceMargin;
+            const minClearZ = baseZ - clearanceMargin;
+            const maxClearZ = baseZ + rotatedLength - 1 + clearanceMargin;
+            for (let wx = minClearX; wx <= maxClearX; wx++) {
+                for (let wz = minClearZ; wz <= maxClearZ; wz++) {
+                    const columnKey = `${wx},${wz}`;
+                    const columnHeight = heights[columnKey];
+                    if (columnHeight === undefined || columnHeight !== baseY) return;
+                    const biome = columnBiomes.get(columnKey);
+                    if (biome && (biome.key === 'desert' || biome.dry)) return;
+                }
+            }
+            const clearanceTop = Math.min(baseY + 7, CHUNK_HEIGHT - 1);
+            for (let wx = minClearX; wx <= maxClearX; wx++) {
+                for (let wz = minClearZ; wz <= maxClearZ; wz++) {
+                    for (let y = baseY + 1; y <= clearanceTop; y++) {
+                        clearBlock(wx, y, wz);
+                    }
+                }
+            }
             for (const cell of footprint) {
                 const { wx, wz, columnHeight, lx, lz } = cell;
                 for (let fillY = columnHeight; fillY < baseY; fillY++) {
