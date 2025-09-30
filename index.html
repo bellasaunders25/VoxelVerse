@@ -5366,13 +5366,28 @@ to better suit your requirements.
         const speedMult = player.isSprinting ? (waterState.inWater ? 1.25 : 1.6) : 1.0;
         const newX = player.position.x + moveDir.x * baseSpeed * speedMult * delta;
         const newZ = player.position.z + moveDir.z * baseSpeed * speedMult * delta;
-        // Determine highest block columns for step check
-        const curCol = getHighestBlockY(player.position.x, player.position.z);
-        const newCol = getHighestBlockY(newX, newZ);
+        // Determine supporting block heights for step checks.  Sample the
+        // column beneath the player's feet (with a slight tolerance) and look
+        // up to one block above to allow walking up stairs or slabs.  This
+        // avoids counting overhead blocks such as roofs when comparing
+        // neighbouring columns so players can walk under overhangs.
+        const feetProbeY = Math.floor((player.position.y - PLAYER_HEIGHT / 2) - 0.001);
+        const curSupport = findSupportingBlockY(
+            Math.floor(player.position.x),
+            Math.floor(feetProbeY + STEP_MAX),
+            Math.floor(player.position.z)
+        );
+        const newSupport = findSupportingBlockY(
+            Math.floor(newX),
+            Math.floor(feetProbeY + STEP_MAX),
+            Math.floor(newZ)
+        );
         let allowMove = true;
-        // Disallow stepping up too high
-        if (newCol - curCol > STEP_MAX) {
-            allowMove = false;
+        // Disallow stepping up too high when both columns have valid support
+        if (Number.isFinite(curSupport) && Number.isFinite(newSupport)) {
+            if (newSupport - curSupport > STEP_MAX) {
+                allowMove = false;
+            }
         }
         if (allowMove && player.isCrouching && !waterState.inWater && moving) {
             const feetHeight = player.position.y - PLAYER_HEIGHT / 2 - 0.05;
@@ -5438,11 +5453,17 @@ to better suit your requirements.
             player.velocityY -= GRAVITY * delta;
             newY += player.velocityY * delta;
         }
-        // Determine ground surface (centre position to stand on top of highest block)
-        const highestBelow = getHighestBlockY(player.position.x, player.position.z);
-        const groundHeight = (highestBelow + 1) + PLAYER_HEIGHT/2;
+        // Determine ground surface using the supporting block beneath the player
+        const groundSupport = findSupportingBlockY(
+            Math.floor(player.position.x),
+            Math.floor(newY - PLAYER_HEIGHT / 2 - 0.001),
+            Math.floor(player.position.z)
+        );
+        const groundHeight = Number.isFinite(groundSupport)
+            ? (groundSupport + 1) + PLAYER_HEIGHT/2
+            : -Infinity;
         // Handle ground collision
-        if (newY <= groundHeight) {
+        if (Number.isFinite(groundHeight) && newY <= groundHeight) {
             newY = groundHeight;
             if (player.velocityY < 0) player.velocityY = 0;
             if (!waterState.inWater) player.canJump = true;
