@@ -814,6 +814,13 @@ to better suit your requirements.
             cursor: pointer;
             transition: border-color 0.2s ease, background 0.2s ease;
         }
+        .world-toggle.disabled,
+        .world-toggle.disabled:hover {
+            opacity: 0.45;
+            cursor: not-allowed;
+            border-color: rgba(255, 255, 255, 0.08);
+            background: rgba(18, 21, 30, 0.4);
+        }
         .world-toggle input {
             width: 18px;
             height: 18px;
@@ -884,6 +891,124 @@ to better suit your requirements.
         .options-menu .option-row input[type=range] {
             width: 100%;
             margin-top: 6px;
+        }
+        .furnace-overlay {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: rgba(5, 8, 12, 0.78);
+            backdrop-filter: blur(4px);
+            z-index: 360;
+        }
+        .furnace-overlay.open {
+            display: flex;
+        }
+        .furnace-panel {
+            width: min(420px, 92vw);
+            background: linear-gradient(180deg, rgba(40, 46, 60, 0.96), rgba(24, 28, 36, 0.96));
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            padding: 24px 28px 28px;
+            box-shadow: 0 24px 48px rgba(0, 0, 0, 0.55);
+            color: #f2f6ff;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+        .furnace-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .furnace-header h2 {
+            margin: 0;
+            font-size: 1.5rem;
+            letter-spacing: 0.04em;
+        }
+        .furnace-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 96px);
+            grid-template-rows: repeat(2, 96px);
+            gap: 18px;
+            justify-content: center;
+            position: relative;
+        }
+        .furnace-slot {
+            width: 96px;
+            height: 96px;
+            border-radius: 10px;
+            background: linear-gradient(160deg, rgba(18, 22, 32, 0.92), rgba(12, 16, 24, 0.92));
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            cursor: pointer;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        .furnace-slot:hover {
+            border-color: rgba(127, 206, 255, 0.45);
+            box-shadow: 0 0 12px rgba(127, 206, 255, 0.18);
+        }
+        .furnace-slot img {
+            width: 70%;
+            height: 70%;
+            object-fit: contain;
+            display: none;
+            pointer-events: none;
+        }
+        .furnace-slot span {
+            position: absolute;
+            bottom: 8px;
+            right: 10px;
+            font-size: 0.85rem;
+            text-shadow: 0 0 6px rgba(0,0,0,0.8);
+        }
+        .furnace-slot.disabled {
+            cursor: default;
+            opacity: 0.6;
+        }
+        .furnace-progress {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 110px;
+            height: 12px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            background: rgba(0, 0, 0, 0.35);
+            overflow: hidden;
+            pointer-events: none;
+        }
+        .furnace-progress::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(90deg, rgba(255, 153, 0, 0.85), rgba(255, 60, 0, 0.9));
+            transform-origin: left center;
+            transform: scaleX(var(--furnace-progress, 0));
+        }
+        .furnace-progress.active::before {
+            animation: furnacePulse 1.1s infinite ease-in-out;
+        }
+        .furnace-hint {
+            text-align: center;
+            font-size: 0.9rem;
+            color: rgba(226, 233, 255, 0.78);
+        }
+        .furnace-actions {
+            display: flex;
+            justify-content: flex-end;
+        }
+        .furnace-actions .menu-btn {
+            min-width: 120px;
+        }
+        @keyframes furnacePulse {
+            0%, 100% { opacity: 0.6; }
+            50% { opacity: 1; }
         }
     </style>
     <!-- three.js core and examples modules -->
@@ -962,6 +1087,36 @@ to better suit your requirements.
                     <div class="inventory-section-title">Backpack</div>
                     <div id="backpackGrid" class="inventory-grid backpack-grid"></div>
                 </div>
+            </div>
+        </div>
+    </div>
+    <div id="furnaceOverlay" class="furnace-overlay" role="dialog" aria-modal="true" aria-labelledby="furnaceTitle">
+        <div class="furnace-panel">
+            <div class="furnace-header">
+                <h2 id="furnaceTitle">Furnace</h2>
+                <button id="closeFurnace" class="inventory-close" aria-label="Close furnace">×</button>
+            </div>
+            <div class="furnace-grid">
+                <div id="furnaceInputSlot" class="furnace-slot" data-slot="input">
+                    <img alt="" />
+                    <span></span>
+                </div>
+                <div class="furnace-slot disabled" aria-hidden="true"></div>
+                <div id="furnaceOutputSlot" class="furnace-slot disabled" data-slot="output">
+                    <img alt="" />
+                    <span></span>
+                </div>
+                <div id="furnaceFuelSlot" class="furnace-slot" data-slot="fuel">
+                    <img alt="" />
+                    <span></span>
+                </div>
+                <div class="furnace-slot disabled" aria-hidden="true"></div>
+                <div class="furnace-slot disabled" aria-hidden="true"></div>
+                <div id="furnaceProgress" class="furnace-progress" aria-hidden="true"></div>
+            </div>
+            <p class="furnace-hint">Place raw stone above and fuel below. Smelting takes around five seconds and consumes one coal per batch.</p>
+            <div class="furnace-actions">
+                <button id="furnaceCollectAll" class="menu-btn">Collect Output</button>
             </div>
         </div>
     </div>
@@ -1079,9 +1234,9 @@ to better suit your requirements.
                             <input type="checkbox" id="toggleRavines" checked />
                             <span>Ravines</span>
                         </label>
-                        <label class="world-toggle" for="toggleWater">
-                            <input type="checkbox" id="toggleWater" checked />
-                            <span>Lakes &amp; oceans</span>
+                        <label class="world-toggle disabled" for="toggleWater">
+                            <input type="checkbox" id="toggleWater" disabled />
+                            <span>Lakes &amp; oceans (temporarily unavailable)</span>
                         </label>
                     </div>
                 </div>
@@ -1125,7 +1280,7 @@ to better suit your requirements.
         enableTrees: true,
         enableCaves: true,
         enableRavines: true,
-        enableWater: true
+        enableWater: false
     };
     let worldOptions = { ...DEFAULT_WORLD_OPTIONS };
     function setWorldOptions(options = {}) {
@@ -1136,7 +1291,7 @@ to better suit your requirements.
         merged.enableTrees = options.enableTrees !== undefined ? !!options.enableTrees : DEFAULT_WORLD_OPTIONS.enableTrees;
         merged.enableCaves = options.enableCaves !== undefined ? !!options.enableCaves : DEFAULT_WORLD_OPTIONS.enableCaves;
         merged.enableRavines = options.enableRavines !== undefined ? !!options.enableRavines : DEFAULT_WORLD_OPTIONS.enableRavines;
-        merged.enableWater = options.enableWater !== undefined ? !!options.enableWater : DEFAULT_WORLD_OPTIONS.enableWater;
+        merged.enableWater = false;
         worldOptions = merged;
         biomeCache.clear();
     }
@@ -1365,6 +1520,34 @@ to better suit your requirements.
     cactusTexture.magFilter  = THREE.LinearFilter;
     cactusTexture.minFilter  = THREE.LinearMipmapLinearFilter;
     cactusTexture.anisotropy = 4;
+    const cobblestoneTexture = textureLoader.load('https://i.postimg.cc/xdv7v11j/image.png');
+    cobblestoneTexture.magFilter  = THREE.LinearFilter;
+    cobblestoneTexture.minFilter  = THREE.LinearMipmapLinearFilter;
+    cobblestoneTexture.anisotropy = 4;
+    const oakPlanksTexture = textureLoader.load('https://i.postimg.cc/TPbxZx2N/image.png');
+    oakPlanksTexture.magFilter  = THREE.LinearFilter;
+    oakPlanksTexture.minFilter  = THREE.LinearMipmapLinearFilter;
+    oakPlanksTexture.anisotropy = 4;
+    const furnaceFrontTextureOff = textureLoader.load('https://i.postimg.cc/fyxDkVH4/image.png');
+    furnaceFrontTextureOff.magFilter = THREE.LinearFilter;
+    furnaceFrontTextureOff.minFilter = THREE.LinearMipmapLinearFilter;
+    furnaceFrontTextureOff.anisotropy = 4;
+    const furnaceFrontTextureOn = textureLoader.load('https://i.postimg.cc/4y8w652p/image.png');
+    furnaceFrontTextureOn.magFilter = THREE.LinearFilter;
+    furnaceFrontTextureOn.minFilter = THREE.LinearMipmapLinearFilter;
+    furnaceFrontTextureOn.anisotropy = 4;
+    const doorTopFrontTexture = textureLoader.load('https://i.postimg.cc/FKyK7n1W/image.png');
+    doorTopFrontTexture.magFilter = THREE.LinearFilter;
+    doorTopFrontTexture.minFilter = THREE.LinearMipmapLinearFilter;
+    doorTopFrontTexture.anisotropy = 4;
+    const doorBottomFrontTexture = textureLoader.load('https://i.postimg.cc/4x590dQk/image.png');
+    doorBottomFrontTexture.magFilter = THREE.LinearFilter;
+    doorBottomFrontTexture.minFilter = THREE.LinearMipmapLinearFilter;
+    doorBottomFrontTexture.anisotropy = 4;
+    const doorSideTexture = textureLoader.load('https://i.postimg.cc/YqxLXhz2/image.png');
+    doorSideTexture.magFilter = THREE.LinearFilter;
+    doorSideTexture.minFilter = THREE.LinearMipmapLinearFilter;
+    doorSideTexture.anisotropy = 4;
     const ironTexture = textureLoader.load('https://i.postimg.cc/VsSJgw4H/image.png');
     ironTexture.magFilter  = THREE.LinearFilter;
     ironTexture.minFilter  = THREE.LinearMipmapLinearFilter;
@@ -1469,6 +1652,8 @@ to better suit your requirements.
         leaves:new THREE.MeshStandardMaterial({ map: leavesTexture, transparent: true, alphaTest: 0.5, side: THREE.DoubleSide }),
         bedrock: new THREE.MeshStandardMaterial({ map: bedrockTexture }),
         snow:   new THREE.MeshStandardMaterial({ map: snowTexture }),
+        cobblestone: new THREE.MeshStandardMaterial({ map: cobblestoneTexture }),
+        oak_planks: new THREE.MeshStandardMaterial({ map: oakPlanksTexture }),
         ice:    new THREE.MeshStandardMaterial({ color: 0x9bd8ff, transparent: true, opacity: 0.7, roughness: 0.12, metalness: 0.15, envMapIntensity: 0.6 }),
         moss:   new THREE.MeshStandardMaterial({ map: mossTexture }),
         glowstone: new THREE.MeshStandardMaterial({ color: 0xfff2b3, emissive: 0xffd76b, emissiveIntensity: 1.5, roughness: 0.3 }),
@@ -1484,6 +1669,45 @@ to better suit your requirements.
         coal:    new THREE.MeshStandardMaterial({ map: coalTexture }),
         lava:    new THREE.MeshStandardMaterial({ color: 0xff6600, emissive: 0xff4500, emissiveIntensity: 1.0, transparent: true, opacity: 0.6 })
     };
+    const furnaceMaterials = {
+        side: new THREE.MeshStandardMaterial({ map: cobblestoneTexture }),
+        frontOff: new THREE.MeshStandardMaterial({ map: furnaceFrontTextureOff }),
+        frontOn: new THREE.MeshStandardMaterial({ map: furnaceFrontTextureOn, emissive: 0xff8d42, emissiveIntensity: 0.85 })
+    };
+    const doorMaterials = {
+        topFront: new THREE.MeshStandardMaterial({ map: doorTopFrontTexture }),
+        bottomFront: new THREE.MeshStandardMaterial({ map: doorBottomFrontTexture }),
+        side: new THREE.MeshStandardMaterial({ map: doorSideTexture })
+    };
+    const ORIENTATION_VECTORS = [
+        new THREE.Vector3(0, 0, 1),
+        new THREE.Vector3(1, 0, 0),
+        new THREE.Vector3(0, 0, -1),
+        new THREE.Vector3(-1, 0, 0)
+    ];
+    const DOOR_HINGE_POSITIONS = [
+        new THREE.Vector3(0, 0, 0.5),
+        new THREE.Vector3(0.5, 0, 0),
+        new THREE.Vector3(1, 0, 0.5),
+        new THREE.Vector3(0.5, 0, 1)
+    ];
+    const DOOR_PANEL_OFFSETS = [
+        new THREE.Vector3(0.5, 0, 0),
+        new THREE.Vector3(0, 0, 0.5),
+        new THREE.Vector3(-0.5, 0, 0),
+        new THREE.Vector3(0, 0, -0.5)
+    ];
+    const DOOR_OPEN_ANGLES = [Math.PI / 2, Math.PI / 2, -Math.PI / 2, -Math.PI / 2];
+    const DOOR_ANIMATION_SPEED = 4.5;
+    const FURNACE_COOK_TIME = 5;
+    const FURNACE_RECIPES = {
+        stone: { result: 'cobblestone', duration: FURNACE_COOK_TIME }
+    };
+    const DOOR_OPEN_SOUND_URL = 'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/block/wooden_door/open1.ogg';
+    const DOOR_CLOSE_SOUND_URL = 'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/block/wooden_door/close1.ogg';
+    const FURNACE_LOOP_SOUND_URL = 'https://assets.mcasset.cloud/1.21.5/assets/minecraft/sounds/block/furnace/fire_crackle1.ogg';
+    const doorStates = new Map();
+    const furnaceStates = new Map();
     const emptyHandMaterial = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.0 });
     emptyHandMaterial.depthTest = false;
     emptyHandMaterial.depthWrite = false;
@@ -1846,6 +2070,110 @@ to better suit your requirements.
         return data;
     }
 
+    function createFurnaceIconObject() {
+        if (!furnaceMaterials) return null;
+        const geometry = new THREE.BoxGeometry(1, 1, 1);
+        const materials = [
+            furnaceMaterials.side.clone(),
+            furnaceMaterials.side.clone(),
+            furnaceMaterials.side.clone(),
+            furnaceMaterials.side.clone(),
+            furnaceMaterials.frontOff.clone(),
+            furnaceMaterials.side.clone()
+        ];
+        const mesh = new THREE.Mesh(geometry, materials);
+        const group = new THREE.Group();
+        mesh.scale.set(0.9, 0.9, 0.9);
+        mesh.rotation.set(-0.55, Math.PI / 4, 0);
+        mesh.position.set(0, -0.08, 0);
+        group.add(mesh);
+        return {
+            object: group,
+            dispose: () => {
+                geometry.dispose();
+                materials.forEach((m) => m.dispose());
+            }
+        };
+    }
+
+    function createDoorIconObject() {
+        if (!doorMaterials) return null;
+        const thickness = 0.14;
+        const width = 0.7;
+        const halfHeight = 0.55;
+        const topGeom = new THREE.BoxGeometry(width, halfHeight, thickness);
+        const bottomGeom = new THREE.BoxGeometry(width, halfHeight, thickness);
+        const createMaterials = (isTop) => [
+            doorMaterials.side.clone(),
+            doorMaterials.side.clone(),
+            doorMaterials.side.clone(),
+            doorMaterials.side.clone(),
+            (isTop ? doorMaterials.topFront : doorMaterials.bottomFront).clone(),
+            (isTop ? doorMaterials.topFront : doorMaterials.bottomFront).clone()
+        ];
+        const topMaterials = createMaterials(true);
+        const bottomMaterials = createMaterials(false);
+        const topMesh = new THREE.Mesh(topGeom, topMaterials);
+        const bottomMesh = new THREE.Mesh(bottomGeom, bottomMaterials);
+        topMesh.position.y = 0.55;
+        bottomMesh.position.y = -0.02;
+        const group = new THREE.Group();
+        group.add(topMesh, bottomMesh);
+        group.rotation.set(-0.45, Math.PI / 4, 0);
+        group.position.set(0, -0.1, 0);
+        return {
+            object: group,
+            dispose: () => {
+                topGeom.dispose();
+                bottomGeom.dispose();
+                topMaterials.forEach((m) => m.dispose());
+                bottomMaterials.forEach((m) => m.dispose());
+            }
+        };
+    }
+
+    function createFurnaceHandMesh() {
+        if (!furnaceMaterials) return null;
+        const geometry = new THREE.BoxGeometry(1, 1, 1);
+        const materials = [
+            furnaceMaterials.side.clone(),
+            furnaceMaterials.side.clone(),
+            furnaceMaterials.side.clone(),
+            furnaceMaterials.side.clone(),
+            furnaceMaterials.frontOff.clone(),
+            furnaceMaterials.side.clone()
+        ];
+        const mesh = new THREE.Mesh(geometry, materials);
+        mesh.scale.set(0.5, 0.5, 0.5);
+        mesh.position.set(0.12, -0.14, -0.28);
+        mesh.rotation.set(-1.15, 0.8, 0.28);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        return mesh;
+    }
+
+    function createDoorHandMesh() {
+        if (!doorMaterials) return null;
+        const bottomGeom = new THREE.BoxGeometry(0.18, 0.95, 0.1);
+        const topGeom = new THREE.BoxGeometry(0.18, 0.95, 0.1);
+        const bottomMesh = new THREE.Mesh(bottomGeom, createDoorHalfMaterials(false));
+        const topMesh = new THREE.Mesh(topGeom, createDoorHalfMaterials(true));
+        bottomMesh.position.set(0, -0.5, 0);
+        topMesh.position.set(0, 0.45, 0);
+        const group = new THREE.Group();
+        group.add(bottomMesh, topMesh);
+        group.scale.set(0.68, 0.68, 0.68);
+        group.position.set(0.18, -0.22, -0.32);
+        group.rotation.set(-1.25, 0.72, 0.16);
+        group.traverse((child) => {
+            if (child.isMesh) {
+                child.castShadow = true;
+                child.receiveShadow = true;
+            }
+        });
+        return group;
+    }
+
     function createHotbarIcons() {
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setSize(120, 120);
@@ -1869,7 +2197,7 @@ to better suit your requirements.
 
         const icons = {};
         const previewGeometry = new THREE.BoxGeometry(1, 1, 1);
-        const blockTypes = ['grass', 'dirt', 'stone', 'sand', 'wood', 'leaves', 'snow', 'ice', 'moss', 'glowstone', 'cactus'];
+        const blockTypes = ['grass', 'dirt', 'stone', 'sand', 'wood', 'leaves', 'snow', 'ice', 'moss', 'glowstone', 'cactus', 'cobblestone', 'oak_planks', 'coal'];
         blockTypes.forEach((type) => {
             const baseMat = blockMaterials[type];
             if (!baseMat) return;
@@ -1907,6 +2235,17 @@ to better suit your requirements.
             icons[type] = captureIcon(renderer, scene, camera, group);
         });
 
+        const furnacePreview = createFurnaceIconObject();
+        if (furnacePreview) {
+            icons.furnace = captureIcon(renderer, scene, camera, furnacePreview.object);
+            furnacePreview.dispose();
+        }
+        const doorPreview = createDoorIconObject();
+        if (doorPreview) {
+            icons.oak_door = captureIcon(renderer, scene, camera, doorPreview.object);
+            doorPreview.dispose();
+        }
+
         renderer.dispose();
         previewGeometry.dispose();
         return icons;
@@ -1937,6 +2276,9 @@ to better suit your requirements.
     const HOTBAR_STACK_LIMIT = 64;
     const TOOL_TYPES = new Set();
     const ITEM_STACK_LIMITS = {};
+    const SPECIAL_PLACEABLES = new Set(['furnace', 'oak_door']);
+    ITEM_STACK_LIMITS.oak_door = 16;
+    ITEM_STACK_LIMITS.furnace = 16;
     const TOOL_TIER_SPEED = {
         wooden: 0.7,
         stone: 0.55,
@@ -1978,7 +2320,7 @@ to better suit your requirements.
     });
 
     function isHotbarAssignable(type) {
-        return !!type && (blockMaterials[type] || TOOL_TYPES.has(type));
+        return !!type && (blockMaterials[type] || TOOL_TYPES.has(type) || SPECIAL_PLACEABLES.has(type));
     }
 
     function setInventoryView(view) {
@@ -2191,6 +2533,39 @@ to better suit your requirements.
     }
 
     function evaluateStickRecipe() {
+        let totalPlanks = 0;
+        for (let i = 0; i < craftingGridState.length; i++) {
+            const entry = craftingGridState[i];
+            if (!entry) continue;
+            if (entry.type !== 'oak_planks') return null;
+            totalPlanks += entry.count;
+        }
+        if (totalPlanks < 2) return null;
+        const availableSpace = Math.max(0, getStackLimit('stick') - (inventory['stick'] || 0));
+        if (availableSpace < 4) return null;
+        const maxSetsFromPlanks = Math.floor(totalPlanks / 2);
+        const craftableSets = Math.min(maxSetsFromPlanks, Math.floor(availableSpace / 4));
+        if (craftableSets <= 0) return null;
+        const consumes = [];
+        let remaining = craftableSets * 2;
+        for (let i = 0; i < craftingGridState.length && remaining > 0; i++) {
+            const entry = craftingGridState[i];
+            if (!entry || entry.type !== 'oak_planks') continue;
+            const take = Math.min(entry.count, remaining);
+            if (take > 0) {
+                consumes.push({ index: i, count: take });
+                remaining -= take;
+            }
+        }
+        if (consumes.length === 0) return null;
+        return {
+            type: 'stick',
+            count: craftableSets * 4,
+            consumes
+        };
+    }
+
+    function evaluateOakPlankRecipe() {
         let totalLogs = 0;
         for (let i = 0; i < craftingGridState.length; i++) {
             const entry = craftingGridState[i];
@@ -2199,7 +2574,7 @@ to better suit your requirements.
             totalLogs += entry.count;
         }
         if (totalLogs <= 0) return null;
-        const availableSpace = Math.max(0, getStackLimit('stick') - (inventory['stick'] || 0));
+        const availableSpace = Math.max(0, getStackLimit('oak_planks') - (inventory['oak_planks'] || 0));
         if (availableSpace < 4) return null;
         const craftableSets = Math.min(totalLogs, Math.floor(availableSpace / 4));
         if (craftableSets <= 0) return null;
@@ -2216,8 +2591,60 @@ to better suit your requirements.
         }
         if (consumes.length === 0) return null;
         return {
-            type: 'stick',
+            type: 'oak_planks',
             count: craftableSets * 4,
+            consumes
+        };
+    }
+
+    function evaluateDoorRecipe() {
+        const requiredSlots = [0, 1, 3, 4, 6, 7];
+        let setsPossible = Infinity;
+        for (let i = 0; i < 9; i++) {
+            const entry = craftingGridState[i];
+            if (requiredSlots.includes(i)) {
+                if (!entry || entry.type !== 'wood' || entry.count <= 0) return null;
+                setsPossible = Math.min(setsPossible, entry.count);
+            } else {
+                if (entry && entry.count > 0) return null;
+            }
+        }
+        if (!Number.isFinite(setsPossible) || setsPossible <= 0) return null;
+        const availableSpace = Math.max(0, getStackLimit('oak_door') - (inventory['oak_door'] || 0));
+        if (availableSpace <= 0) return null;
+        const craftableSets = Math.min(setsPossible, Math.floor(availableSpace / 3));
+        if (craftableSets <= 0) return null;
+        const consumes = requiredSlots.map((index) => ({ index, count: craftableSets }));
+        return {
+            type: 'oak_door',
+            count: craftableSets * 3,
+            consumes
+        };
+    }
+
+    function evaluateFurnaceRecipe() {
+        const requiredSlots = [0, 1, 2, 3, 5, 6, 7, 8];
+        let setsPossible = Infinity;
+        for (let i = 0; i < 9; i++) {
+            const entry = craftingGridState[i];
+            if (requiredSlots.includes(i)) {
+                if (!entry || entry.type !== 'stone' || entry.count <= 0) return null;
+                setsPossible = Math.min(setsPossible, entry.count);
+            } else if (i === 4) {
+                if (entry && entry.count > 0) return null;
+            } else if (entry && entry.count > 0) {
+                return null;
+            }
+        }
+        if (!Number.isFinite(setsPossible) || setsPossible <= 0) return null;
+        const availableSpace = Math.max(0, getStackLimit('furnace') - (inventory['furnace'] || 0));
+        if (availableSpace <= 0) return null;
+        const craftableSets = Math.min(setsPossible, availableSpace);
+        if (craftableSets <= 0) return null;
+        const consumes = requiredSlots.map((index) => ({ index, count: craftableSets }));
+        return {
+            type: 'furnace',
+            count: craftableSets,
             consumes
         };
     }
@@ -2230,6 +2657,15 @@ to better suit your requirements.
                 currentCraftingResult = result;
                 break;
             }
+        }
+        if (!currentCraftingResult) {
+            currentCraftingResult = evaluateFurnaceRecipe();
+        }
+        if (!currentCraftingResult) {
+            currentCraftingResult = evaluateDoorRecipe();
+        }
+        if (!currentCraftingResult) {
+            currentCraftingResult = evaluateOakPlankRecipe();
         }
         if (!currentCraftingResult) {
             currentCraftingResult = evaluateStickRecipe();
@@ -2302,6 +2738,10 @@ to better suit your requirements.
         moss: 'Mossy Stone',
         glowstone: 'Glowstone',
         cactus: 'Cactus',
+        cobblestone: 'Cobblestone',
+        oak_planks: 'Oak Planks',
+        furnace: 'Furnace',
+        oak_door: 'Oak Door',
         iron: 'Iron Ore',
         copper: 'Copper Ore',
         ruby: 'Ruby Crystal',
@@ -2322,21 +2762,76 @@ to better suit your requirements.
         {
             id: 'stick',
             name: 'Stick Bundle',
-            result: { type: 'stick', label: 'Makes 4 sticks per log', shortLabel: '×4' },
+            result: { type: 'stick', label: 'Makes 4 sticks per craft', shortLabel: '×4' },
             listLabel: '×4',
-            summary: 'Split raw logs into sticks ready for future crafting recipes.',
+            summary: 'Combine oak planks into sticks for future crafting recipes.',
             pattern: [
-                ['wood', null, null],
-                ['wood', null, null],
+                ['oak_planks', null, null],
+                ['oak_planks', null, null],
                 [null, null, null]
             ],
-            patternNote: 'Logs can be placed in any slot; each log converts into four sticks (two logs yield eight).',
+            patternNote: 'Planks can be stacked in any column; each pair crafts four sticks.',
             steps: [
-                'Place one log into any crafting grid slot.',
+                'Place oak planks in a vertical column anywhere on the grid.',
                 'Collect four sticks from the result slot.',
-                'Add a second log before collecting to craft eight sticks at once.'
+                'Add more planks before collecting to craft larger batches.'
             ],
             note: 'Keep a reserve of sticks for tools, torches, and other recipes.'
+        },
+        {
+            id: 'oak_planks',
+            name: 'Oak Planks',
+            result: { type: 'oak_planks', label: 'Cuts logs into four planks', shortLabel: '×4' },
+            listLabel: '×4',
+            summary: 'Saw oak logs into planks for building and crafting.',
+            pattern: [
+                ['wood', null, null],
+                [null, null, null],
+                [null, null, null]
+            ],
+            patternNote: 'A single log can sit in any slot; each produces four planks.',
+            steps: [
+                'Place an oak log anywhere in the crafting grid.',
+                'Collect the four oak planks from the result slot.',
+                'Repeat to gather plenty of building material.'
+            ],
+            note: 'Planks are the foundation for sticks, doors, and other wooden items.'
+        },
+        {
+            id: 'oak_door',
+            name: 'Oak Door',
+            result: { type: 'oak_door', label: 'Crafts 3 oak doors', shortLabel: '×3' },
+            listLabel: '×3',
+            summary: 'Arrange logs in two columns to build sturdy oak doors.',
+            pattern: [
+                ['wood', 'wood', null],
+                ['wood', 'wood', null],
+                ['wood', 'wood', null]
+            ],
+            steps: [
+                'Fill the left and centre columns with oak logs from top to bottom.',
+                'Leave the right column empty to form the doorway.',
+                'Collect three oak doors from the output slot.'
+            ],
+            note: 'Doors can be opened with E and placed in pairs for wider entrances.'
+        },
+        {
+            id: 'furnace',
+            name: 'Stone Furnace',
+            result: { type: 'furnace', label: 'Eight stone make one furnace' },
+            listLabel: '×1',
+            summary: 'Surround the crafting grid with stone to build a furnace for smelting.',
+            pattern: [
+                ['stone', 'stone', 'stone'],
+                ['stone', null, 'stone'],
+                ['stone', 'stone', 'stone']
+            ],
+            steps: [
+                'Place stone around the outer ring of the crafting grid.',
+                'Leave the centre slot empty.',
+                'Collect the furnace and place it in your base for smelting.'
+            ],
+            note: 'Fuel the furnace with coal and add stone on top to smelt cobblestone.'
         }
     ];
     const TOOL_RECIPE_TEXT = {
@@ -3288,15 +3783,16 @@ to better suit your requirements.
         // lava, otherwise pushes into undefined arrays will throw errors.
         const matrices = {
             grass: [], dirt: [], stone: [], sand: [], water: [], wood: [], leaves: [], bedrock: [],
-            snow: [], ice: [], moss: [], glowstone: [], cactus: [],
+            snow: [], ice: [], cobblestone: [], oak_planks: [], moss: [], glowstone: [], cactus: [],
             iron: [], copper: [], ruby: [], diamond: [], coal: [], lava: []
         };
         const positionsByType = {
             grass: [], dirt: [], stone: [], sand: [], water: [], wood: [], leaves: [], bedrock: [],
-            snow: [], ice: [], moss: [], glowstone: [], cactus: [],
+            snow: [], ice: [], cobblestone: [], oak_planks: [], moss: [], glowstone: [], cactus: [],
             iron: [], copper: [], ruby: [], diamond: [], coal: [], lava: []
         };
         const waterCells = [];
+        const structurePlacements = [];
         // Helper to queue a block into the instancing buffers while keeping
         // voxelMap and the height map in sync.
         function queueBlock(type, x, y, z) {
@@ -3319,6 +3815,105 @@ to better suit your requirements.
                     heightMap[colKey] = y;
                 }
             }
+        }
+
+        function tryPlaceVillageHouse() {
+            const chance = coordSeededRand(cx, cz, worldX0 + 13, worldZ0 + 91)();
+            if (chance > 0.14) return;
+            const baseWidth = 5;
+            const baseLength = 7;
+            const orientation = Math.floor(chance * 4) & 3;
+            const rotatedWidth = (orientation % 2 === 0) ? baseWidth : baseLength;
+            const rotatedLength = (orientation % 2 === 0) ? baseLength : baseWidth;
+            const margin = 2;
+            const spaceX = CHUNK_SIZE - rotatedWidth - margin * 2;
+            const spaceZ = CHUNK_SIZE - rotatedLength - margin * 2;
+            if (spaceX < 0 || spaceZ < 0) return;
+            const offsetRand = coordSeededRand(cx, cz, worldX0 + 71, worldZ0 + 37);
+            const baseX = worldX0 + margin + Math.floor(offsetRand() * (spaceX + 1));
+            const baseZ = worldZ0 + margin + Math.floor(offsetRand() * (spaceZ + 1));
+            const forwardVectors = [
+                [0, 1],
+                [1, 0],
+                [0, -1],
+                [-1, 0]
+            ];
+            const doorLocal = { x: Math.floor(baseWidth / 2), z: baseLength - 1 };
+            const furnaceLocal = { x: Math.floor(baseWidth / 2), z: 1 };
+            const localToWorld = (lx, lz) => {
+                switch (orientation) {
+                    case 0: return [baseX + lx, baseZ + lz];
+                    case 1: return [baseX + rotatedWidth - 1 - lz, baseZ + lx];
+                    case 2: return [baseX + rotatedWidth - 1 - lx, baseZ + rotatedLength - 1 - lz];
+                    case 3: return [baseX + lz, baseZ + rotatedLength - 1 - lx];
+                    default: return [baseX + lx, baseZ + lz];
+                }
+            };
+            let minHeight = Infinity;
+            let maxHeight = -Infinity;
+            const footprint = [];
+            for (let lx = 0; lx < baseWidth; lx++) {
+                for (let lz = 0; lz < baseLength; lz++) {
+                    const [wx, wz] = localToWorld(lx, lz);
+                    const key = `${wx},${wz}`;
+                    const columnHeight = heights[key];
+                    if (columnHeight === undefined) return;
+                    const biome = columnBiomes.get(key);
+                    if (biome && (biome.key === 'desert' || biome.dry)) return;
+                    footprint.push({ lx, lz, wx, wz, columnHeight });
+                    if (columnHeight < minHeight) minHeight = columnHeight;
+                    if (columnHeight > maxHeight) maxHeight = columnHeight;
+                }
+            }
+            if (!Number.isFinite(minHeight) || !Number.isFinite(maxHeight)) return;
+            if (maxHeight - minHeight > 1) return;
+            const baseY = minHeight;
+            for (const cell of footprint) {
+                const { wx, wz, columnHeight } = cell;
+                for (let fillY = columnHeight; fillY < baseY; fillY++) {
+                    queueBlock('cobblestone', wx, fillY, wz);
+                }
+                queueBlock('cobblestone', wx, baseY, wz);
+                if (!(lx === furnaceLocal.x && lz === furnaceLocal.z)) {
+                    queueBlock('oak_planks', wx, baseY + 1, wz);
+                }
+            }
+            const [doorWorldX, doorWorldZ] = localToWorld(doorLocal.x, doorLocal.z);
+            const front = forwardVectors[orientation];
+            const stepX = doorWorldX + front[0];
+            const stepZ = doorWorldZ + front[1];
+            queueBlock('cobblestone', stepX, baseY, stepZ);
+            queueBlock('cobblestone', stepX, baseY + 1, stepZ);
+            for (let lx = 0; lx < baseWidth; lx++) {
+                for (let lz = 0; lz < baseLength; lz++) {
+                    const perimeter = (lx === 0 || lx === baseWidth - 1 || lz === 0 || lz === baseLength - 1);
+                    if (!perimeter) continue;
+                    const isCorner = (lx === 0 || lx === baseWidth - 1) && (lz === 0 || lz === baseLength - 1);
+                    const [wx, wz] = localToWorld(lx, lz);
+                    for (let h = 0; h < 2; h++) {
+                        if (lx === doorLocal.x && lz === doorLocal.z && h < 2) continue;
+                        const wallY = baseY + 2 + h;
+                        queueBlock(isCorner ? 'wood' : 'oak_planks', wx, wallY, wz);
+                    }
+                }
+            }
+            for (const cell of footprint) {
+                queueBlock('oak_planks', cell.wx, baseY + 4, cell.wz);
+            }
+            if (orientation % 2 === 0) {
+                for (let lz = 0; lz < baseLength; lz++) {
+                    const [wx, wz] = localToWorld(Math.floor(baseWidth / 2), lz);
+                    queueBlock('wood', wx, baseY + 5, wz);
+                }
+            } else {
+                for (let lx = 0; lx < baseWidth; lx++) {
+                    const [wx, wz] = localToWorld(lx, Math.floor(baseLength / 2));
+                    queueBlock('wood', wx, baseY + 5, wz);
+                }
+            }
+            const [furnaceX, furnaceZ] = localToWorld(furnaceLocal.x, furnaceLocal.z);
+            structurePlacements.push({ type: 'oak_door', x: doorWorldX, y: baseY + 1, z: doorWorldZ, orientation, chunkKey: chunkKeyString });
+            structurePlacements.push({ type: 'furnace', x: furnaceX, y: baseY + 1, z: furnaceZ, orientation: (orientation + 2) & 3, chunkKey: chunkKeyString });
         }
         function growTree(type, baseX, baseY, baseZ, biome) {
             const rng = coordSeededRand(cx, cz, baseX, baseZ);
@@ -3676,6 +4271,7 @@ to better suit your requirements.
                 }
             }
         }
+        tryPlaceVillageHouse();
         // Create instanced meshes for each block type
         const group = new THREE.Group();
         group.position.set(0,0,0);
@@ -3705,16 +4301,45 @@ to better suit your requirements.
                 voxelInstances.set(globalKey, { mesh: inst, index: i, chunk: chunkKeyString, type: key });
             }
         }
-        const chunkData = { cx, cz, group, instancedMeshes, instancedByType, waterCells: new Set(), waterMesh: null };
+        const chunkData = { cx, cz, group, instancedMeshes, instancedByType, waterCells: new Set(), waterMesh: null, structurePlacements, dynamicPlacements: [] };
         for (const cell of waterCells) {
             chunkData.waterCells.add(`${cell.x},${cell.y},${cell.z}`);
         }
         rebuildChunkWaterGeometry(chunkData);
         return chunkData;
     }
+    function applyStructurePlacements(chunk) {
+        if (!chunk || !Array.isArray(chunk.structurePlacements) || chunk.structurePlacements.length === 0) return;
+        for (const placement of chunk.structurePlacements) {
+            if (!placement) continue;
+            if (placement.type === 'furnace') {
+                const state = placeFurnaceBlock(placement.x, placement.y, placement.z, placement.orientation || 0, { chunkKey: placement.chunkKey || `${chunk.cx},${chunk.cz}`, chunkRef: chunk, silent: true });
+                if (state && Array.isArray(chunk.dynamicPlacements)) {
+                    chunk.dynamicPlacements.push({ type: 'furnace', key: state.key });
+                }
+            } else if (placement.type === 'oak_door') {
+                const state = placeOakDoor(placement.x, placement.y, placement.z, placement.orientation || 0, { chunkKey: placement.chunkKey || `${chunk.cx},${chunk.cz}`, chunkRef: chunk, silent: true });
+                if (state && Array.isArray(chunk.dynamicPlacements)) {
+                    chunk.dynamicPlacements.push({ type: 'oak_door', key: state.key });
+                }
+            }
+        }
+        chunk.structurePlacements.length = 0;
+    }
     // Dispose chunk
     function disposeChunk(chunk) {
         if (!chunk) return;
+        if (Array.isArray(chunk.dynamicPlacements)) {
+            for (const entry of chunk.dynamicPlacements) {
+                if (!entry) continue;
+                if (entry.type === 'furnace') {
+                    removeFurnace(entry.key, { silent: true });
+                } else if (entry.type === 'oak_door') {
+                    removeDoor(entry.key, { silent: true });
+                }
+            }
+            chunk.dynamicPlacements.length = 0;
+        }
         scene.remove(chunk.group);
         for (const inst of chunk.instancedMeshes) {
             if (inst.material) inst.material.dispose();
@@ -3779,6 +4404,7 @@ to better suit your requirements.
                     chunkMap.set(key, chunk);
                     scene.add(chunk.group);
                     refreshWaterForChunkAndNeighbours(chunk);
+                    applyStructurePlacements(chunk);
                 }
             }
         }
@@ -3980,6 +4606,18 @@ to better suit your requirements.
                 handItemMeshes[`${variant}_${kind}`] = mesh;
             });
         });
+        const furnaceHandMesh = createFurnaceHandMesh();
+        if (furnaceHandMesh) {
+            furnaceHandMesh.visible = false;
+            handGroup.add(furnaceHandMesh);
+            handItemMeshes.furnace = furnaceHandMesh;
+        }
+        const doorHandMesh = createDoorHandMesh();
+        if (doorHandMesh) {
+            doorHandMesh.visible = false;
+            handGroup.add(doorHandMesh);
+            handItemMeshes.oak_door = doorHandMesh;
+        }
         // Position the held item group relative to the camera so it sits clearly
         // in view on the right-hand side.  The group is brought a little
         // closer to the lens so items appear substantial without clipping into
@@ -4011,6 +4649,7 @@ to better suit your requirements.
         // click handlers.  The inventory is hidden by default until
         // toggled with the E key.
         initInventoryUI();
+        initFurnaceUI();
 
         // Initialize hearts UI and display full health at the start
         updateHearts();
@@ -4145,6 +4784,26 @@ to better suit your requirements.
                     // pauses/resumes the game accordingly.  Do not toggle
                     // when pointer lock is not yet acquired (e.g. menu).
                     e.preventDefault();
+                    if (furnaceOverlayOpen) {
+                        closeFurnaceOverlay();
+                        break;
+                    }
+                    if (pointerLocked && !inventoryOpen) {
+                        const hit = pickBlock();
+                        if (hit) {
+                            if (hit.type === 'oak_door_lower' || hit.type === 'oak_door_upper') {
+                                toggleDoorAt(hit.x, hit.y, hit.z);
+                                break;
+                            }
+                            if (hit.type === 'furnace') {
+                                const state = furnaceStates.get(`${hit.x},${hit.y},${hit.z}`);
+                                if (state) {
+                                    openFurnaceOverlay(state);
+                                    break;
+                                }
+                            }
+                        }
+                    }
                     toggleInventory();
                     break;
                 }
@@ -4263,6 +4922,16 @@ to better suit your requirements.
         const entry = voxelMap.get(`${x},${y},${z}`);
         if (!entry) return false;
         const t = entry.type;
+        if (t === 'oak_door_lower' || t === 'oak_door_upper') {
+            const baseKey = t === 'oak_door_upper' ? `${x},${y - 1},${z}` : `${x},${y},${z}`;
+            const state = doorStates.get(baseKey);
+            if (state) {
+                if (state.open || state.targetOpen || state.openProgress > 0.45) {
+                    return false;
+                }
+            }
+            return true;
+        }
         // Water and lava remain non-solid; everything else (including leaves) is solid.
         return (t !== 'water' && t !== 'lava');
     }
@@ -4967,6 +5636,8 @@ to better suit your requirements.
         // collection by the player.  This call ensures that spawned
         // items fall to the ground and can be picked up.
         updateDroppedItems(delta);
+        updateFurnaces(delta);
+        updateDoors(delta);
 
         // Process a subset of water cells to simulate flowing water.  This
         // spreads newly placed water into adjacent empty blocks over
@@ -5982,12 +6653,24 @@ to better suit your requirements.
             return false;
         }
         const type = selectableTypes[selectedIndex];
-        if (!type || !blockMaterials[type]) return false;
+        if (!type || (!blockMaterials[type] && !SPECIAL_PLACEABLES.has(type))) return false;
         if (!inventory[type] || inventory[type] <= 0) return false;
+        let removedWater = false;
         if (existing && existing.type === 'water') {
             removeVoxel(px, py, pz);
+            removedWater = true;
         }
-        placeVoxel(px, py, pz, type);
+        const placementOptions = {};
+        if (SPECIAL_PLACEABLES.has(type)) {
+            placementOptions.orientation = getPlayerOrientation();
+        }
+        const placed = placeVoxel(px, py, pz, type, placementOptions);
+        if (!placed) {
+            if (removedWater) {
+                placeVoxel(px, py, pz, 'water');
+            }
+            return false;
+        }
         // Play a placement sound using the same dig sound categories.  This
         // provides audio feedback when blocks are placed, similar to
         // Minecraft.  We reuse playRandomDigSound() which categorises
@@ -6071,7 +6754,7 @@ to better suit your requirements.
 
     function dropSelectedBlock() {
         const type = selectableTypes[selectedIndex];
-        if (!type || !blockMaterials[type]) return;
+        if (!type || (!blockMaterials[type] && !SPECIAL_PLACEABLES.has(type))) return;
         if (type === 'water' || type === 'lava' || type === 'bedrock' || type === 'leaves') return;
         if (!inventory[type] || inventory[type] <= 0) return;
         const removed = removeItemFromInventory(type, 1);
@@ -6091,7 +6774,7 @@ to better suit your requirements.
     // Place a voxel of the given type at the specified coordinates.  A
     // standalone Mesh is created for dynamic blocks.  The voxelMap and
     // voxelInstances are updated accordingly.
-    function placeVoxel(x, y, z, type) {
+    function placeVoxel(x, y, z, type, options = {}) {
         const key = `${x},${y},${z}`;
         if (type === 'water') {
             const chunkKey = worldToChunkKey(x, z);
@@ -6112,9 +6795,22 @@ to better suit your requirements.
                 voxelInstances.set(key, { mesh: mesh, index: 0, chunk: 'mod', type });
             }
             fluidQueue.push({ x: x, y: y, z: z });
-            return;
+            return true;
+        }
+        if (type === 'furnace') {
+            if (y < 0 || y >= CHUNK_HEIGHT) return false;
+            const orientation = (options && typeof options.orientation === 'number') ? options.orientation : getPlayerOrientation();
+            const state = placeFurnaceBlock(x, y, z, orientation, options);
+            return !!state;
+        }
+        if (type === 'oak_door') {
+            if (y < 0 || y + 1 >= CHUNK_HEIGHT) return false;
+            const orientation = (options && typeof options.orientation === 'number') ? options.orientation : getPlayerOrientation();
+            const state = placeOakDoor(x, y, z, orientation, options);
+            return !!state;
         }
         const mat = blockMaterials[type];
+        if (!mat) return false;
         const mesh = new THREE.Mesh(cubeGeometry, mat);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
@@ -6129,6 +6825,7 @@ to better suit your requirements.
                 heightMap[colKey] = y;
             }
         }
+        return true;
     }
 
     // Remove a voxel at the given coordinates from the scene.  This will hide
@@ -6138,6 +6835,15 @@ to better suit your requirements.
         const info = voxelInstances.get(key);
         const oldEntry = voxelMap.get(key);
         const entryType = oldEntry ? oldEntry.type : (info ? info.type : null);
+        if (entryType === 'furnace') {
+            removeFurnace({ x, y, z });
+            return;
+        }
+        if (entryType === 'oak_door_lower' || entryType === 'oak_door_upper') {
+            const baseKey = entryType === 'oak_door_upper' ? `${x},${y - 1},${z}` : `${x},${y},${z}`;
+            removeDoor(baseKey);
+            return;
+        }
         if (entryType === 'water') {
             if (info && info.chunk === 'mod') {
                 scene.remove(info.mesh);
@@ -6261,8 +6967,8 @@ to better suit your requirements.
     // Play a random dig/break sound appropriate for the given block type.
     function playRandomDigSound(type) {
         let category;
-        if (type === 'wood') category = 'wood';
-        else if (type === 'stone' || type === 'bedrock' || type === 'sand' || type === 'glowstone' || type === 'ice') category = 'stone';
+        if (type === 'wood' || type === 'oak_planks' || type === 'oak_door') category = 'wood';
+        else if (type === 'stone' || type === 'bedrock' || type === 'sand' || type === 'glowstone' || type === 'ice' || type === 'cobblestone' || type === 'furnace') category = 'stone';
         else category = 'grass';
         const arr = digSounds[category];
         if (!arr || arr.length === 0) return;
@@ -6348,9 +7054,13 @@ to better suit your requirements.
         if (type === 'water' || type === 'leaves' || type === 'lava' || type === 'bedrock') return;
         let mesh;
         let halfSize = DROP_HALF_SIZE;
+        let cleanup = null;
         if (blockMaterials[type]) {
             const geom = new THREE.BoxBufferGeometry(0.4, 0.4, 0.4);
             mesh = new THREE.Mesh(geom, blockMaterials[type]);
+            cleanup = () => {
+                if (geom && typeof geom.dispose === 'function') geom.dispose();
+            };
         } else if (type === 'stick') {
             mesh = createStickMesh();
             mesh.scale.multiplyScalar(0.6);
@@ -6363,10 +7073,63 @@ to better suit your requirements.
                 mesh.scale.multiplyScalar(0.7);
                 halfSize = 0.32;
             }
+        } else if (type === 'furnace') {
+            const geometry = new THREE.BoxGeometry(0.6, 0.6, 0.6);
+            const materials = [
+                furnaceMaterials.side.clone(),
+                furnaceMaterials.side.clone(),
+                furnaceMaterials.side.clone(),
+                furnaceMaterials.side.clone(),
+                furnaceMaterials.frontOff.clone(),
+                furnaceMaterials.side.clone()
+            ];
+            mesh = new THREE.Mesh(geometry, materials);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            halfSize = 0.3;
+            cleanup = () => {
+                geometry.dispose();
+                materials.forEach((mat) => { if (mat && typeof mat.dispose === 'function') mat.dispose(); });
+            };
+        } else if (type === 'oak_door') {
+            const bottomGeom = new THREE.BoxGeometry(0.12, 0.7, 0.32);
+            const topGeom = new THREE.BoxGeometry(0.12, 0.7, 0.32);
+            const bottomMesh = new THREE.Mesh(bottomGeom, createDoorHalfMaterials(false));
+            const topMesh = new THREE.Mesh(topGeom, createDoorHalfMaterials(true));
+            bottomMesh.position.set(0, -0.38, 0);
+            topMesh.position.set(0, 0.32, 0);
+            const group = new THREE.Group();
+            group.add(bottomMesh, topMesh);
+            group.rotation.set(-0.3, Math.PI / 5, 0);
+            group.traverse((child) => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                }
+            });
+            mesh = group;
+            halfSize = 0.35;
+            cleanup = () => {
+                bottomGeom.dispose();
+                topGeom.dispose();
+                const disposeMaterial = (mat) => {
+                    if (!mat) return;
+                    if (Array.isArray(mat)) {
+                        mat.forEach(disposeMaterial);
+                    } else if (typeof mat.dispose === 'function') {
+                        mat.dispose();
+                    }
+                };
+                disposeMaterial(bottomMesh.material);
+                disposeMaterial(topMesh.material);
+            };
         }
         if (!mesh) {
             const geom = new THREE.BoxBufferGeometry(0.4, 0.4, 0.4);
             mesh = new THREE.Mesh(geom, new THREE.MeshStandardMaterial({ color: 0xffffff }));
+            cleanup = () => {
+                if (geom && typeof geom.dispose === 'function') geom.dispose();
+            };
         }
         if (mesh.isMesh) {
             mesh.castShadow = true;
@@ -6424,9 +7187,588 @@ to better suit your requirements.
             hoverTime: 0,
             restingY: mesh.position.y,
             pickupCooldown: pickupDelay,
-            halfSize
+            halfSize,
+            cleanup
         });
         scene.add(mesh);
+    }
+
+    function vectorToOrientation(vec) {
+        if (!vec) return 0;
+        const absX = Math.abs(vec.x);
+        const absZ = Math.abs(vec.z);
+        if (absX > absZ) {
+            return vec.x > 0 ? 1 : 3;
+        }
+        return vec.z > 0 ? 0 : 2;
+    }
+
+    function getPlayerOrientation() {
+        const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.yaw);
+        return vectorToOrientation(forward);
+    }
+
+    let furnaceOverlayOpen = false;
+    let activeFurnaceState = null;
+    let furnaceOverlayEl;
+    let furnaceInputSlotEl;
+    let furnaceFuelSlotEl;
+    let furnaceOutputSlotEl;
+    let furnaceProgressEl;
+    let furnaceCollectButton;
+
+    function placeFurnaceBlock(x, y, z, orientation = 0, options = {}) {
+        const key = `${x},${y},${z}`;
+        const existing = voxelMap.get(key);
+        if (existing && existing.type === 'furnace' && !options.replace) {
+            return furnaceStates.get(key) || null;
+        }
+        if (existing && !options.replace && existing.type !== 'furnace') {
+            return null;
+        }
+        if (existing && existing.type !== 'furnace') {
+            voxelMap.delete(key);
+            voxelInstances.delete(key);
+        }
+        const geometry = new THREE.BoxGeometry(1, 1, 1);
+        const materials = [
+            furnaceMaterials.side.clone(),
+            furnaceMaterials.side.clone(),
+            furnaceMaterials.side.clone(),
+            furnaceMaterials.side.clone(),
+            furnaceMaterials.frontOff.clone(),
+            furnaceMaterials.side.clone()
+        ];
+        const mesh = new THREE.Mesh(geometry, materials);
+        mesh.position.set(x + 0.5, y + 0.5, z + 0.5);
+        const rotations = [0, -Math.PI / 2, Math.PI, Math.PI / 2];
+        mesh.rotation.y = rotations[orientation & 3];
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        scene.add(mesh);
+        modifiedMeshes.push(mesh);
+        voxelMap.set(key, { type: 'furnace', chunk: options.chunkKey || 'mod' });
+        voxelInstances.set(key, { mesh, index: 0, chunk: options.chunkKey || 'mod', type: 'furnace' });
+        const frontVector = ORIENTATION_VECTORS[orientation & 3].clone();
+        const state = {
+            key,
+            mesh,
+            geometry,
+            materials,
+            chunkKey: options.chunkKey || 'mod',
+            orientation: orientation & 3,
+            frontVector,
+            inputCount: 0,
+            fuelCount: 0,
+            outputCount: 0,
+            outputType: null,
+            cooking: null,
+            active: false,
+            sound: null,
+            smokePuffs: [],
+            smokeTimer: 0,
+            frontMaterials: {
+                off: materials[4],
+                on: furnaceMaterials.frontOn.clone()
+            },
+            chunkRef: options.chunkRef || null
+        };
+        state.smokeAnchor = new THREE.Vector3(x + 0.5 + frontVector.x * 0.45, y + 0.6, z + 0.5 + frontVector.z * 0.45);
+        furnaceStates.set(key, state);
+        recomputeColumnHeight(x, z);
+        return state;
+    }
+
+    function stopAndDisposeSound(audio) {
+        if (!audio) return;
+        try {
+            audio.pause();
+        } catch (e) {}
+    }
+
+    function removeFurnace(identifier, options = {}) {
+        const key = typeof identifier === 'string' ? identifier : `${identifier.x},${identifier.y},${identifier.z}`;
+        const state = furnaceStates.get(key);
+        if (!state) {
+            voxelMap.delete(key);
+            voxelInstances.delete(key);
+            return;
+        }
+        if (state === activeFurnaceState && furnaceOverlayOpen) {
+            closeFurnaceOverlay();
+        }
+        furnaceStates.delete(key);
+        if (state.mesh) {
+            scene.remove(state.mesh);
+            const idx = modifiedMeshes.indexOf(state.mesh);
+            if (idx >= 0) modifiedMeshes.splice(idx, 1);
+        }
+        if (state.geometry) state.geometry.dispose();
+        if (state.materials) state.materials.forEach((mat) => { if (mat && typeof mat.dispose === 'function') mat.dispose(); });
+        if (state.frontMaterials && state.frontMaterials.on && typeof state.frontMaterials.on.dispose === 'function') {
+            state.frontMaterials.on.dispose();
+        }
+        if (state.sound) {
+            stopAndDisposeSound(state.sound);
+        }
+        if (Array.isArray(state.smokePuffs)) {
+            state.smokePuffs.forEach((puff) => {
+                if (puff && puff.sprite) {
+                    scene.remove(puff.sprite);
+                    if (puff.sprite.material && typeof puff.sprite.material.dispose === 'function') {
+                        puff.sprite.material.dispose();
+                    }
+                }
+            });
+            state.smokePuffs.length = 0;
+        }
+        voxelMap.delete(key);
+        voxelInstances.delete(key);
+        const coords = key.split(',').map(Number);
+        if (!options.silent) {
+            const dropX = coords[0];
+            const dropY = coords[1];
+            const dropZ = coords[2];
+            spawnDroppedItem('furnace', dropX, dropY, dropZ, { pickupDelay: 0.2 });
+            for (let i = 0; i < state.inputCount; i++) {
+                spawnDroppedItem('stone', dropX, dropY, dropZ, { pickupDelay: 0.2 });
+            }
+            for (let i = 0; i < state.fuelCount; i++) {
+                spawnDroppedItem('coal', dropX, dropY, dropZ, { pickupDelay: 0.2 });
+            }
+            const outputType = state.outputType || 'cobblestone';
+            for (let i = 0; i < state.outputCount; i++) {
+                spawnDroppedItem(outputType, dropX, dropY, dropZ, { pickupDelay: 0.2 });
+            }
+        }
+        recomputeColumnHeight(coords[0], coords[2]);
+    }
+
+    function setFurnaceActive(state, active) {
+        if (!state) return;
+        if (state.active === active) return;
+        state.active = active;
+        if (state.mesh && state.mesh.material && Array.isArray(state.mesh.material)) {
+            state.mesh.material[4] = active ? state.frontMaterials.on : state.frontMaterials.off;
+            if (state.mesh.material[4] && typeof state.mesh.material[4].needsUpdate !== 'undefined') {
+                state.mesh.material[4].needsUpdate = true;
+            }
+            state.mesh.material.needsUpdate = true;
+        }
+        if (!active) {
+            if (state.sound) {
+                stopAndDisposeSound(state.sound);
+                state.sound = null;
+            }
+        }
+    }
+
+    function spawnFurnaceSmoke(state) {
+        const spriteMat = new THREE.SpriteMaterial({ color: 0x777777, transparent: true, opacity: 0.65 });
+        const sprite = new THREE.Sprite(spriteMat);
+        sprite.position.copy(state.smokeAnchor);
+        sprite.scale.set(0.35, 0.35, 0.35);
+        scene.add(sprite);
+        state.smokePuffs.push({ sprite, life: 0, maxLife: 1.6 });
+    }
+
+    function updateFurnaces(delta) {
+        furnaceStates.forEach((state, key) => {
+            if (!state) return;
+            if (state.cooking) {
+                state.cooking.time += delta;
+                const ratio = Math.min(1, state.cooking.time / state.cooking.duration);
+                if (state === activeFurnaceState && furnaceProgressEl) {
+                    furnaceProgressEl.style.setProperty('--furnace-progress', ratio.toString());
+                    furnaceProgressEl.classList.add('active');
+                }
+                if (state.cooking.time >= state.cooking.duration) {
+                    const finished = state.cooking;
+                    const outputType = finished.result || state.outputType || 'cobblestone';
+                    state.outputType = outputType;
+                    state.outputCount += 1;
+                    state.cooking = null;
+                    if (state === activeFurnaceState) {
+                        if (furnaceProgressEl) {
+                            furnaceProgressEl.style.setProperty('--furnace-progress', '0');
+                            furnaceProgressEl.classList.remove('active');
+                        }
+                        updateFurnaceUI();
+                    }
+                }
+            }
+            if (!state.cooking) {
+                if (state.inputCount > 0 && state.fuelCount > 0) {
+                    const recipe = FURNACE_RECIPES.stone;
+                    if (recipe) {
+                        state.inputCount -= 1;
+                        state.fuelCount -= 1;
+                        const resultType = recipe.result || 'cobblestone';
+                        const cookDuration = recipe.duration || FURNACE_COOK_TIME;
+                        state.outputType = resultType;
+                        state.cooking = { time: 0, duration: cookDuration, result: resultType };
+                        setFurnaceActive(state, true);
+                        if (state === activeFurnaceState) {
+                            updateFurnaceUI();
+                            if (furnaceProgressEl) {
+                                furnaceProgressEl.style.setProperty('--furnace-progress', '0');
+                                furnaceProgressEl.classList.add('active');
+                            }
+                        }
+                    }
+                } else if (state.active) {
+                    setFurnaceActive(state, false);
+                    if (state === activeFurnaceState) {
+                        if (furnaceProgressEl) {
+                            furnaceProgressEl.classList.remove('active');
+                            furnaceProgressEl.style.setProperty('--furnace-progress', '0');
+                        }
+                        updateFurnaceUI();
+                    }
+                }
+            }
+            if (state.active) {
+                state.smokeTimer += delta;
+                if (state.smokeTimer >= 0.45) {
+                    state.smokeTimer = 0;
+                    spawnFurnaceSmoke(state);
+                }
+                if (!state.sound) {
+                    const audio = new Audio(FURNACE_LOOP_SOUND_URL);
+                    audio.loop = true;
+                    audio.volume = 0;
+                    try { audio.play(); } catch (e) {}
+                    state.sound = audio;
+                }
+            }
+            if (state.sound) {
+                const coords = key.split(',').map(Number);
+                const distance = player.position.distanceTo(new THREE.Vector3(coords[0] + 0.5, coords[1] + 0.5, coords[2] + 0.5));
+                const volume = Math.max(0, 1 - distance / 10) * masterVolume * sfxVolume * 0.6;
+                state.sound.volume = volume;
+                if (!state.active && volume <= 0.001) {
+                    stopAndDisposeSound(state.sound);
+                    state.sound = null;
+                }
+            }
+            if (Array.isArray(state.smokePuffs) && state.smokePuffs.length > 0) {
+                for (let i = state.smokePuffs.length - 1; i >= 0; i--) {
+                    const puff = state.smokePuffs[i];
+                    puff.life += delta;
+                    if (!puff.sprite) {
+                        state.smokePuffs.splice(i, 1);
+                        continue;
+                    }
+                    puff.sprite.position.y += delta * 0.6;
+                    puff.sprite.material.opacity = Math.max(0, 0.65 * (1 - puff.life / puff.maxLife));
+                    const scale = 0.35 + puff.life * 0.25;
+                    puff.sprite.scale.set(scale, scale, scale);
+                    if (puff.life >= puff.maxLife) {
+                        scene.remove(puff.sprite);
+                        if (puff.sprite.material && typeof puff.sprite.material.dispose === 'function') {
+                            puff.sprite.material.dispose();
+                        }
+                        state.smokePuffs.splice(i, 1);
+                    }
+                }
+            }
+        });
+    }
+
+    function createDoorHalfMaterials(isTop) {
+        return [
+            doorMaterials.side.clone(),
+            doorMaterials.side.clone(),
+            doorMaterials.side.clone(),
+            doorMaterials.side.clone(),
+            (isTop ? doorMaterials.topFront : doorMaterials.bottomFront).clone(),
+            (isTop ? doorMaterials.topFront : doorMaterials.bottomFront).clone()
+        ];
+    }
+
+    function placeOakDoor(x, y, z, orientation = 0, options = {}) {
+        const baseKey = `${x},${y},${z}`;
+        const upperKey = `${x},${y + 1},${z}`;
+        if (y < 0 || y + 1 >= CHUNK_HEIGHT) return null;
+        if (voxelMap.has(baseKey) || voxelMap.has(upperKey)) return null;
+        const below = voxelMap.get(`${x},${y - 1},${z}`);
+        if (!below || below.type === 'water' || below.type === 'lava' || below.type === 'oak_door_lower' || below.type === 'oak_door_upper') return null;
+        const hingePos = DOOR_HINGE_POSITIONS[orientation & 3];
+        const panelOffset = DOOR_PANEL_OFFSETS[orientation & 3];
+        const bottomGeom = new THREE.BoxGeometry(0.92, 0.98, 0.16);
+        const topGeom = new THREE.BoxGeometry(0.92, 0.98, 0.16);
+        const bottomMaterials = createDoorHalfMaterials(false);
+        const topMaterials = createDoorHalfMaterials(true);
+        const bottomMesh = new THREE.Mesh(bottomGeom, bottomMaterials);
+        const topMesh = new THREE.Mesh(topGeom, topMaterials);
+        bottomMesh.position.set(0, 0.5, 0);
+        topMesh.position.set(0, 1.5, 0);
+        const panelGroup = new THREE.Group();
+        panelGroup.position.copy(panelOffset);
+        panelGroup.add(bottomMesh, topMesh);
+        const pivot = new THREE.Group();
+        pivot.position.set(x + hingePos.x, y, z + hingePos.z);
+        pivot.add(panelGroup);
+        scene.add(pivot);
+        modifiedMeshes.push(pivot);
+        voxelMap.set(baseKey, { type: 'oak_door_lower', chunk: options.chunkKey || 'mod', door: baseKey });
+        voxelMap.set(upperKey, { type: 'oak_door_upper', chunk: options.chunkKey || 'mod', door: baseKey });
+        voxelInstances.set(baseKey, { mesh: pivot, index: 0, chunk: options.chunkKey || 'mod', type: 'oak_door_lower' });
+        voxelInstances.set(upperKey, { mesh: pivot, index: 1, chunk: options.chunkKey || 'mod', type: 'oak_door_upper' });
+        const state = {
+            key: baseKey,
+            pivot,
+            panelGroup,
+            bottomMesh,
+            topMesh,
+            orientation: orientation & 3,
+            open: false,
+            targetOpen: false,
+            openProgress: 0,
+            chunkKey: options.chunkKey || 'mod',
+            chunkRef: options.chunkRef || null,
+            materials: { bottom: bottomMaterials, top: topMaterials, bottomGeom, topGeom }
+        };
+        doorStates.set(baseKey, state);
+        recomputeColumnHeight(x, z);
+        return state;
+    }
+
+    function removeDoor(identifier, options = {}) {
+        const key = typeof identifier === 'string' ? identifier : `${identifier.x},${identifier.y},${identifier.z}`;
+        const state = doorStates.get(key);
+        if (!state) {
+            const parts = key.split(',');
+            const bx = Number(parts[0]);
+            const by = Number(parts[1]);
+            const bz = Number(parts[2]);
+            const upperKey = `${bx},${by + 1},${bz}`;
+            voxelMap.delete(key);
+            voxelMap.delete(upperKey);
+            voxelInstances.delete(key);
+            voxelInstances.delete(upperKey);
+            recomputeColumnHeight(bx, bz);
+            return;
+        }
+        doorStates.delete(key);
+        const coords = key.split(',').map(Number);
+        const upperKey = `${coords[0]},${coords[1] + 1},${coords[2]}`;
+        voxelMap.delete(key);
+        voxelMap.delete(upperKey);
+        voxelInstances.delete(key);
+        voxelInstances.delete(upperKey);
+        if (state.pivot) {
+            scene.remove(state.pivot);
+            const idx = modifiedMeshes.indexOf(state.pivot);
+            if (idx >= 0) modifiedMeshes.splice(idx, 1);
+        }
+        if (state.materials) {
+            state.materials.bottom.forEach((mat) => { if (mat && typeof mat.dispose === 'function') mat.dispose(); });
+            state.materials.top.forEach((mat) => { if (mat && typeof mat.dispose === 'function') mat.dispose(); });
+            if (state.materials.bottomGeom && typeof state.materials.bottomGeom.dispose === 'function') state.materials.bottomGeom.dispose();
+            if (state.materials.topGeom && typeof state.materials.topGeom.dispose === 'function') state.materials.topGeom.dispose();
+        }
+        if (!options.silent) {
+            spawnDroppedItem('oak_door', coords[0], coords[1], coords[2], { pickupDelay: 0.2 });
+        }
+        recomputeColumnHeight(coords[0], coords[2]);
+    }
+
+    function playDoorSound(opening) {
+        const url = opening ? DOOR_OPEN_SOUND_URL : DOOR_CLOSE_SOUND_URL;
+        const audio = new Audio(url);
+        audio.volume = 0.8 * masterVolume * sfxVolume;
+        try { audio.play(); } catch (e) {}
+    }
+
+    function toggleDoorAt(x, y, z) {
+        const entry = voxelMap.get(`${x},${y},${z}`);
+        if (!entry) return;
+        const baseKey = entry.type === 'oak_door_upper' ? `${x},${y - 1},${z}` : `${x},${y},${z}`;
+        const state = doorStates.get(baseKey);
+        if (!state) return;
+        state.targetOpen = !state.targetOpen;
+        playDoorSound(state.targetOpen);
+    }
+
+    function updateDoors(delta) {
+        doorStates.forEach((state) => {
+            if (!state || !state.pivot) return;
+            const target = state.targetOpen ? 1 : 0;
+            if (state.openProgress === target) {
+                state.open = state.targetOpen;
+                return;
+            }
+            const direction = state.openProgress < target ? 1 : -1;
+            state.openProgress = THREE.MathUtils.clamp(state.openProgress + direction * delta * DOOR_ANIMATION_SPEED, 0, 1);
+            const angle = state.openProgress * DOOR_OPEN_ANGLES[state.orientation];
+            state.pivot.rotation.y = angle;
+            if ((direction > 0 && state.openProgress >= target) || (direction < 0 && state.openProgress <= target)) {
+                state.openProgress = target;
+                state.open = state.targetOpen;
+            }
+        });
+    }
+
+    function updateFurnaceUI() {
+        if (!furnaceOverlayOpen || !activeFurnaceState) return;
+        const state = activeFurnaceState;
+        const applySlot = (slotEl, type, count) => {
+            if (!slotEl) return;
+            const img = slotEl.querySelector('img');
+            const countSpan = slotEl.querySelector('span');
+            if (type && count > 0) {
+                if (img) {
+                    const icon = hotbarIcons[type];
+                    if (icon) {
+                        img.style.display = 'block';
+                        img.src = icon;
+                    } else {
+                        img.style.display = 'none';
+                    }
+                }
+                if (countSpan) countSpan.textContent = count > 1 ? `${count}` : '1';
+            } else {
+                if (img) {
+                    img.style.display = 'none';
+                    img.removeAttribute('src');
+                }
+                if (countSpan) countSpan.textContent = '';
+            }
+        };
+        applySlot(furnaceInputSlotEl, 'stone', state.inputCount);
+        applySlot(furnaceFuelSlotEl, 'coal', state.fuelCount);
+        const outputType = state.outputCount > 0 ? (state.outputType || 'cobblestone') : null;
+        applySlot(furnaceOutputSlotEl, outputType, state.outputCount);
+        if (furnaceCollectButton) {
+            furnaceCollectButton.disabled = state.outputCount <= 0;
+        }
+        if (furnaceProgressEl) {
+            if (state.cooking) {
+                const ratio = Math.min(1, state.cooking.time / state.cooking.duration);
+                furnaceProgressEl.style.setProperty('--furnace-progress', ratio.toString());
+                furnaceProgressEl.classList.add('active');
+            } else {
+                furnaceProgressEl.style.setProperty('--furnace-progress', '0');
+                furnaceProgressEl.classList.remove('active');
+            }
+        }
+    }
+
+    function adjustFurnaceSlot(type, delta) {
+        const state = activeFurnaceState;
+        if (!state || delta === 0) return;
+        if (type === 'input') {
+            if (delta > 0) {
+                if (removeItemFromInventory('stone', delta) > 0) {
+                    state.inputCount += delta;
+                }
+            } else if (state.inputCount > 0) {
+                const amount = Math.min(state.inputCount, Math.abs(delta));
+                const added = addItemToInventory('stone', amount);
+                state.inputCount -= added;
+            }
+        } else if (type === 'fuel') {
+            if (delta > 0) {
+                if (removeItemFromInventory('coal', delta) > 0) {
+                    state.fuelCount += delta;
+                }
+            } else if (state.fuelCount > 0) {
+                const amount = Math.min(state.fuelCount, Math.abs(delta));
+                const added = addItemToInventory('coal', amount);
+                state.fuelCount -= added;
+            }
+        }
+        updateFurnaceUI();
+    }
+
+    function collectFurnaceOutput() {
+        const state = activeFurnaceState;
+        if (!state || state.outputCount <= 0) return;
+        const outputType = state.outputType || 'cobblestone';
+        const added = addItemToInventory(outputType, state.outputCount);
+        if (added > 0) {
+            state.outputCount -= added;
+            if (state.outputCount <= 0) {
+                state.outputCount = 0;
+                state.outputType = null;
+            }
+            updateFurnaceUI();
+        }
+    }
+
+    function openFurnaceOverlay(state) {
+        if (!state || !furnaceOverlayEl) return;
+        activeFurnaceState = state;
+        furnaceOverlayOpen = true;
+        furnaceOverlayEl.classList.add('open');
+        player.moveForward = player.moveBackward = player.moveLeft = player.moveRight = false;
+        player.isSprinting = false;
+        player.jumpHeld = false;
+        if (document.pointerLockElement) {
+            document.exitPointerLock();
+        }
+        window.isPaused = true;
+        updateFurnaceUI();
+    }
+
+    function closeFurnaceOverlay() {
+        if (!furnaceOverlayEl) return;
+        furnaceOverlayOpen = false;
+        activeFurnaceState = null;
+        furnaceOverlayEl.classList.remove('open');
+        if (!document.pointerLockElement) {
+            const canvas = renderer.domElement;
+            if (canvas && canvas.requestPointerLock) canvas.requestPointerLock();
+        }
+        window.isPaused = false;
+    }
+
+    function initFurnaceUI() {
+        furnaceOverlayEl = document.getElementById('furnaceOverlay');
+        furnaceInputSlotEl = document.getElementById('furnaceInputSlot');
+        furnaceFuelSlotEl = document.getElementById('furnaceFuelSlot');
+        furnaceOutputSlotEl = document.getElementById('furnaceOutputSlot');
+        furnaceProgressEl = document.getElementById('furnaceProgress');
+        furnaceCollectButton = document.getElementById('furnaceCollectAll');
+        const closeBtn = document.getElementById('closeFurnace');
+        if (!furnaceOverlayEl) return;
+        furnaceOverlayEl.addEventListener('click', (event) => {
+            if (event.target === furnaceOverlayEl) {
+                closeFurnaceOverlay();
+            }
+        });
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                closeFurnaceOverlay();
+            });
+        }
+        if (furnaceInputSlotEl) {
+            furnaceInputSlotEl.addEventListener('click', () => adjustFurnaceSlot('input', 1));
+            furnaceInputSlotEl.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                adjustFurnaceSlot('input', -1);
+            });
+        }
+        if (furnaceFuelSlotEl) {
+            furnaceFuelSlotEl.addEventListener('click', () => adjustFurnaceSlot('fuel', 1));
+            furnaceFuelSlotEl.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                adjustFurnaceSlot('fuel', -1);
+            });
+        }
+        if (furnaceOutputSlotEl) {
+            furnaceOutputSlotEl.addEventListener('click', () => collectFurnaceOutput());
+        }
+        if (furnaceCollectButton) {
+            furnaceCollectButton.addEventListener('click', () => collectFurnaceOutput());
+        }
+        document.addEventListener('keydown', (event) => {
+            if (event.code === 'Escape' && furnaceOverlayOpen) {
+                event.preventDefault();
+                closeFurnaceOverlay();
+            }
+        });
     }
 
     // Add an item to the player's inventory.  Creates a new entry if needed.
@@ -6558,6 +7900,9 @@ to better suit your requirements.
             const idx = droppedItems.indexOf(item);
             if (idx >= 0) droppedItems.splice(idx, 1);
             scene.remove(item.mesh);
+            if (item.cleanup && typeof item.cleanup === 'function') {
+                try { item.cleanup(); } catch (err) { console.warn('Failed cleaning dropped item', err); }
+            }
         });
     }
 
@@ -7133,13 +8478,12 @@ to better suit your requirements.
         const toggleTrees = document.getElementById('toggleTrees');
         const toggleCaves = document.getElementById('toggleCaves');
         const toggleRavines = document.getElementById('toggleRavines');
-        const toggleWater = document.getElementById('toggleWater');
         return {
             terrainStyle: terrainSelect ? terrainSelect.value : 'balanced',
             enableTrees: toggleTrees ? toggleTrees.checked : true,
             enableCaves: toggleCaves ? toggleCaves.checked : true,
             enableRavines: toggleRavines ? toggleRavines.checked : true,
-            enableWater: toggleWater ? toggleWater.checked : true
+            enableWater: false
         };
     }
     function openWorldConfigModal() {
@@ -7180,6 +8524,14 @@ to better suit your requirements.
     function setupWorldConfigModal() {
         const confirmBtn = document.getElementById('worldConfigConfirm');
         const cancelBtn = document.getElementById('worldConfigCancel');
+        const toggleWater = document.getElementById('toggleWater');
+        if (toggleWater) {
+            toggleWater.checked = false;
+            toggleWater.disabled = true;
+            if (toggleWater.parentElement) {
+                toggleWater.parentElement.classList.add('disabled');
+            }
+        }
         if (cancelBtn) {
             cancelBtn.addEventListener('click', () => {
                 closeWorldConfigModal();
