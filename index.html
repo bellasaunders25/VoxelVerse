@@ -3869,7 +3869,7 @@ to better suit your requirements.
             if (maxHeight - minHeight > 1) return;
             const baseY = minHeight;
             for (const cell of footprint) {
-                const { wx, wz, columnHeight } = cell;
+                const { wx, wz, columnHeight, lx, lz } = cell;
                 for (let fillY = columnHeight; fillY < baseY; fillY++) {
                     queueBlock('cobblestone', wx, fillY, wz);
                 }
