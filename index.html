@@ -5040,8 +5040,10 @@ to better suit your requirements.
     // Returns the integer y coordinate of the supporting block, or -Infinity
     // if no solid block exists at or below that height.
     function findSupportingBlockY(x, maxY, z) {
-        const clamped = Math.min(maxY, CHUNK_HEIGHT - 1);
-        for (let yy = clamped; yy >= 0; yy--) {
+        let start = Math.floor(Math.min(maxY, CHUNK_HEIGHT - 1));
+        if (!Number.isFinite(start)) start = CHUNK_HEIGHT - 1;
+        if (start < 0) start = 0;
+        for (let yy = start; yy >= 0; yy--) {
             if (isSolid(x, yy, z)) {
                 return yy;
             }
