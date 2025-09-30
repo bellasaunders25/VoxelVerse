@@ -4491,6 +4491,7 @@ to better suit your requirements.
         headSubmerged: false,
     };
     let pointerLocked = false;
+    let spawnLocation = null;
 
     // --- Init three.js and world ---
     function init() {
@@ -4721,6 +4722,24 @@ to better suit your requirements.
         cavernNoise = createPerlin3D(seed ^ 0x1bd45);
         biomeCache.clear();
         updateVisibleChunks(true);
+        const placedAtSpawn = placePlayerAtSafeLocation(player.position.x, player.position.z, true);
+        if (!placedAtSpawn) {
+            const groundY = getHighestBlockY(player.position.x, player.position.z);
+            const safeY = Number.isFinite(groundY)
+                ? (groundY + 1) + PLAYER_HEIGHT/2
+                : PLAYER_HEIGHT;
+            player.position.y = safeY;
+            player.velocityY = 0;
+            player.canJump = true;
+            player.inWater = false;
+            player.headSubmerged = false;
+            player.crouchOffset = 0;
+            fallDistance = 0;
+            lastYPosition = player.position.y;
+            spawnLocation = { x: player.position.x, y: player.position.y, z: player.position.z };
+        }
+        camera.position.copy(player.position);
+        camera.position.y += PLAYER_CAMERA_EYE_OFFSET;
         // Apply volume settings now that audio objects have been created.  This
         // call ensures that in‑game music and sound effects respect the
         // saved master/music/SFX volumes from localStorage.
@@ -5000,6 +5019,119 @@ to better suit your requirements.
 
     function isWaterVoxel(x, y, z) {
         return getVoxelType(x, y, z) === 'water';
+    }
+
+    function findStandingSpotInColumn(ix, iz) {
+        const highest = getHighestBlockY(ix, iz);
+        const startY = Number.isFinite(highest)
+            ? Math.min(CHUNK_HEIGHT - 2, Math.max(0, Math.floor(highest + 2)))
+            : CHUNK_HEIGHT - 2;
+        for (let support = startY; support >= 0; support--) {
+            if (!isSolid(ix, support, iz)) continue;
+            const supportType = getVoxelType(ix, support, iz);
+            if (supportType === 'water' || supportType === 'lava') continue;
+            let blocked = false;
+            for (let clearance = 1; clearance <= PLAYER_HEIGHT; clearance++) {
+                const spaceY = support + clearance;
+                if (spaceY >= CHUNK_HEIGHT) {
+                    blocked = true;
+                    break;
+                }
+                const spaceType = getVoxelType(ix, spaceY, iz);
+                if (spaceType === 'water' || spaceType === 'lava') {
+                    blocked = true;
+                    break;
+                }
+                if (isSolid(ix, spaceY, iz)) {
+                    blocked = true;
+                    break;
+                }
+            }
+            if (!blocked) {
+                return { supportY: support, y: support + 1 + PLAYER_HEIGHT / 2 };
+            }
+        }
+        return null;
+    }
+
+    function findSafeSpawnPosition(preferredX, preferredZ, maxRadius = 24) {
+        const baseX = Math.floor(preferredX);
+        const baseZ = Math.floor(preferredZ);
+        for (let radius = 0; radius <= maxRadius; radius++) {
+            for (let dz = -radius; dz <= radius; dz++) {
+                for (let dx = -radius; dx <= radius; dx++) {
+                    if (radius > 0 && Math.abs(dx) < radius && Math.abs(dz) < radius) {
+                        continue;
+                    }
+                    const ix = baseX + dx;
+                    const iz = baseZ + dz;
+                    const spot = findStandingSpotInColumn(ix, iz);
+                    if (!spot) continue;
+                    return {
+                        x: ix + 0.5,
+                        y: spot.y,
+                        z: iz + 0.5,
+                        supportY: spot.supportY
+                    };
+                }
+            }
+        }
+        return null;
+    }
+
+    function placePlayerAtSafeLocation(preferredX, preferredZ, storeAsSpawn = false) {
+        const safe = findSafeSpawnPosition(preferredX, preferredZ);
+        if (!safe) return false;
+        player.position.set(safe.x, safe.y, safe.z);
+        player.velocityY = 0;
+        player.canJump = true;
+        player.inWater = false;
+        player.headSubmerged = false;
+        player.crouchOffset = 0;
+        fallDistance = 0;
+        lastYPosition = player.position.y;
+        if (storeAsSpawn) {
+            spawnLocation = { x: safe.x, y: safe.y, z: safe.z };
+        }
+        return true;
+    }
+
+    function resolvePlayerEmbedding() {
+        const ix = Math.floor(player.position.x);
+        const iz = Math.floor(player.position.z);
+        const bottom = Math.floor(player.position.y - PLAYER_HEIGHT / 2 + 0.001);
+        const top = Math.floor(player.position.y + PLAYER_HEIGHT / 2 - 0.001);
+        let embedded = false;
+        for (let y = bottom; y <= top; y++) {
+            if (isSolid(ix, y, iz)) {
+                embedded = true;
+                break;
+            }
+        }
+        if (!embedded) return false;
+        const columnSpot = findStandingSpotInColumn(ix, iz);
+        if (columnSpot) {
+            player.position.y = columnSpot.y + 0.001;
+            player.velocityY = Math.min(player.velocityY, 0);
+            player.canJump = true;
+            player.inWater = false;
+            player.headSubmerged = false;
+            fallDistance = 0;
+            lastYPosition = player.position.y;
+            return true;
+        }
+        const nearby = findSafeSpawnPosition(player.position.x, player.position.z, 8);
+        if (nearby) {
+            player.position.set(nearby.x, nearby.y + 0.001, nearby.z);
+            player.velocityY = 0;
+            player.canJump = true;
+            player.inWater = false;
+            player.headSubmerged = false;
+            fallDistance = 0;
+            lastYPosition = player.position.y;
+            return true;
+        }
+        return false;
     }
 
     function sampleWaterState(px, py, pz) {
@@ -5484,6 +5616,7 @@ to better suit your requirements.
             if (player.velocityY > 0) player.velocityY = 0;
         }
         player.position.y = newY;
+        const freedFromSolid = resolvePlayerEmbedding();
         waterState = sampleWaterState(player.position.x, player.position.y, player.position.z);
         waterSurfaceY = waterState.surfaceY;
         player.inWater = waterState.inWater;
@@ -5499,6 +5632,9 @@ to better suit your requirements.
         } else {
             swimBobTime = 0;
             swimBobOffset = THREE.MathUtils.lerp(swimBobOffset, 0, Math.min(1, delta * 6));
+        }
+        if (freedFromSolid && !player.inWater) {
+            player.canJump = true;
         }
         updateUnderwaterAudioState(player.headSubmerged);
         // Determine whether player is currently on the ground
@@ -6587,9 +6723,26 @@ to better suit your requirements.
         // Reset camera tilt
         camera.rotation.z = 0;
         // Reset player position: find highest block at spawn (0,0)
-        const groundY = getHighestBlockY(0, 0);
-        player.position.set(0, (groundY + 1) + PLAYER_HEIGHT/2, 0);
-        player.velocityY = 0;
+        const baseSpawnX = spawnLocation ? spawnLocation.x : 0;
+        const baseSpawnZ = spawnLocation ? spawnLocation.z : 0;
+        const placed = placePlayerAtSafeLocation(baseSpawnX, baseSpawnZ, true);
+        if (!placed) {
+            const groundY = getHighestBlockY(baseSpawnX, baseSpawnZ);
+            const safeY = Number.isFinite(groundY)
+                ? (groundY + 1) + PLAYER_HEIGHT/2
+                : PLAYER_HEIGHT;
+            player.position.set(baseSpawnX, safeY, baseSpawnZ);
+            player.velocityY = 0;
+            player.canJump = true;
+            player.inWater = false;
+            player.headSubmerged = false;
+            player.crouchOffset = 0;
+            fallDistance = 0;
+            lastYPosition = player.position.y;
+            spawnLocation = { x: player.position.x, y: player.position.y, z: player.position.z };
+        }
+        camera.position.copy(player.position);
+        camera.position.y += PLAYER_CAMERA_EYE_OFFSET;
         // Hide death screen
         const deathEl = document.getElementById('deathScreen');
         if (deathEl) {
@@ -8459,6 +8612,26 @@ to better suit your requirements.
             skyIslandNoise = createPerlin(seed ^ 0x7ab9d);
             biomeCache.clear();
             updateVisibleChunks(true);
+            const regenSpawnX = spawnLocation ? spawnLocation.x : player.position.x;
+            const regenSpawnZ = spawnLocation ? spawnLocation.z : player.position.z;
+            const placed = placePlayerAtSafeLocation(regenSpawnX, regenSpawnZ, true);
+            if (!placed) {
+                const groundY = getHighestBlockY(regenSpawnX, regenSpawnZ);
+                const safeY = Number.isFinite(groundY)
+                    ? (groundY + 1) + PLAYER_HEIGHT/2
+                    : PLAYER_HEIGHT;
+                player.position.set(regenSpawnX, safeY, regenSpawnZ);
+                player.velocityY = 0;
+                player.canJump = true;
+                player.inWater = false;
+                player.headSubmerged = false;
+                player.crouchOffset = 0;
+                fallDistance = 0;
+                lastYPosition = player.position.y;
+                spawnLocation = { x: player.position.x, y: player.position.y, z: player.position.z };
+            }
+            camera.position.copy(player.position);
+            camera.position.y += PLAYER_CAMERA_EYE_OFFSET;
         },
         getSeed: () => seed,
         startGame: startGame,
