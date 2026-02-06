@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>VoxelVerse</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Rubik:wght@400;700&display=swap" rel="stylesheet">
+
+	<style>
+		/* --- RESET & BASE STYLES --- */
+		* {
+			margin: 0;
+			padding: 0;
+			box-sizing: border-box;
+		}
+
+		html,
+		body {
+			scroll-behavior: smooth;
+			font-family: 'Rubik', sans-serif;
+			background-color: #111;
+			color: #f2f2f2;
+		}
+
+		/* --- HEADER SECTION --- */
+		header {
+			height: 100vh;
+			display: flex;
+			flex-direction: column;
+			justify-content: center;
+			align-items: center;
+			text-align: center;
+			position: relative;
+			background: url('https://i.postimg.cc/fRZ0v85Z/loadingscreen.png') center/cover no-repeat;
+			-webkit-user-drag: none;
+			-khtml-user-drag: none;
+			-moz-user-drag: none;
+			-o-user-drag: none;
+			user-drag: none;
+		}
+
+		/* Logo styling */
+		.logo {
+			max-width: 350px;
+			width: 90%;
+			height: auto;
+			margin-bottom: 1rem;
+			filter: drop-shadow(2px 2px 5px #000);
+			pointer-events: none;
+		}
+
+		header h1 {
+			font-family: 'Press Start 2P', cursive;
+			font-size: 2.8rem;
+			text-shadow: 2px 2px #000;
+			margin-bottom: 1rem;
+		}
+
+		header p {
+			font-size: 1.25rem;
+			max-width: 700px;
+			margin: 0 auto;
+			background: rgba(0, 0, 0, 0.5);
+			padding: 1rem;
+			border-radius: 10px;
+		}
+
+		/* --- NAVIGATION --- */
+		nav {
+			background: #222;
+			position: sticky;
+			top: 0;
+			z-index: 10;
+			display: flex;
+			justify-content: center;
+			gap: 2rem;
+			padding: 1rem 0;
+		}
+
+		nav a {
+			color: #f2f2f2;
+			text-decoration: none;
+			font-weight: bold;
+			padding: 0.5rem;
+			transition: all 0.2s;
+		}
+
+		nav a:hover {
+			color: #4CAF50;
+		}
+
+		/* --- SECTION STYLES --- */
+		section {
+			min-height: 100vh;
+			padding: 4rem 2rem;
+			display: flex;
+			flex-direction: column;
+			justify-content: center;
+			align-items: center;
+			text-align: center;
+		}
+
+		section h2 {
+			font-size: 2.5rem;
+			margin-bottom: 1rem;
+			color: #4CAF50;
+		}
+
+		section p {
+			max-width: 800px;
+			font-size: 1.2rem;
+			line-height: 1.5;
+		}
+
+		.feature-section {
+			background: #1a1a1a;
+		}
+
+		.download-section {
+			background: #2a2a2a;
+		}
+
+		.community-section {
+			background: #1f1f1f;
+		}
+
+		/* --- BUTTON STYLES --- */
+		.btn {
+			margin-top: 2rem;
+			background: #4CAF50;
+			color: white;
+			padding: 1rem 2rem;
+			border: none;
+			font-size: 1.1rem;
+			border-radius: 5px;
+			cursor: pointer;
+			transition: background 0.3s;
+			text-decoration: none;
+		}
+
+		.btn:hover {
+			background: #3e8e41;
+		}
+
+		/* --- FOOTER --- */
+		footer {
+			background: #111;
+			text-align: center;
+			padding: 2rem;
+			font-size: 0.9rem;
+			color: #aaa;
+		}
+
+		/* --- MEDIA QUERIES --- */
+		@media (max-width: 768px) {
+			header h1 {
+				font-size: 2rem;
+			}
+			section h2 {
+				font-size: 2rem;
+			}
+			nav {
+				flex-direction: column;
+				gap: 1rem;
+			}
+		}
+
+		@keyframes rainbowGradient {
+			0% {
+				background-position: 0% 50%;
+			}
+			50% {
+				background-position: 100% 50%;
+			}
+			100% {
+				background-position: 0% 50%;
+			}
+		}
+
+		#BETA-PREVIEW {
+			font-weight: bold;
+			text-transform: uppercase;
+			background: linear-gradient(270deg, red, orange, yellow, green, blue, indigo, violet, red);
+			background-size: 1500% 1500%;
+			-webkit-background-clip: text;
+			-webkit-text-fill-color: transparent;
+			animation: rainbowGradient 6s ease infinite;
+			text-shadow: 0 0 10px rgba(255, 255, 255, 0.1);
+			transition: transform 0.2s ease;
+			display: inline-block;
+		}
+
+		#BETA-PREVIEW:hover {
+			transform: scale(1.1);
+		}
+	</style>
+</head>
+
+<body>
+<!-- HEADER SECTION WITH LOGO --><header><img src="https://raw.githubusercontent.com/bellasaunders25/VoxelVerse-Assets/refs/heads/main/ChatGPT%20Image%20Feb%205%2C%202026%2C%2008_27_54%20PM.png" alt="VoxelVerse Logo" class="logo" draggable="false" />
+<p>Build, explore, survive, and create in a blocky sandbox world filled with endless possibilities.</p>
+</header><!-- NAVIGATION --><nav><a href="#features">Features</a> <a href="#download">Download</a> <a href="#community">Community</a> <a id="BETA-PREVIEW" href="file:///home/bellasaunders/voxelverse/play/index.html">Beta Preview</a></nav><!-- FEATURES SECTION -->
+<section id="features" class="feature-section">
+<h2>🌍 Explore &amp; Build</h2>
+<p>From vast mountain ranges to deep underground caves, VoxelVerse lets you reshape the world around you. Mine resources, build shelters, or go wild with creative mode – the world is your sandbox.</p>
+</section>
+<!-- DOWNLOAD SECTION -->
+<section id="download" class="download-section">
+<h2>⬇️ Download Now</h2>
+<p>Ready to dive in? Download the latest version for Windows, macOS, or Linux. Mobile version coming soon!</p>
+<a href="#SOON" style="pointer: not-allowed; pointer-events: none !important;" class="btn">Get the Game</a></section>
+<section id="trailer" style="background: #141414; padding: 4rem 2rem; color: #fff; text-align: center;">
+<h2 style="font-size: 2.5rem; margin-bottom: 1rem;">🎬 Trailer &amp; Gameplay</h2>
+<p style="max-width: 700px; margin: 0 auto 2rem; font-size: 1.1rem;">Dive into the adventure! Here's a sneak peek at what VoxelVerse has to offer — from stunning terrain to intense survival gameplay.</p>
+<div style="width: 100%; max-width: 960px; height: 500px; /* 👈 adjust this to control the rectangle height */    margin: 0 auto; overflow: hidden; border-radius: 12px; box-shadow: 0 0 20px rgba(0,0,0,0.4);"><iframe style="width: 100%; height: 100%; border: none;" src="https://www.youtube.com/embed/EngW7tLk6R8?si=bhE88I2hyWj6m7yv" title="VoxelVerse Trailer" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen="allowfullscreen" referrerpolicy="strict-origin-when-cross-origin">
+    </iframe></div>
+</section>
+<!-- GAMEPLAY CLIPS GRID -->
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 30px; max-width: 1200px; margin: 0 auto; padding: 1rem;">
+<div style="position: relative; padding-top: 56.25%; overflow: hidden; border-radius: 10px; background: #000;"><video style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 10px;" src="https://sample-videos.com/video321/mp4/720/big_buck_bunny_720p_1mb.mp4" controls="controls"></video></div>
+<div style="position: relative; padding-top: 56.25%; overflow: hidden; border-radius: 10px; background: #000;"><video style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 10px;" src="https://sample-videos.com/video321/mp4/720/big_buck_bunny_720p_1mb.mp4" controls="controls"></video></div>
+<div style="position: relative; padding-top: 56.25%; overflow: hidden; border-radius: 10px; background: #000;"><video style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 10px;" src="https://sample-videos.com/video321/mp4/720/big_buck_bunny_720p_1mb.mp4" controls="controls"></video></div>
+</div>
+<!-- COMMUNITY SECTION -->
+<section id="community" class="community-section">
+<h2>💬 Join the Community</h2>
+<p>Connect with fellow players, share your builds, and be part of the growing VoxelVerse family. Follow us on Discord and Twitter to stay updated!</p>
+<a href="https://discord.gg" class="btn">Join Discord</a></section>
+<!-- FOOTER --><footer>© 2025 VoxelVerse • A Bella Saunders Creation</footer>
+</body>
+</html>
