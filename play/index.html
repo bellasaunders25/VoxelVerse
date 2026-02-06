@@ -719,6 +719,9 @@
       multiplayerEndpoint: "",
       roomCode: "",
       roomId: "",
+      selfPeerId: null,
+      remotePlayers: new Map(),
+      lastStateSentAt: 0,
 
       player: {
         pos: new THREE.Vector3(0, 80, 0),
@@ -2506,6 +2509,8 @@
         try { game.socket.close(); } catch {}
         game.socket = null;
       }
+      for (const peerId of Array.from(game.remotePlayers.keys())) removeRemotePlayer(peerId);
+      game.selfPeerId = null;
       if (game.renderer?.domElement) {
         game.renderer.domElement.remove();
       }
@@ -3478,6 +3483,12 @@
         game.worldPlayerMesh.rotation.y = game.player.yaw + Math.PI;
       }
 
+      for (const remote of game.remotePlayers.values()) {
+        remote.mesh.position.set(remote.state.x, remote.state.y + PLAYER_MODEL_GROUND_OFFSET, remote.state.z);
+        remote.mesh.rotation.y = remote.state.yaw + Math.PI;
+      }
+      sendLocalPlayerState(performance.now());
+
       const res = raycastBlock();
       if (res.hit) {
         game.blockSelectMesh.visible = true;
@@ -3907,12 +3918,95 @@
     }
 
     // --- MP / CHAT ---
+    function isFiniteNumber(v) {
+      return typeof v === "number" && Number.isFinite(v);
+    }
+
+    function createSkinTextureFromDataUrl(dataUrl) {
+      if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:image")) return null;
+      const img = new Image();
+      img.src = dataUrl;
+      const tex = new THREE.Texture(img);
+      tex.magFilter = THREE.NearestFilter;
+      tex.minFilter = THREE.NearestFilter;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      img.onload = () => { tex.needsUpdate = true; };
+      return tex;
+    }
+
+    function spawnRemotePlayer(peerInfo) {
+      if (!peerInfo || !peerInfo.id || peerInfo.id === game.selfPeerId) return;
+      if (game.remotePlayers.has(peerInfo.id)) return;
+
+      const skinTexture = createSkinTextureFromDataUrl(peerInfo.skin) || game.skinTexture;
+      const mesh = buildPlayerModel(skinTexture);
+      game.scene.add(mesh);
+
+      game.remotePlayers.set(peerInfo.id, {
+        id: peerInfo.id,
+        name: peerInfo.name || "Player",
+        skin: peerInfo.skin || "",
+        mesh,
+        skinTexture,
+        state: {
+          x: isFiniteNumber(peerInfo.x) ? peerInfo.x : 0,
+          y: isFiniteNumber(peerInfo.y) ? peerInfo.y : 80,
+          z: isFiniteNumber(peerInfo.z) ? peerInfo.z : 0,
+          yaw: isFiniteNumber(peerInfo.yaw) ? peerInfo.yaw : 0,
+          pitch: isFiniteNumber(peerInfo.pitch) ? peerInfo.pitch : 0
+        }
+      });
+    }
+
+    function removeRemotePlayer(peerId) {
+      const remote = game.remotePlayers.get(peerId);
+      if (!remote) return;
+      game.scene.remove(remote.mesh);
+      if (remote.skinTexture && remote.skinTexture !== game.skinTexture) remote.skinTexture.dispose();
+      game.remotePlayers.delete(peerId);
+    }
+
+    function updateRemotePlayerState(msg) {
+      if (!msg || !msg.id || msg.id === game.selfPeerId) return;
+      if (![msg.x, msg.y, msg.z, msg.yaw, msg.pitch].every(isFiniteNumber)) return;
+
+      if (!game.remotePlayers.has(msg.id)) {
+        spawnRemotePlayer(msg);
+      }
+
+      const remote = game.remotePlayers.get(msg.id);
+      if (!remote) return;
+      remote.state.x = msg.x;
+      remote.state.y = msg.y;
+      remote.state.z = msg.z;
+      remote.state.yaw = msg.yaw;
+      remote.state.pitch = msg.pitch;
+    }
+
+    function sendLocalPlayerState(nowMs) {
+      if (STATE.mode !== "MP") return;
+      if (!game.socket || game.socket.readyState !== WebSocket.OPEN) return;
+      if (nowMs - game.lastStateSentAt < 67) return;
+      game.lastStateSentAt = nowMs;
+      game.socket.send(JSON.stringify({
+        type: "PLAYER_STATE",
+        x: game.player.pos.x,
+        y: game.player.pos.y,
+        z: game.player.pos.z,
+        yaw: game.player.yaw,
+        pitch: game.player.pitch
+      }));
+    }
+
     function connectServer() {
       const endpoint = game.multiplayerEndpoint || buildDefaultEndpoint();
       if (!endpoint) {
         document.getElementById("disconnect-msg").textContent = "No realtime server URL configured. Add a wss:// server first.";
         return;
       }
+      game.selfPeerId = null;
+      for (const peerId of Array.from(game.remotePlayers.keys())) removeRemotePlayer(peerId);
+      game.lastStateSentAt = 0;
       game.socket = new WebSocket(endpoint);
       game.socket.onopen = () => {
         addChat(`Connected to ${endpoint}`);
@@ -3922,9 +4016,24 @@
         const msg = JSON.parse(e.data);
         if (msg.type === "CHAT") addChat(`[${msg.name}]: ${msg.text}`);
         if (msg.type === "BLOCK") setBlock(msg.x, msg.y, msg.z, msg.id);
+        if (msg.type === "SELF") game.selfPeerId = msg.id || null;
+        if (msg.type === "PLAYER_JOIN") {
+          spawnRemotePlayer(msg);
+          if (msg.name) addChat(`${msg.name} joined the room.`);
+        }
+        if (msg.type === "ROOM_SNAPSHOT" && Array.isArray(msg.peers)) {
+          for (const peerInfo of msg.peers) spawnRemotePlayer(peerInfo);
+        }
+        if (msg.type === "PLAYER_STATE") updateRemotePlayerState(msg);
+        if (msg.type === "PLAYER_LEAVE") removeRemotePlayer(msg.id);
       };
       game.socket.onerror = () => { document.getElementById("disconnect-msg").textContent = "Could not connect. Verify your wss:// realtime server is running and public."; };
-      game.socket.onclose = () => { addChat("Disconnected."); document.getElementById("disconnect-msg").textContent = "Disconnected from server."; };
+      game.socket.onclose = () => {
+        addChat("Disconnected.");
+        document.getElementById("disconnect-msg").textContent = "Disconnected from server.";
+        for (const peerId of Array.from(game.remotePlayers.keys())) removeRemotePlayer(peerId);
+        game.selfPeerId = null;
+      };
     }
 
     function sendChat() {
