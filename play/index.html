@@ -2402,6 +2402,7 @@
       game.scene.fog = new THREE.Fog(0x87CEEB, 20, SETTINGS.renderDistance * CHUNK_SIZE - 10);
 
       game.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+      game.camera.thirdPerson = false;
       game.renderer = new THREE.WebGLRenderer({ antialias: false });
       game.renderer.setSize(window.innerWidth, window.innerHeight);
       game.renderer.setPixelRatio(window.devicePixelRatio);
@@ -2485,6 +2486,15 @@
         document.exitPointerLock();
       }
       if (e.code === "Enter" && document.activeElement === document.getElementById("chat-input")) sendChat();
+
+      if (e.code === "KeyQ" && !e.repeat && STATE.isRunning) {
+        const inMainMenu = !document.getElementById("main-menu").classList.contains("hidden");
+        const inSkinEditor = !document.getElementById("skin-menu").classList.contains("hidden");
+        if (!inMainMenu && !inSkinEditor && game.camera) {
+          game.camera.thirdPerson = !game.camera.thirdPerson;
+        }
+      }
+
       AUDIO.ensureUnlocked();
     }
     function onKeyUp(e) {
@@ -3294,9 +3304,6 @@
       const targetEye = isCrouching ? 1.3 : 1.6;
       game.player.eyeHeight += (targetEye - game.player.eyeHeight) * dt * 10;
 
-      game.camera.position.copy(p);
-      game.camera.position.y += game.player.eyeHeight;
-
       // --- CAMERA SPRINT EFFECT (FOV) ---
       const targetFov = (isSprinting && moving) ? 85 : 70;
       game.camera.fov += (targetFov - game.camera.fov) * dt * 4.0;
@@ -3305,6 +3312,16 @@
       game.camera.rotation.set(0, 0, 0);
       game.camera.rotateY(game.player.yaw);
       game.camera.rotateX(game.player.pitch);
+
+      const eyeTarget = new THREE.Vector3(p.x, p.y + game.player.eyeHeight, p.z);
+      if (game.camera.thirdPerson) {
+        const viewDir = new THREE.Vector3(0, 0, -1).applyQuaternion(game.camera.quaternion).normalize();
+        game.camera.position.copy(eyeTarget).addScaledVector(viewDir, -3.2);
+        game.camera.position.y += 0.6;
+        game.camera.lookAt(eyeTarget);
+      } else {
+        game.camera.position.copy(eyeTarget);
+      }
 
       const res = raycastBlock();
       if (res.hit) {
@@ -3431,6 +3448,14 @@
         pose.headX += 0.12;
         pose.lArmX += 0.18;
         pose.rArmX += 0.18;
+      }
+
+      if (game.skinMesh) {
+        const showHead = !!game.camera?.thirdPerson;
+        const head = game.skinMesh.getObjectByName("Head");
+        const headOver = game.skinMesh.getObjectByName("HeadOverlay");
+        if (head) head.visible = showHead;
+        if (headOver) headOver.visible = showHead;
       }
 
       applyAnimationToModel(game.hudSkinMesh, pose);
