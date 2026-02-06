@@ -293,6 +293,8 @@
         
         <!-- Hidden MP Options -->
         <div id="mp-options" class="hidden input-group">
+          <label>Realtime Server (wss://...)</label>
+          <input type="text" id="mp-endpoint" placeholder="wss://your-realtime-server.example.com" />
           <label>Join Code</label>
           <input type="text" id="join-code" placeholder="Paste join code" />
           <label>Username</label>
@@ -2438,8 +2440,15 @@
     }
 
     function buildDefaultEndpoint() {
-      const proto = location.protocol === "https:" ? "wss" : "ws";
-      return `${proto}://${location.host}`;
+      const saved = localStorage.getItem("vv-mp-endpoint");
+      if (saved) return saved;
+
+      const isLocal = ["localhost", "127.0.0.1"].includes(location.hostname);
+      if (isLocal) {
+        const proto = location.protocol === "https:" ? "wss" : "ws";
+        return `${proto}://${location.host}`;
+      }
+      return "";
     }
 
     function buildJoinCode(endpoint, roomId) {
@@ -3821,12 +3830,26 @@
       document.getElementById("btn-sp").onclick = () => startGame("SP");
       document.getElementById("btn-mp").onclick = () => { document.getElementById("mp-options").classList.remove("hidden"); };
 
+      const endpointInput = document.getElementById("mp-endpoint");
+      endpointInput.value = buildDefaultEndpoint();
+      endpointInput.addEventListener("change", () => {
+        const endpoint = endpointInput.value.trim();
+        if (endpoint) localStorage.setItem("vv-mp-endpoint", endpoint);
+      });
+
       document.getElementById("btn-host").onclick = () => {
         SETTINGS.nickname = document.getElementById("username").value || "Player";
-        game.multiplayerEndpoint = buildDefaultEndpoint();
+        const endpoint = endpointInput.value.trim();
+        if (!endpoint) {
+          document.getElementById("disconnect-msg").textContent = "Set a realtime server URL. Vercel hosting needs a separate WebSocket server (wss://...).";
+          return;
+        }
+        localStorage.setItem("vv-mp-endpoint", endpoint);
+        game.multiplayerEndpoint = endpoint;
         game.roomId = generateRoomId();
         game.roomCode = buildJoinCode(game.multiplayerEndpoint, game.roomId);
         document.getElementById("join-code").value = game.roomCode;
+        document.getElementById("disconnect-msg").textContent = "";
         startGame("MP");
       };
 
@@ -3837,6 +3860,8 @@
           document.getElementById("disconnect-msg").textContent = "Invalid join code.";
           return;
         }
+        localStorage.setItem("vv-mp-endpoint", parsed.endpoint);
+        endpointInput.value = parsed.endpoint;
         game.multiplayerEndpoint = parsed.endpoint;
         game.roomId = parsed.roomId;
         game.roomCode = document.getElementById("join-code").value.trim();
@@ -3882,6 +3907,10 @@
     // --- MP / CHAT ---
     function connectServer() {
       const endpoint = game.multiplayerEndpoint || buildDefaultEndpoint();
+      if (!endpoint) {
+        document.getElementById("disconnect-msg").textContent = "No realtime server URL configured. Add a wss:// server first.";
+        return;
+      }
       game.socket = new WebSocket(endpoint);
       game.socket.onopen = () => {
         addChat(`Connected to ${endpoint}`);
@@ -3892,6 +3921,7 @@
         if (msg.type === "CHAT") addChat(`[${msg.name}]: ${msg.text}`);
         if (msg.type === "BLOCK") setBlock(msg.x, msg.y, msg.z, msg.id);
       };
+      game.socket.onerror = () => { document.getElementById("disconnect-msg").textContent = "Could not connect. Verify your wss:// realtime server is running and public."; };
       game.socket.onclose = () => { addChat("Disconnected."); document.getElementById("disconnect-msg").textContent = "Disconnected from server."; };
     }
 
