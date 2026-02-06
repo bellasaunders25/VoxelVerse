@@ -1,14 +1,34 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 
 const port = Number(process.env.PORT || 8080);
 const wss = new WebSocketServer({ port });
 let nextPeerId = 1;
 
+const CHUNK_SIZE = 16;
 const peers = new Map(); // socket -> { id, name, skin, room, state }
 const rooms = new Map(); // room -> Set<socket>
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DATA_DIR = path.join(__dirname, "data");
+const WORLD_FILE = path.join(DATA_DIR, "world-state.json");
+
+// room -> chunkKey -> blockKey -> { x, y, z, id }
+const roomChunks = new Map();
+let persistTimer = null;
+
 function normalizeRoom(room) {
   return String(room || "GLOBAL").trim().toUpperCase().slice(0, 32) || "GLOBAL";
+}
+
+function blockChunkKey(x, z) {
+  return `${Math.floor(x / CHUNK_SIZE)},${Math.floor(z / CHUNK_SIZE)}`;
+}
+
+function blockKey(x, y, z) {
+  return `${x},${y},${z}`;
 }
 
 function addToRoom(ws, room) {
@@ -35,13 +55,121 @@ function broadcastToRoom(room, payload, except = null) {
   }
 }
 
+function ensureRoomChunks(room) {
+  if (!roomChunks.has(room)) roomChunks.set(room, new Map());
+  return roomChunks.get(room);
+}
+
+function setRoomBlock(room, x, y, z, id) {
+  const chunks = ensureRoomChunks(room);
+  const cKey = blockChunkKey(x, z);
+  if (!chunks.has(cKey)) chunks.set(cKey, new Map());
+  const cMap = chunks.get(cKey);
+  const bKey = blockKey(x, y, z);
+
+  if (id <= 0) {
+    cMap.delete(bKey);
+    if (cMap.size === 0) chunks.delete(cKey);
+    if (chunks.size === 0) roomChunks.delete(room);
+    schedulePersist();
+    return;
+  }
+
+  cMap.set(bKey, { x, y, z, id });
+  schedulePersist();
+}
+
+function getChunkBlocks(room, cx, cz) {
+  const chunks = roomChunks.get(room);
+  if (!chunks) return [];
+  const cMap = chunks.get(`${cx},${cz}`);
+  if (!cMap) return [];
+  return Array.from(cMap.values());
+}
+
+function serializeWorldState() {
+  const out = { rooms: {} };
+  for (const [room, chunks] of roomChunks) {
+    const roomData = {};
+    for (const [cKey, blockMap] of chunks) {
+      roomData[cKey] = Array.from(blockMap.values());
+    }
+    out.rooms[room] = roomData;
+  }
+  return out;
+}
+
+function hydrateWorldState(raw) {
+  roomChunks.clear();
+  if (!raw || typeof raw !== "object" || !raw.rooms || typeof raw.rooms !== "object") return;
+
+  for (const [room, roomData] of Object.entries(raw.rooms)) {
+    if (!roomData || typeof roomData !== "object") continue;
+    const chunks = new Map();
+
+    for (const [cKey, blocks] of Object.entries(roomData)) {
+      if (!Array.isArray(blocks)) continue;
+      const blockMap = new Map();
+      for (const b of blocks) {
+        const x = Number(b?.x);
+        const y = Number(b?.y);
+        const z = Number(b?.z);
+        const id = Number(b?.id);
+        if (![x, y, z, id].every(Number.isFinite)) continue;
+        if (id <= 0) continue;
+        blockMap.set(blockKey(x, y, z), { x, y, z, id });
+      }
+      if (blockMap.size > 0) chunks.set(cKey, blockMap);
+    }
+
+    if (chunks.size > 0) roomChunks.set(room, chunks);
+  }
+}
+
+function schedulePersist() {
+  if (persistTimer) clearTimeout(persistTimer);
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    try {
+      if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+      fs.writeFileSync(WORLD_FILE, JSON.stringify(serializeWorldState()));
+    } catch (err) {
+      console.error("[VoxelVerse WS] failed to persist world state", err);
+    }
+  }, 250);
+}
+
+function loadPersistedWorld() {
+  try {
+    if (!fs.existsSync(WORLD_FILE)) return;
+    const raw = JSON.parse(fs.readFileSync(WORLD_FILE, "utf8"));
+    hydrateWorldState(raw);
+    console.log("[VoxelVerse WS] loaded persisted world state");
+  } catch (err) {
+    console.error("[VoxelVerse WS] failed to load persisted world state", err);
+  }
+}
+
+loadPersistedWorld();
+
 wss.on("connection", (ws) => {
   peers.set(ws, {
     id: `p${nextPeerId++}`,
     name: "Player",
     skin: "",
     room: "GLOBAL",
-    state: { x: 0, y: 80, z: 0, yaw: 0, pitch: 0 }
+    state: {
+      x: 0,
+      y: 80,
+      z: 0,
+      yaw: 0,
+      pitch: 0,
+      moving: false,
+      crouching: false,
+      punchAnim: 0,
+      placeAnim: 0,
+      heldBlock: 2
+    }
   });
   addToRoom(ws, "GLOBAL");
 
@@ -83,7 +211,12 @@ wss.on("connection", (ws) => {
             y: roomPeer.state.y,
             z: roomPeer.state.z,
             yaw: roomPeer.state.yaw,
-            pitch: roomPeer.state.pitch
+            pitch: roomPeer.state.pitch,
+            moving: !!roomPeer.state.moving,
+            crouching: !!roomPeer.state.crouching,
+            punchAnim: Number(roomPeer.state.punchAnim) || 0,
+            placeAnim: Number(roomPeer.state.placeAnim) || 0,
+            heldBlock: Number(roomPeer.state.heldBlock) || 2
           });
         }
       }
@@ -112,7 +245,17 @@ wss.on("connection", (ws) => {
       const id = Number(msg.id);
       if (![x, y, z, id].every(Number.isFinite)) return;
 
+      setRoomBlock(peer.room, x, y, z, id);
       broadcastToRoom(peer.room, { type: "BLOCK", x, y, z, id }, ws);
+      return;
+    }
+
+    if (msg.type === "CHUNK_REQUEST") {
+      const cx = Number(msg.cx);
+      const cz = Number(msg.cz);
+      if (![cx, cz].every(Number.isFinite)) return;
+      const blocks = getChunkBlocks(peer.room, cx, cz);
+      ws.send(JSON.stringify({ type: "CHUNK_DATA", cx, cz, blocks }));
       return;
     }
 
@@ -122,9 +265,27 @@ wss.on("connection", (ws) => {
       const z = Number(msg.z);
       const yaw = Number(msg.yaw);
       const pitch = Number(msg.pitch);
+      const moving = !!msg.moving;
+      const crouching = !!msg.crouching;
+      const punchAnim = Number(msg.punchAnim);
+      const placeAnim = Number(msg.placeAnim);
+      const heldBlock = Number(msg.heldBlock);
+
       if (![x, y, z, yaw, pitch].every(Number.isFinite)) return;
 
-      peer.state = { x, y, z, yaw, pitch };
+      peer.state = {
+        x,
+        y,
+        z,
+        yaw,
+        pitch,
+        moving,
+        crouching,
+        punchAnim: Number.isFinite(punchAnim) ? punchAnim : 0,
+        placeAnim: Number.isFinite(placeAnim) ? placeAnim : 0,
+        heldBlock: Number.isFinite(heldBlock) ? heldBlock : 2
+      };
+
       broadcastToRoom(peer.room, {
         type: "PLAYER_STATE",
         id: peer.id,
@@ -134,7 +295,12 @@ wss.on("connection", (ws) => {
         y,
         z,
         yaw,
-        pitch
+        pitch,
+        moving,
+        crouching,
+        punchAnim: peer.state.punchAnim,
+        placeAnim: peer.state.placeAnim,
+        heldBlock: peer.state.heldBlock
       }, ws);
     }
   });
@@ -155,6 +321,26 @@ const interval = setInterval(() => {
   }
 }, 30000);
 
-wss.on("close", () => clearInterval(interval));
+wss.on("close", () => {
+  clearInterval(interval);
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(WORLD_FILE, JSON.stringify(serializeWorldState()));
+  } catch (err) {
+    console.error("[VoxelVerse WS] failed final world save", err);
+  }
+});
+
+process.on("SIGINT", () => {
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(WORLD_FILE, JSON.stringify(serializeWorldState()));
+  } catch {}
+  process.exit(0);
+});
 
 console.log(`[VoxelVerse WS] listening on :${port}`);

@@ -721,6 +721,8 @@
       roomId: "",
       selfPeerId: null,
       remotePlayers: new Map(),
+      pendingRemoteBlocks: new Map(),
+      requestedChunkStates: new Set(),
       lastStateSentAt: 0,
       loopFrameId: null,
 
@@ -1166,6 +1168,8 @@
           meshChunk(x + 1, z);
           meshChunk(x, z - 1);
           meshChunk(x, z + 1);
+          applyPendingRemoteBlocksForChunk(x, z);
+          requestChunkState(x, z);
           return;
         }
 
@@ -1310,8 +1314,8 @@
       refreshHeldBlockVisuals();
     }
 
-    function createHeldBlockMesh(scale = 1) {
-      const color = BLOCK_COLORS[game.selectedBlock] ?? 0xffffff;
+    function createHeldBlockMesh(scale = 1, blockId = game.selectedBlock) {
+      const color = BLOCK_COLORS[blockId] ?? 0xffffff;
       const mat = new THREE.MeshLambertMaterial({ color });
       return new THREE.Mesh(new THREE.BoxGeometry(0.24 * scale, 0.24 * scale, 0.24 * scale), mat);
     }
@@ -1327,6 +1331,18 @@
       held.rotation.set(rot.x, rot.y, rot.z);
       rightArm.add(held);
       game[refKey] = held;
+    }
+
+    function attachRemoteHeldBlock(remote) {
+      if (!remote?.mesh) return;
+      if (remote.heldMesh?.parent) remote.heldMesh.parent.remove(remote.heldMesh);
+      const rightArm = remote.mesh.getObjectByName('RightArm');
+      if (!rightArm) return;
+      const held = createHeldBlockMesh(1, remote.heldBlock);
+      held.position.set(0.08, -0.38, 0.12);
+      held.rotation.set(0.15, 0.6, 0.1);
+      rightArm.add(held);
+      remote.heldMesh = held;
     }
 
     function refreshHeldBlockVisuals() {
@@ -2565,6 +2581,8 @@
         game.socket = null;
       }
       clearRemotePlayers();
+      game.pendingRemoteBlocks.clear();
+      game.requestedChunkStates.clear();
       game.selfPeerId = null;
       if (game.loopFrameId !== null) {
         cancelAnimationFrame(game.loopFrameId);
@@ -2726,6 +2744,47 @@
 
     // --- WORLD HELPERS ---
     function chunkKey(cx, cz) { return `${cx},${cz}`; }
+
+    function chunkCoordsForBlock(x, z) {
+      return { cx: Math.floor(x / CHUNK_SIZE), cz: Math.floor(z / CHUNK_SIZE) };
+    }
+
+    function queuePendingRemoteBlock(x, y, z, id) {
+      const { cx, cz } = chunkCoordsForBlock(x, z);
+      const cKey = chunkKey(cx, cz);
+      if (!game.pendingRemoteBlocks.has(cKey)) game.pendingRemoteBlocks.set(cKey, new Map());
+      game.pendingRemoteBlocks.get(cKey).set(`${x},${y},${z}`, { x, y, z, id });
+    }
+
+    function applyOrQueueRemoteBlock(x, y, z, id) {
+      const loc = getLocal(x, y, z);
+      if (!loc) {
+        queuePendingRemoteBlock(x, y, z, id);
+        return;
+      }
+      setBlock(x, y, z, id, { fromUser: false });
+    }
+
+    function applyPendingRemoteBlocksForChunk(cx, cz) {
+      const cKey = chunkKey(cx, cz);
+      const pending = game.pendingRemoteBlocks.get(cKey);
+      if (!pending || pending.size === 0) return;
+      for (const patch of pending.values()) {
+        const loc = getLocal(patch.x, patch.y, patch.z);
+        if (!loc) continue;
+        setBlock(patch.x, patch.y, patch.z, patch.id, { fromUser: false });
+      }
+      game.pendingRemoteBlocks.delete(cKey);
+    }
+
+    function requestChunkState(cx, cz) {
+      if (STATE.mode !== "MP") return;
+      if (!game.socket || game.socket.readyState !== WebSocket.OPEN) return;
+      const cKey = chunkKey(cx, cz);
+      if (game.requestedChunkStates.has(cKey)) return;
+      game.requestedChunkStates.add(cKey);
+      game.socket.send(JSON.stringify({ type: "CHUNK_REQUEST", cx, cz }));
+    }
 
     function getLocal(x, y, z) {
       const cx = Math.floor(x / CHUNK_SIZE);
@@ -3687,6 +3746,8 @@
         pose.rLegX = walkSwing;
       }
 
+      pose.headX = THREE.MathUtils.clamp(game.player.pitch * 0.6, -0.5, 0.5);
+
       if (isCrouching && onGround && !inWater) {
         pose.headX += 0.12;
         pose.lArmX += 0.18;
@@ -3754,6 +3815,17 @@
           remotePose.lArmX += 0.18;
           remotePose.rArmX += 0.18;
           remotePose.bodyX = 0.1;
+        }
+
+        const remotePunch = THREE.MathUtils.clamp(remote.punchAnim || 0, 0, 1);
+        const remotePlace = THREE.MathUtils.clamp(remote.placeAnim || 0, 0, 1);
+        if (remotePunch > 0) {
+          const punchWave = Math.sin((1 - remotePunch) * Math.PI);
+          remotePose.rArmX += 1.15 * punchWave;
+        }
+        if (remotePlace > 0) {
+          const placeWave = Math.sin((1 - remotePlace) * Math.PI);
+          remotePose.rArmX += 0.65 * placeWave;
         }
 
         applyAnimationToModel(remote.mesh, remotePose);
@@ -3943,6 +4015,7 @@
           const c = game.world[k];
           if (c.mesh) { game.scene.remove(c.mesh); c.mesh.geometry.dispose(); }
           if (c.waterMesh) { game.scene.remove(c.waterMesh); c.waterMesh.geometry.dispose(); }
+          game.requestedChunkStates.delete(k);
           delete game.world[k];
         }
       }
@@ -4090,7 +4163,11 @@
           pitch: 0
         },
         isMoving: false,
-        isCrouching: false
+        isCrouching: false,
+        punchAnim: 0,
+        placeAnim: 0,
+        heldBlock: BLOCKS.DIRT,
+        heldMesh: null
       };
       game.remotePlayers.set(id, remote);
       return remote;
@@ -4100,6 +4177,7 @@
       const remote = game.remotePlayers.get(peerId);
       if (!remote) return;
       game.scene.remove(remote.group || remote.mesh);
+      if (remote.heldMesh?.parent) remote.heldMesh.parent.remove(remote.heldMesh);
       if (remote.nameTag?.material) remote.nameTag.material.dispose();
       if (remote.nameTag?.texture) remote.nameTag.texture.dispose();
       if (remote.skinTexture && remote.skinTexture !== game.skinTexture) remote.skinTexture.dispose();
@@ -4139,6 +4217,14 @@
       remote.target.pitch = state.pitch;
       remote.isMoving = !!state.moving;
       remote.isCrouching = !!state.crouching;
+      remote.punchAnim = isFiniteNumber(state.punchAnim) ? state.punchAnim : 0;
+      remote.placeAnim = isFiniteNumber(state.placeAnim) ? state.placeAnim : 0;
+
+      const nextHeld = isFiniteNumber(state.heldBlock) ? state.heldBlock : remote.heldBlock;
+      if (nextHeld !== remote.heldBlock || !remote.heldMesh) {
+        remote.heldBlock = nextHeld;
+        attachRemoteHeldBlock(remote);
+      }
     }
 
     function clearRemotePlayers() {
@@ -4157,7 +4243,12 @@
         y: game.player.pos.y,
         z: game.player.pos.z,
         yaw: game.player.yaw,
-        pitch: game.player.pitch
+        pitch: game.player.pitch,
+        moving: !!game.player._moving,
+        crouching: !!game.player.crouchToggled,
+        punchAnim: game.player.punchAnim,
+        placeAnim: game.player.placeAnim,
+        heldBlock: game.selectedBlock
       }));
     }
 
@@ -4169,6 +4260,8 @@
       }
       game.selfPeerId = null;
       clearRemotePlayers();
+      game.pendingRemoteBlocks.clear();
+      game.requestedChunkStates.clear();
       game.lastStateSentAt = 0;
       game.socket = new WebSocket(endpoint);
       game.socket.onopen = () => {
@@ -4178,7 +4271,7 @@
       game.socket.onmessage = (e) => {
         const msg = JSON.parse(e.data);
         if (msg.type === "CHAT") addChat(`[${msg.name}]: ${msg.text}`);
-        if (msg.type === "BLOCK") setBlock(msg.x, msg.y, msg.z, msg.id);
+        if (msg.type === "BLOCK") applyOrQueueRemoteBlock(msg.x, msg.y, msg.z, msg.id);
         if (msg.type === "SELF") game.selfPeerId = msg.id || null;
         if (msg.type === "PLAYER_JOIN") {
           createRemotePlayer(msg.id, msg.name, msg.skin);
@@ -4192,6 +4285,9 @@
           }
         }
         if (msg.type === "PLAYER_STATE") updateRemotePlayerState(msg.id, msg);
+        if (msg.type === "CHUNK_DATA" && Array.isArray(msg.blocks)) {
+          for (const b of msg.blocks) applyOrQueueRemoteBlock(b.x, b.y, b.z, b.id);
+        }
         if (msg.type === "PLAYER_LEAVE") removeRemotePlayer(msg.id);
       };
       game.socket.onerror = () => { document.getElementById("disconnect-msg").textContent = "Could not connect. Verify your wss:// realtime server is running and public."; };
@@ -4199,6 +4295,8 @@
         addChat("Disconnected.");
         document.getElementById("disconnect-msg").textContent = "Disconnected from server.";
         clearRemotePlayers();
+        game.pendingRemoteBlocks.clear();
+        game.requestedChunkStates.clear();
         game.selfPeerId = null;
       };
     }
