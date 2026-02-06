@@ -1310,23 +1310,54 @@
       refreshHeldBlockVisuals();
     }
 
-    function createHeldBlockMesh(scale = 1) {
-      const color = BLOCK_COLORS[game.selectedBlock] ?? 0xffffff;
+    function createHeldBlockMesh(blockId = game.selectedBlock, scale = 1) {
+      const color = BLOCK_COLORS[blockId] ?? 0xffffff;
       const mat = new THREE.MeshLambertMaterial({ color });
       return new THREE.Mesh(new THREE.BoxGeometry(0.24 * scale, 0.24 * scale, 0.24 * scale), mat);
     }
 
-    function attachHeldBlockToModel(model, refKey, scale, pos, rot) {
+    function removeHeldBlockFromOwner(owner, refKey) {
+      const held = owner?.[refKey];
+      if (!held) return;
+      if (held.parent) held.parent.remove(held);
+      held.geometry?.dispose?.();
+      held.material?.dispose?.();
+      owner[refKey] = null;
+    }
+
+    function attachHeldBlockToModel(model, refKey, scale, pos, rot, blockId = game.selectedBlock, owner = game) {
       if (!model) return;
-      if (game[refKey]?.parent) game[refKey].parent.remove(game[refKey]);
+      removeHeldBlockFromOwner(owner, refKey);
       const rightArm = model.getObjectByName('RightArm');
       if (!rightArm) return;
+      if (!isFiniteNumber(blockId) || blockId <= 0) return;
 
-      const held = createHeldBlockMesh(scale);
+      const held = createHeldBlockMesh(blockId, scale);
       held.position.set(pos.x, pos.y, pos.z);
       held.rotation.set(rot.x, rot.y, rot.z);
       rightArm.add(held);
-      game[refKey] = held;
+      owner[refKey] = held;
+    }
+
+    function updateRemoteHeldBlockVisual(remote) {
+      if (!remote?.mesh) return;
+      const nextBlock = Number(remote.heldBlock);
+      if (!isFiniteNumber(nextBlock) || nextBlock <= 0 || !(nextBlock in BLOCK_COLORS)) {
+        remote.heldBlockAttachedId = 0;
+        removeHeldBlockFromOwner(remote, 'heldBlockMesh');
+        return;
+      }
+      if (remote.heldBlockAttachedId === nextBlock && remote.heldBlockMesh?.parent) return;
+      attachHeldBlockToModel(
+        remote.mesh,
+        'heldBlockMesh',
+        1.0,
+        { x: 0.08, y: -0.38, z: 0.12 },
+        { x: 0.15, y: 0.6, z: 0.1 },
+        nextBlock,
+        remote
+      );
+      remote.heldBlockAttachedId = nextBlock;
     }
 
     function refreshHeldBlockVisuals() {
@@ -3757,6 +3788,15 @@
           remotePose.bodyX = 0.1;
         }
 
+        if (remote.punchAnim > 0) {
+          const remotePunchWave = Math.sin((1 - remote.punchAnim) * Math.PI);
+          remotePose.rArmX += 1.15 * remotePunchWave;
+        }
+        if (remote.placeAnim > 0) {
+          const remotePlaceWave = Math.sin((1 - remote.placeAnim) * Math.PI);
+          remotePose.rArmX += 0.65 * remotePlaceWave;
+        }
+
         applyAnimationToModel(remote.mesh, remotePose);
         remote.mesh.rotation.x += (remotePose.bodyX - remote.mesh.rotation.x) * 0.25;
       }
@@ -4091,7 +4131,12 @@
           pitch: 0
         },
         isMoving: false,
-        isCrouching: false
+        isCrouching: false,
+        punchAnim: 0,
+        placeAnim: 0,
+        heldBlock: 0,
+        heldBlockAttachedId: 0,
+        heldBlockMesh: null
       };
       game.remotePlayers.set(id, remote);
       return remote;
@@ -4104,6 +4149,7 @@
       if (remote.nameTag?.material) remote.nameTag.material.dispose();
       if (remote.nameTag?.texture) remote.nameTag.texture.dispose();
       if (remote.skinTexture && remote.skinTexture !== game.skinTexture) remote.skinTexture.dispose();
+      removeHeldBlockFromOwner(remote, 'heldBlockMesh');
       game.remotePlayers.delete(peerId);
     }
 
@@ -4140,6 +4186,10 @@
       remote.target.pitch = state.pitch;
       remote.isMoving = !!state.moving;
       remote.isCrouching = !!state.crouching;
+      remote.punchAnim = THREE.MathUtils.clamp(Number(state.punchAnim) || 0, 0, 1);
+      remote.placeAnim = THREE.MathUtils.clamp(Number(state.placeAnim) || 0, 0, 1);
+      remote.heldBlock = Number(state.heldBlock) || 0;
+      updateRemoteHeldBlockVisual(remote);
     }
 
     function clearRemotePlayers() {
@@ -4158,7 +4208,12 @@
         y: game.player.pos.y,
         z: game.player.pos.z,
         yaw: game.player.yaw,
-        pitch: game.player.pitch
+        pitch: game.player.pitch,
+        punchAnim: game.player.punchAnim,
+        placeAnim: game.player.placeAnim,
+        heldBlock: game.selectedBlock,
+        moving: game.player._moving,
+        crouching: game.player.crouchToggled
       }));
     }
 
