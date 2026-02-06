@@ -229,6 +229,18 @@
     #chat-input { pointer-events: auto; background: rgba(0,0,0,0.5); border: 1px solid #aaa; color: white; padding: 5px; font-family: inherit; display: none; }
     .chat-msg { background: rgba(0,0,0,0.3); padding: 2px 5px; margin-top: 2px; border-radius: 2px; width: fit-content; }
 
+    #hud-player-preview {
+      position: absolute;
+      right: 12px;
+      bottom: 90px;
+      width: 150px;
+      height: 220px;
+      border: 2px solid rgba(255,255,255,0.45);
+      background: rgba(0,0,0,0.2);
+      pointer-events: none;
+      display: none;
+    }
+
     #disconnect-msg { color: red; margin-top: 10px; }
   </style>
 
@@ -260,6 +272,7 @@
       <div id="chat-history"></div>
       <input type="text" id="chat-input" placeholder="Press T to chat..." />
     </div>
+    <div id="hud-player-preview"></div>
     <div id="hotbar"></div>
   </div>
 
@@ -708,7 +721,7 @@
       selectedBlock: BLOCKS.DIRT,
 
       skinScene: null, skinCamera: null, skinRenderer: null, skinMesh: null,
-      dollMesh: null,
+      hudSkinScene: null, hudSkinCamera: null, hudSkinRenderer: null, hudSkinMesh: null,
       
       skinCanvas: null,
       skinCtx: null,
@@ -2362,6 +2375,14 @@
             game.camera.aspect = window.innerWidth / window.innerHeight;
             game.camera.updateProjectionMatrix();
         }
+        if (game.hudSkinRenderer && game.hudSkinCamera) {
+            const container = document.getElementById('hud-player-preview');
+            const w = container?.clientWidth || 150;
+            const h = container?.clientHeight || 220;
+            game.hudSkinRenderer.setSize(w, h);
+            game.hudSkinCamera.aspect = w / h;
+            game.hudSkinCamera.updateProjectionMatrix();
+        }
     });
 
     // --- START GAME ---
@@ -2370,6 +2391,8 @@
 
       document.getElementById("main-menu").classList.add("hidden");
       document.getElementById("ui-layer").classList.remove("hidden");
+      const hudPreview = document.getElementById("hud-player-preview");
+      if (hudPreview) hudPreview.style.display = "block";
 
       STATE.mode = mode;
       STATE.isRunning = true;
@@ -2433,10 +2456,7 @@
       game.blockSelectMesh = new THREE.LineSegments(new THREE.EdgesGeometry(geo), mat);
       game.scene.add(game.blockSelectMesh);
 
-      if (game.dollMesh) game.scene.remove(game.dollMesh);
-      game.dollMesh = buildPlayerModel(game.skinTexture);
-      game.dollMesh.visible = false;
-      game.scene.add(game.dollMesh);
+      ensureHudPlayerPreview();
 
       if (mode === "MP") connectServer();
       requestAnimationFrame(loop);
@@ -3295,76 +3315,57 @@
       }
     }
 
-    function updatePlayerAnimation(dt) {
-      if (!game.skinMesh) return;
+    function ensureHudPlayerPreview() {
+      if (game.hudSkinRenderer || !game.skinTexture) return;
+      const container = document.getElementById('hud-player-preview');
+      if (!container) return;
 
-      const isMoving = game.player._moving;
-      const inWater = isPlayerInWater();
-      const isCrouching = game.player.crouchToggled;
-      const onGround = game.player.onGround;
-      const isAirborne = !onGround && !inWater;
+      game.hudSkinScene = new THREE.Scene();
+      game.hudSkinCamera = new THREE.PerspectiveCamera(45, 150 / 220, 0.1, 100);
+      game.hudSkinCamera.position.set(0, 0.8, 3.4);
+      game.hudSkinCamera.lookAt(0, 0.6, 0);
 
-      const head = game.skinMesh.getObjectByName('Head');
-      const headOver = game.skinMesh.getObjectByName('HeadOverlay');
-      const lArm = game.skinMesh.getObjectByName('LeftArm');
-      const lArmOver = game.skinMesh.getObjectByName('LeftArmOverlay');
-      const rArm = game.skinMesh.getObjectByName('RightArm');
-      const rArmOver = game.skinMesh.getObjectByName('RightArmOverlay');
-      const lLeg = game.skinMesh.getObjectByName('LeftLeg');
-      const lLegOver = game.skinMesh.getObjectByName('LeftLegOverlay');
-      const rLeg = game.skinMesh.getObjectByName('RightLeg');
-      const rLegOver = game.skinMesh.getObjectByName('RightLegOverlay');
+      game.hudSkinRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+      game.hudSkinRenderer.setPixelRatio(window.devicePixelRatio);
+      game.hudSkinRenderer.setSize(container.clientWidth || 150, container.clientHeight || 220);
+      container.appendChild(game.hudSkinRenderer.domElement);
+
+      game.hudSkinScene.add(new THREE.AmbientLight(0xffffff, 1.1));
+      const dir = new THREE.DirectionalLight(0xffffff, 0.5);
+      dir.position.set(2, 4, 3);
+      game.hudSkinScene.add(dir);
+
+      game.hudSkinMesh = buildPlayerModel(game.skinTexture);
+      game.hudSkinMesh.rotation.y = -0.35;
+      game.hudSkinScene.add(game.hudSkinMesh);
+    }
+
+    function renderHudPlayerPreview() {
+      if (!game.hudSkinRenderer || !game.hudSkinCamera || !game.hudSkinScene || !game.hudSkinMesh) return;
+      const targetYaw = -game.player.yaw;
+      game.hudSkinMesh.rotation.y += (targetYaw - game.hudSkinMesh.rotation.y) * 0.15;
+      game.hudSkinRenderer.render(game.hudSkinScene, game.hudSkinCamera);
+    }
+
+    function applyAnimationToModel(model, pose) {
+      if (!model) return;
+      const head = model.getObjectByName('Head');
+      const headOver = model.getObjectByName('HeadOverlay');
+      const lArm = model.getObjectByName('LeftArm');
+      const lArmOver = model.getObjectByName('LeftArmOverlay');
+      const rArm = model.getObjectByName('RightArm');
+      const rArmOver = model.getObjectByName('RightArmOverlay');
+      const lLeg = model.getObjectByName('LeftLeg');
+      const lLegOver = model.getObjectByName('LeftLegOverlay');
+      const rLeg = model.getObjectByName('RightLeg');
+      const rLegOver = model.getObjectByName('RightLegOverlay');
       if (!head || !headOver || !lArm || !lArmOver || !rArm || !rArmOver || !lLeg || !lLegOver || !rLeg || !rLegOver) return;
 
-      const walkSpeed = isCrouching ? 7 : 10;
-      const walkAmp = isCrouching ? 0.28 : 0.6;
-      const walkSwing = Math.sin(game.timeSec * walkSpeed) * walkAmp;
-
-      let lArmX = 0;
-      let rArmX = 0;
-      let lLegX = 0;
-      let rLegX = 0;
-      let headX = 0;
-
-      if (isAirborne) {
-        const fallBlend = THREE.MathUtils.clamp((-game.player.vel.y + 1.2) / 3.2, 0, 1);
-
-        const ascArm = -0.4;
-        const fallArm = 0.2;
-        lArmX = THREE.MathUtils.lerp(ascArm, fallArm, fallBlend);
-        rArmX = THREE.MathUtils.lerp(ascArm, fallArm, fallBlend);
-
-        const ascL = 0.35;
-        const ascR = 0.2;
-        const fallL = -0.18;
-        const fallR = -0.08;
-        lLegX = THREE.MathUtils.lerp(ascL, fallL, fallBlend);
-        rLegX = THREE.MathUtils.lerp(ascR, fallR, fallBlend);
-
-        headX = THREE.MathUtils.lerp(-0.05, 0.12, fallBlend);
-      } else if (inWater) {
-        lArmX = walkSwing * 0.55;
-        rArmX = -walkSwing * 0.55;
-        lLegX = -walkSwing * 0.35;
-        rLegX = walkSwing * 0.35;
-      } else if (isMoving) {
-        lArmX = walkSwing;
-        rArmX = -walkSwing;
-        lLegX = -walkSwing;
-        rLegX = walkSwing;
-      }
-
-      if (isCrouching && onGround && !inWater) {
-        headX += 0.12;
-        lArmX += 0.18;
-        rArmX += 0.18;
-      }
-
-      lArm.rotation.x = lArmX;
-      rArm.rotation.x = rArmX;
-      lLeg.rotation.x = lLegX;
-      rLeg.rotation.x = rLegX;
-      head.rotation.x = headX;
+      lArm.rotation.x = pose.lArmX;
+      rArm.rotation.x = pose.rArmX;
+      lLeg.rotation.x = pose.lLegX;
+      rLeg.rotation.x = pose.rLegX;
+      head.rotation.x = pose.headX;
 
       lArmOver.rotation.copy(lArm.rotation);
       rArmOver.rotation.copy(rArm.rotation);
@@ -3377,6 +3378,63 @@
       lLegOver.position.copy(lLeg.position);
       rLegOver.position.copy(rLeg.position);
       headOver.position.copy(head.position);
+    }
+
+    function updatePlayerAnimation(dt) {
+      const isMoving = game.player._moving;
+      const inWater = isPlayerInWater();
+      const isCrouching = game.player.crouchToggled;
+      const onGround = game.player.onGround;
+      const isAirborne = !onGround && !inWater;
+
+      const walkSpeed = isCrouching ? 7 : 10;
+      const walkAmp = isCrouching ? 0.28 : 0.6;
+      const walkSwing = Math.sin(game.timeSec * walkSpeed) * walkAmp;
+
+      const pose = {
+        lArmX: 0,
+        rArmX: 0,
+        lLegX: 0,
+        rLegX: 0,
+        headX: 0
+      };
+
+      if (isAirborne) {
+        const fallBlend = THREE.MathUtils.clamp((-game.player.vel.y + 1.2) / 3.2, 0, 1);
+
+        const ascArm = -0.4;
+        const fallArm = 0.2;
+        pose.lArmX = THREE.MathUtils.lerp(ascArm, fallArm, fallBlend);
+        pose.rArmX = THREE.MathUtils.lerp(ascArm, fallArm, fallBlend);
+
+        const ascL = 0.35;
+        const ascR = 0.2;
+        const fallL = -0.18;
+        const fallR = -0.08;
+        pose.lLegX = THREE.MathUtils.lerp(ascL, fallL, fallBlend);
+        pose.rLegX = THREE.MathUtils.lerp(ascR, fallR, fallBlend);
+
+        pose.headX = THREE.MathUtils.lerp(-0.05, 0.12, fallBlend);
+      } else if (inWater) {
+        pose.lArmX = walkSwing * 0.55;
+        pose.rArmX = -walkSwing * 0.55;
+        pose.lLegX = -walkSwing * 0.35;
+        pose.rLegX = walkSwing * 0.35;
+      } else if (isMoving) {
+        pose.lArmX = walkSwing;
+        pose.rArmX = -walkSwing;
+        pose.lLegX = -walkSwing;
+        pose.rLegX = walkSwing;
+      }
+
+      if (isCrouching && onGround && !inWater) {
+        pose.headX += 0.12;
+        pose.lArmX += 0.18;
+        pose.rArmX += 0.18;
+      }
+
+      applyAnimationToModel(game.hudSkinMesh, pose);
+      applyAnimationToModel(game.skinMesh, pose);
     }
 
     function raycastBlock() {
@@ -3477,77 +3535,6 @@
 
       updatePhysics(dt);
       updatePlayerAnimation(dt);
-
-      if (game.skinMesh && game.dollMesh) {
-        const pParts = {
-          mesh: game.skinMesh,
-          head: game.skinMesh.getObjectByName('Head'),
-          headOver: game.skinMesh.getObjectByName('HeadOverlay'),
-          body: game.skinMesh.getObjectByName('Body'),
-          bodyOver: game.skinMesh.getObjectByName('BodyOverlay'),
-          lArm: game.skinMesh.getObjectByName('LeftArm'),
-          lArmOver: game.skinMesh.getObjectByName('LeftArmOverlay'),
-          rArm: game.skinMesh.getObjectByName('RightArm'),
-          rArmOver: game.skinMesh.getObjectByName('RightArmOverlay'),
-          lLeg: game.skinMesh.getObjectByName('LeftLeg'),
-          lLegOver: game.skinMesh.getObjectByName('LeftLegOverlay'),
-          rLeg: game.skinMesh.getObjectByName('RightLeg'),
-          rLegOver: game.skinMesh.getObjectByName('RightLegOverlay')
-        };
-
-        const dParts = {
-          mesh: game.dollMesh,
-          head: game.dollMesh.getObjectByName('Head'),
-          headOver: game.dollMesh.getObjectByName('HeadOverlay'),
-          body: game.dollMesh.getObjectByName('Body'),
-          bodyOver: game.dollMesh.getObjectByName('BodyOverlay'),
-          lArm: game.dollMesh.getObjectByName('LeftArm'),
-          lArmOver: game.dollMesh.getObjectByName('LeftArmOverlay'),
-          rArm: game.dollMesh.getObjectByName('RightArm'),
-          rArmOver: game.dollMesh.getObjectByName('RightArmOverlay'),
-          lLeg: game.dollMesh.getObjectByName('LeftLeg'),
-          lLegOver: game.dollMesh.getObjectByName('LeftLegOverlay'),
-          rLeg: game.dollMesh.getObjectByName('RightLeg'),
-          rLegOver: game.dollMesh.getObjectByName('RightLegOverlay')
-        };
-
-        if (pParts.head && pParts.headOver && pParts.body && pParts.bodyOver && pParts.lArm && pParts.lArmOver && pParts.rArm && pParts.rArmOver && pParts.lLeg && pParts.lLegOver && pParts.rLeg && pParts.rLegOver && dParts.head && dParts.headOver && dParts.body && dParts.bodyOver && dParts.lArm && dParts.lArmOver && dParts.rArm && dParts.rArmOver && dParts.lLeg && dParts.lLegOver && dParts.rLeg && dParts.rLegOver) {
-          dParts.mesh.rotation.x = pParts.mesh.rotation.x;
-          dParts.mesh.rotation.z = pParts.mesh.rotation.z;
-
-          dParts.head.rotation.copy(pParts.head.rotation);
-          dParts.headOver.rotation.copy(pParts.headOver.rotation);
-          dParts.body.rotation.copy(pParts.body.rotation);
-          dParts.bodyOver.rotation.copy(pParts.bodyOver.rotation);
-
-          dParts.lArm.rotation.copy(pParts.lArm.rotation);
-          dParts.lArmOver.rotation.copy(pParts.lArmOver.rotation);
-          dParts.rArm.rotation.copy(pParts.rArm.rotation);
-          dParts.rArmOver.rotation.copy(pParts.rArmOver.rotation);
-          dParts.lLeg.rotation.copy(pParts.lLeg.rotation);
-          dParts.lLegOver.rotation.copy(pParts.lLegOver.rotation);
-          dParts.rLeg.rotation.copy(pParts.rLeg.rotation);
-          dParts.rLegOver.rotation.copy(pParts.rLegOver.rotation);
-
-          dParts.head.position.copy(pParts.head.position);
-          dParts.headOver.position.copy(pParts.headOver.position);
-          dParts.body.position.copy(pParts.body.position);
-          dParts.bodyOver.position.copy(pParts.bodyOver.position);
-          dParts.lArmOver.position.copy(pParts.lArmOver.position);
-          dParts.rArmOver.position.copy(pParts.rArmOver.position);
-          dParts.lLegOver.position.copy(pParts.lLegOver.position);
-          dParts.rLegOver.position.copy(pParts.rLegOver.position);
-
-          dParts.head.visible = true;
-          dParts.headOver.visible = true;
-        }
-
-        const crouchOffsetY = game.player.crouchToggled ? -0.3 : 0;
-        game.dollMesh.position.set(game.player.pos.x, game.player.pos.y + crouchOffsetY, game.player.pos.z);
-        game.dollMesh.rotation.y = -game.player.yaw;
-        game.dollMesh.visible = !!game.player.crouchToggled;
-      }
-
       updateChunks();
 
       // animated moving water
@@ -3583,6 +3570,7 @@
       AUDIO.setUnderwater(underwater);
 
       game.renderer.render(game.scene, game.camera);
+      renderHudPlayerPreview();
 
       document.getElementById("debug-overlay").innerHTML = `
         FPS: ${Math.round(1 / dt)}<br>
