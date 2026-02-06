@@ -1,27 +1,23 @@
-app = "voxelverse-realtime"
-primary_region = "iad"
+# fly.toml app configuration file generated for voxelverse on 2026-02-06T05:43:33Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'voxelverse'
+primary_region = 'lhr'
 
 [build]
 
-[env]
-  PORT = "8080"
-
-[[services]]
+[http_service]
   internal_port = 8080
-  protocol = "tcp"
-  auto_stop_machines = "stop"
+  force_https = true
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
-  processes = ["app"]
+  processes = ['app']
 
-  [[services.ports]]
-    port = 80
-    handlers = ["http"]
-
-  [[services.ports]]
-    port = 443
-    handlers = ["tls", "http"]
-
-  [[services.tcp_checks]]
-    interval = "15s"
-    timeout = "2s"
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 256
