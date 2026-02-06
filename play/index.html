@@ -45,17 +45,6 @@
       height: 100%;
       object-fit: cover;
     }
-    #startup-unmute {
-      position: absolute;
-      bottom: 20%;
-      background: rgba(0,0,0,0.5);
-      color: white;
-      border: 1px solid white;
-      padding: 10px 20px;
-      cursor: pointer;
-      display: none; /* Shown if autoplay blocks */
-      z-index: 5001;
-    }
 
     /* --- MAIN MENU STYLES --- */
     #main-menu {
@@ -210,7 +199,6 @@
       width: 200px;
       height: 300px;
       margin-bottom: 10px;
-      background: #000;
     }
 
     /* HUD */
@@ -242,18 +230,6 @@
     .chat-msg { background: rgba(0,0,0,0.3); padding: 2px 5px; margin-top: 2px; border-radius: 2px; width: fit-content; }
 
     #disconnect-msg { color: red; margin-top: 10px; }
-
-    /* PAPER DOLL PREVIEW (Crouching) */
-    #paper-doll-container {
-      position: absolute;
-      bottom: 20px;
-      left: 20px;
-      width: 120px;
-      height: 180px;
-      pointer-events: none;
-      z-index: 1000;
-      display: none; /* Hidden by default */
-    }
   </style>
 
   <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"></script>
@@ -273,18 +249,13 @@
 
   <!-- Startup Screen -->
   <div id="startup-screen">
-    <video id="startup-video" src="https://github.com/bellasaunders25/VoxelVerse-Assets/raw/refs/heads/main/mai_vqe-1770324961000.mp4" playsinline></video>
-    <button id="startup-unmute">Tap to Start Audio</button>
+    <video id="startup-video" src="https://github.com/bellasaunders25/VoxelVerse-Assets/raw/refs/heads/main/mai_vqe-1770324961000.mp4" autoplay playsinline></video>
   </div>
 
   <div id="ui-layer">
     <div id="debug-overlay">FPS: 0<br>Chunks: 0<br>Pos: 0, 0, 0</div>
     <div id="crosshair"></div>
     <div id="underwater-overlay"></div>
-    
-    <!-- PAPER DOLL PREVIEW -->
-    <div id="paper-doll-container"></div>
-
     <div id="chat-container">
       <div id="chat-history"></div>
       <input type="text" id="chat-input" placeholder="Press T to chat..." />
@@ -722,12 +693,8 @@
         width: 0.6, height: 1.8,
         eyeHeight: 1.6, // Added for smoothing
         _moving: false,
-        crouchToggled: false,
-        mesh: null, // In-game player mesh
-        walkPhase: 0
+        crouchToggled: false
       },
-      
-      dollScene: null, dollCamera: null, dollRenderer: null, // For Crouch Preview
 
       lastTime: 0,
       timeSec: 0,
@@ -1197,34 +1164,6 @@
       // --- STARTUP LOGIC ---
       const vid = document.getElementById("startup-video");
       const screen = document.getElementById("startup-screen");
-      
-      // Attempt to boost volume using Web Audio API
-      try {
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        if (AudioContext) {
-            const audioCtx = new AudioContext();
-            const source = audioCtx.createMediaElementSource(vid);
-            const gainNode = audioCtx.createGain();
-            
-            // Set gain to 1.5 (150%)
-            gainNode.gain.value = 1.5;
-            
-            source.connect(gainNode);
-            gainNode.connect(audioCtx.destination);
-            
-            // Resume context on user interaction if needed
-            document.addEventListener('click', () => {
-                if (audioCtx.state === 'suspended') audioCtx.resume();
-            }, { once: true });
-        } else {
-             // Fallback
-             vid.volume = 1.0;
-        }
-      } catch (e) {
-          console.warn("Web Audio API not supported or error:", e);
-          vid.volume = 1.0;
-      }
-
 
       // Function to handle video end and reveal menu
       const finishIntro = () => {
@@ -1237,27 +1176,15 @@
       vid.onended = finishIntro;
       // Fallback in case autoplay is blocked or error
       vid.onerror = finishIntro;
-      
-      // Try to play
-      vid.play().catch(e => {
-         // If autoplay blocked, show button
-         document.getElementById('startup-unmute').style.display = 'block';
-      });
-      
-      document.getElementById('startup-unmute').onclick = () => {
-          vid.play();
-          document.getElementById('startup-unmute').style.display = 'none';
-      };
-
-      // Safety timeout
+      // Safety timeout: if video is stuck or very long, force menu after 8s
       setTimeout(() => {
-         if (screen.style.display !== "none" && vid.paused) finishIntro();
-      }, 12000); 
+         if (screen.style.display !== "none") finishIntro();
+      }, 12000); // Video is ~10s so 12s is safe
 
       setupUISounds();
       setupUI();
       
-      // Initialize the skin editor
+      // Initialize the skin editor (this creates the canvas texture and 3D preview)
       setupSkinEditor(); 
       
       generateTextures();
@@ -1265,7 +1192,7 @@
       // Mouse Move for Menu
       document.addEventListener("mousemove", onMouseMove);
 
-      // Stop browser context menu
+      // Stop browser context menu on right click (so placing blocks feels normal)
       document.addEventListener("contextmenu", (e) => e.preventDefault());
     }
 
@@ -1845,16 +1772,10 @@
     function buildPlayerModel(skinTexture) {
       const group = new THREE.Group();
       
-      // Material A: Opaque Body (Never Culled, DoubleSided)
-      const matBody = new THREE.MeshBasicMaterial({ 
+      // FIX: Add alphaTest to handle transparent pixels in the skin texture (overlay layer gaps)
+      const material = new THREE.MeshBasicMaterial({ 
          map: skinTexture, 
-         side: THREE.DoubleSide
-      });
-      
-      // Material B: Transparent Overlay (Culled by AlphaTest)
-      const matOverlay = new THREE.MeshBasicMaterial({ 
-         map: skinTexture, 
-         side: THREE.DoubleSide,
+         side: THREE.DoubleSide, // Double sided as requested for jacket interiors etc.
          transparent: true,
          alphaTest: 0.5 
       });
@@ -1874,6 +1795,7 @@
           uvAttr.setXY(idx + 3, u1, v0);
         };
 
+        // --- FIX: Use PIXEL UNITS for UV mapping, not world units ---
         const texW = w * 16;
         const texH = h * 16;
         const texD = d * 16;
@@ -1892,10 +1814,10 @@
         // Back
         setUV(5, u + texD + texW + texD, v + texD, u + texD + texW + texD + texW, v + texD + texH);
 
-        // Use appropriate material
-        const mesh = new THREE.Mesh(geo, overlay ? matOverlay : matBody);
+        const mesh = new THREE.Mesh(geo, material);
         mesh.position.set(x, y, z);
         
+        // Ensure overlay renders after base to prevent z-fighting if alphaTest misses edge cases
         if (overlay) { 
            mesh.scale.set(1.05, 1.05, 1.05); 
            mesh.renderOrder = 1; 
@@ -1957,7 +1879,7 @@
       
       // GRID OVERLAYS (Hidden by default)
       if (game.gridTexture) {
-         const gridMat = new THREE.MeshBasicMaterial({ map: game.gridTexture, side: THREE.DoubleSide, transparent: true, opacity: 0.4, depthTest: false, depthWrite: false });
+         const gridMat = new THREE.MeshBasicMaterial({ map: game.gridTexture, side: THREE.FrontSide, transparent: true, opacity: 0.4, depthTest: false, depthWrite: false });
          
          const addGrid = (x, y, z, w, h, d, u, v) => {
              const geo = new THREE.BoxGeometry(w, h, d);
@@ -1983,7 +1905,7 @@
              
              const mesh = new THREE.Mesh(geo, gridMat);
              mesh.position.set(x, y, z);
-             mesh.scale.set(1.06, 1.06, 1.06); 
+             mesh.scale.set(1.06, 1.06, 1.06); // Slightly bigger than overlay
              mesh.visible = false; 
              mesh.renderOrder = 2;
              mesh.userData.isGrid = true;
@@ -2000,25 +1922,9 @@
       }
       
       // Add Grid Helper to ensure scene visibility
-      const axesHelper = new THREE.AxesHelper(1);
-      axesHelper.position.y = -1;
-      group.add(axesHelper);
-
-      // Store references for easy animation access
-      group.userData.parts = {
-          head: group.getObjectByName('Head'),
-          headOver: group.getObjectByName('HeadOverlay'),
-          body: group.getObjectByName('Body'),
-          bodyOver: group.getObjectByName('BodyOverlay'),
-          rArm: group.getObjectByName('RightArm'),
-          rArmOver: group.getObjectByName('RightArmOverlay'),
-          lArm: group.getObjectByName('LeftArm'),
-          lArmOver: group.getObjectByName('LeftArmOverlay'),
-          rLeg: group.getObjectByName('RightLeg'),
-          rLegOver: group.getObjectByName('RightLegOverlay'),
-          lLeg: group.getObjectByName('LeftLeg'),
-          lLegOver: group.getObjectByName('LeftLegOverlay'),
-      };
+      const gridHelper = new THREE.GridHelper(10, 10, 0x444444, 0x222222);
+      gridHelper.position.y = -1;
+      group.add(gridHelper);
 
       return group;
     }
@@ -2031,7 +1937,7 @@
       
       // Draw pixel grid
       ctx.strokeStyle = "rgba(0,0,0,0.5)";
-      ctx.lineWidth = 0.5; 
+      ctx.lineWidth = 0.2; // Very thin
       ctx.beginPath();
       // Vertical
       for(let i=0; i<=64; i++) {
@@ -2094,12 +2000,9 @@
       game.skinTexture.needsUpdate = true; // Ensure initial update
 
       game.skinScene = new THREE.Scene();
-      // Set background color for debugging visibility
-      game.skinScene.background = new THREE.Color(0x333333); 
-      
       game.skinCamera = new THREE.PerspectiveCamera(50, 200 / 300, 0.1, 100);
       game.skinCamera.position.set(0, 0.8, 3.2); 
-      game.skinCamera.lookAt(0, 0.9, 0); 
+      game.skinCamera.lookAt(0, 0.6, 0); 
 
       game.skinRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
       game.skinRenderer.setSize(200, 300);
@@ -2332,13 +2235,7 @@
       // Track Space Key for Panning state
       window.addEventListener("keydown", (e) => {
           if (e.code === "Space") keys.space = 1;
-          
-          // Q for Perspective Toggle
-          if (e.code === "KeyQ" && STATE.mode !== "MENU") {
-             game.camera.thirdPerson = !game.camera.thirdPerson;
-          }
       });
-      
       window.addEventListener("keyup", (e) => {
           if (e.code === "Space") {
               keys.space = 0;
@@ -2368,12 +2265,26 @@
              const dx = e.clientX - game.editor.lastX;
              const dy = e.clientY - game.editor.lastY;
              
+             // Move Target relative to camera up/right vectors
+             // Simple: Y moves target Y. X moves target X/Z based on theta.
+             // Better: Use camera's local vectors.
+             // We are manipulating spherical coords, so changing target is tricky but doable.
+             
              const panSpeed = 0.005;
+             
+             // Move target Up/Down
              game.editor.target.y += dy * panSpeed;
              
+             // Move target Left/Right relative to view
+             // Camera Forward is towards origin. Right vector is cross(Forward, Up).
+             // Approximation:
              const forward = new THREE.Vector3().setFromSphericalCoords(1, game.editor.phi, game.editor.theta).normalize();
              const up = new THREE.Vector3(0, 1, 0);
              const right = new THREE.Vector3().crossVectors(forward, up).normalize();
+             
+             // Since we drag background, moving mouse left should move camera left (target right)?
+             // Usually drag up moves camera up (target up).
+             // Let's invert dy above? No, drag up -> target up seems natural.
              
              const moveX = right.clone().multiplyScalar(-dx * panSpeed);
              game.editor.target.add(moveX);
@@ -2398,9 +2309,6 @@
 
       const animate = () => {
         requestAnimationFrame(animate);
-        // FORCE TEXTURE UPDATE ON EVERY FRAME TO ENSURE VISIBILITY
-        if (game.skinTexture) game.skinTexture.needsUpdate = true;
-        
         const skinMenuVisible = !document.getElementById("skin-menu").classList.contains("hidden");
         const mainMenuVisible = !document.getElementById("main-menu").classList.contains("hidden");
 
@@ -2415,7 +2323,7 @@
         }
         else if (mainMenuVisible) {
            game.skinCamera.position.set(0, 0.8, 3.5);
-           game.skinCamera.lookAt(0, 0.9, 0);
+           game.skinCamera.lookAt(0, 0.6, 0);
            if (game.skinMesh) {
              const cx = window.innerWidth / 2;
              const dx = (game.mouseX - cx) / cx; 
@@ -2454,104 +2362,6 @@
             game.camera.updateProjectionMatrix();
         }
     });
-    
-    // --- ANIMATION UPDATE ---
-    function updatePlayerAnimation(dt) {
-        const p = game.player;
-        if (!p.mesh) return;
-        
-        const isTP = !!game.camera.thirdPerson;
-        const parts = p.mesh.userData.parts;
-        if (!parts) return;
-        
-        // Visibility Logic (Head)
-        const showHead = STATE.mode === "SP" ? isTP : true;
-        parts.head.visible = showHead;
-        parts.headOver.visible = showHead;
-        
-        // State
-        const isMoving = p._moving;
-        const inWater = isPlayerInWater();
-        const isCrouching = p.crouchToggled;
-        const onGround = p.onGround;
-        const isJumping = !onGround && !inWater;
-        
-        // Walk Cycle
-        if (isMoving || inWater) {
-             p.walkPhase += dt * (inWater ? 5 : 10);
-        } else {
-             // Reset to 0
-             p.walkPhase += (0 - p.walkPhase) * 10 * dt;
-        }
-        
-        const swing = Math.sin(p.walkPhase) * (isCrouching ? 0.3 : 0.8);
-        const armSwing = Math.cos(p.walkPhase) * (isCrouching ? 0.3 : 0.8);
-
-        // Reset
-        p.mesh.rotation.x = 0;
-        p.mesh.rotation.z = 0;
-        
-        // Reset base pose
-        parts.head.rotation.x = 0;
-        parts.headOver.rotation.x = 0;
-
-        // Swimming: Rotate body horizontal
-        if (inWater) {
-             p.mesh.rotation.x = -Math.PI / 2;
-             // Limbs paddle
-             parts.lArm.rotation.x = Math.sin(p.walkPhase) * 0.5;
-             parts.rArm.rotation.x = Math.sin(p.walkPhase + Math.PI) * 0.5;
-             parts.lLeg.rotation.x = Math.sin(p.walkPhase) * 0.5;
-             parts.rLeg.rotation.x = Math.sin(p.walkPhase + Math.PI) * 0.5;
-        } 
-        else {
-             // Walking / Standing
-             parts.lLeg.rotation.x = swing;
-             parts.rLeg.rotation.x = -swing;
-             
-             parts.lArm.rotation.x = -armSwing;
-             parts.rArm.rotation.x = armSwing;
-             
-             if (isCrouching) {
-                 // Bend
-                 p.mesh.rotation.x = 0.4; 
-                 // Adjust head to look up
-                 parts.head.rotation.x = -0.4;
-                 parts.headOver.rotation.x = -0.4;
-                 
-                 // Arms swing less
-                 parts.lArm.rotation.x = -Math.sin(p.walkPhase) * 0.3;
-                 parts.rArm.rotation.x = Math.sin(p.walkPhase) * 0.3;
-             }
-        }
-
-        // Jump pose (applies only while airborne and not swimming)
-        if (isJumping) {
-            const jumpTilt = Math.max(-0.3, Math.min(0.4, -p.vel.y * 0.08));
-            p.mesh.rotation.x = jumpTilt;
-            parts.lArm.rotation.x = -1.0;
-            parts.rArm.rotation.x = -1.0;
-            parts.lLeg.rotation.x = 0.35;
-            parts.rLeg.rotation.x = 0.35;
-        }
-        
-        // Apply overlays rotations too
-        parts.lLegOver.rotation.x = parts.lLeg.rotation.x;
-        parts.rLegOver.rotation.x = parts.rLeg.rotation.x;
-        parts.lArmOver.rotation.x = parts.lArm.rotation.x;
-        parts.rArmOver.rotation.x = parts.rArm.rotation.x;
-        parts.headOver.rotation.x = parts.head.rotation.x;
-
-        // Position Logic (Bobbing)
-        // If crouching, sink character
-        // We handle eyeHeight elsewhere, this is mesh Y relative to world Y
-        // p.pos is bottom center?
-        // Our createPart offsets assume 0,0,0 is center of mass sort of. 
-        // We should ground the feet.
-        // Left Leg y = -0.2 with size 0.75. Bottom is -0.2 - 0.375 = -0.575 approx.
-        // We probably want to shift the whole group up.
-        // Let's assume mesh.position is p.pos - some offset.
-    }
 
     // --- START GAME ---
     function startGame(mode) {
@@ -2568,7 +2378,6 @@
       game.scene.fog = new THREE.Fog(0x87CEEB, 20, SETTINGS.renderDistance * CHUNK_SIZE - 10);
 
       game.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
-      game.camera.thirdPerson = false;
       game.renderer = new THREE.WebGLRenderer({ antialias: false });
       game.renderer.setSize(window.innerWidth, window.innerHeight);
       game.renderer.setPixelRatio(window.devicePixelRatio);
@@ -2579,43 +2388,9 @@
       const d = new THREE.DirectionalLight(0xffffff, 0.5);
       d.position.set(50, 100, 50);
       game.scene.add(d);
-      
-      // --- PLAYER MESH ---
-      if (game.skinTexture) {
-         // Create texture copy for game to avoid conflict with editor updating it?
-         // Actually shared texture is fine if we don't edit while playing.
-         game.player.mesh = buildPlayerModel(game.skinTexture);
-         // Scale down to human size (approx 1.8 units tall)
-         // Our model is built around ~1.5 units high?
-         // Head top ~1.4 + 0.25 = 1.65.
-         game.player.mesh.position.copy(game.player.pos);
-         game.scene.add(game.player.mesh);
-      }
 
       game.particleGroup = new THREE.Group();
       game.scene.add(game.particleGroup);
-      
-      // --- PAPER DOLL ---
-      game.dollScene = new THREE.Scene();
-      game.dollCamera = new THREE.PerspectiveCamera(50, 120/180, 0.1, 100);
-      game.dollCamera.position.set(0, 0.8, 3.5);
-      game.dollCamera.lookAt(0, 0.6, 0);
-      
-      game.dollRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
-      game.dollRenderer.setSize(120, 180);
-      document.getElementById("paper-doll-container").appendChild(game.dollRenderer.domElement);
-      
-      // Lighting for Doll
-      game.dollScene.add(new THREE.AmbientLight(0xffffff, 1.2));
-      const dd = new THREE.DirectionalLight(0xffffff, 0.8);
-      dd.position.set(1, 2, 3);
-      game.dollScene.add(dd);
-      
-      // Clone player mesh for Doll (so it can be visible even if FP hides main mesh head)
-      // Actually we can share the texture but need new geometry instance/mesh to have separate visibility state?
-      // Yes. 
-      game.dollMesh = buildPlayerModel(game.skinTexture);
-      game.dollScene.add(game.dollMesh);
 
       game.materials = {
         solid: new THREE.MeshLambertMaterial({
@@ -2660,8 +2435,947 @@
       if (mode === "MP") connectServer();
       requestAnimationFrame(loop);
     }
-    
-    // ... input ...
+
+    // --- INPUT ---
+    const keys = { w: 0, a: 0, s: 0, d: 0, space: 0, shift: 0 };
+    function onKeyDown(e) {
+      if (e.code === "KeyW") keys.w = 1;
+      if (e.code === "KeyA") keys.a = 1;
+      if (e.code === "KeyS") keys.s = 1;
+      if (e.code === "KeyD") keys.d = 1;
+      if (e.code === "Space") keys.space = 1;
+      if (e.code === "ShiftLeft") keys.shift = 1;
+      
+      // Toggle Crouch on Ctrl to avoid Ctrl+W closing tab
+      if (e.code === "ControlLeft" || e.code === "ControlRight") {
+        if (!e.repeat) game.player.crouchToggled = !game.player.crouchToggled;
+      }
+
+      if (e.key >= "1" && e.key <= "9") selectSlot(parseInt(e.key) - 1);
+
+      if (e.code === "KeyT") {
+        document.getElementById("chat-input").style.display = "block";
+        document.getElementById("chat-input").focus();
+        document.exitPointerLock();
+      }
+      if (e.code === "Enter" && document.activeElement === document.getElementById("chat-input")) sendChat();
+      AUDIO.ensureUnlocked();
+    }
+    function onKeyUp(e) {
+      if (e.code === "KeyW") keys.w = 0;
+      if (e.code === "KeyA") keys.a = 0;
+      if (e.code === "KeyS") keys.s = 0;
+      if (e.code === "KeyD") keys.d = 0;
+      if (e.code === "Space") keys.space = 0;
+      if (e.code === "ShiftLeft") keys.shift = 0;
+    }
+    function onMouseMove(e) {
+      game.mouseX = e.clientX; // Update global mouseX for menu hover effect
+      
+      if (document.pointerLockElement !== game.renderer?.domElement) return;
+      game.player.yaw -= e.movementX * SETTINGS.sensitivity;
+      game.player.pitch -= e.movementY * SETTINGS.sensitivity;
+      game.player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, game.player.pitch));
+    }
+
+    // --- WORLD HELPERS ---
+    function chunkKey(cx, cz) { return `${cx},${cz}`; }
+
+    function getLocal(x, y, z) {
+      const cx = Math.floor(x / CHUNK_SIZE);
+      const cz = Math.floor(z / CHUNK_SIZE);
+      const key = chunkKey(cx, cz);
+      const chunk = game.world[key];
+      if (!chunk || !chunk.data) return null;
+
+      const lx = ((Math.floor(x) % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+      const lz = ((Math.floor(z) % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+      const ly = Math.floor(y);
+      if (ly < 0 || ly >= CHUNK_HEIGHT) return null;
+
+      const idx = lx + CHUNK_SIZE * (ly + CHUNK_HEIGHT * lz);
+      return { cx, cz, key, chunk, lx, ly, lz, idx };
+    }
+
+    function getBlockAt(x, y, z) {
+      const loc = getLocal(x, y, z);
+      if (!loc) return 0;
+      return loc.chunk.data[loc.idx];
+    }
+
+    function peek(x, y, z) {
+      const loc = getLocal(x, y, z);
+      if (!loc) return { id: BLOCKS.BEDROCK, level: 255, loaded: false };
+      const id = loc.chunk.data[loc.idx];
+      const level = (id === BLOCKS.WATER && loc.chunk.waterLevels) ? loc.chunk.waterLevels[loc.idx] : 255;
+      return { id, level, loaded: true };
+    }
+
+    function isSolidForCollision(b) {
+      return (b > 0 && b !== BLOCKS.WATER && b !== BLOCKS.LEAVES);
+    }
+
+    // --- CHUNK EDGES + MESH REQUEST ---
+    function makeEdges(cx, cz) {
+      const mkId = () => new Uint8Array(CHUNK_SIZE * CHUNK_HEIGHT);
+      const mkWl = () => { const a = new Uint8Array(CHUNK_SIZE * CHUNK_HEIGHT); a.fill(255); return a; };
+
+      const edges = {
+        xNeg: mkId(), xPos: mkId(), zNeg: mkId(), zPos: mkId(),
+        wXNeg: mkWl(), wXPos: mkWl(), wZNeg: mkWl(), wZPos: mkWl()
+      };
+
+      const L = game.world[chunkKey(cx - 1, cz)];
+      const R = game.world[chunkKey(cx + 1, cz)];
+      const B = game.world[chunkKey(cx, cz - 1)];
+      const F = game.world[chunkKey(cx, cz + 1)];
+
+      const left = L?.data, right = R?.data, back = B?.data, front = F?.data;
+      const leftW = L?.waterLevels, rightW = R?.waterLevels, backW = B?.waterLevels, frontW = F?.waterLevels;
+
+      if (left) {
+        for (let iy = 0; iy < CHUNK_HEIGHT; iy++) for (let iz = 0; iz < CHUNK_SIZE; iz++) {
+          const srcIdx = 15 + CHUNK_SIZE * (iy + CHUNK_HEIGHT * iz);
+          const dstIdx = iz + CHUNK_SIZE * iy;
+          edges.xNeg[dstIdx] = left[srcIdx];
+          if (leftW && left[srcIdx] === BLOCKS.WATER) edges.wXNeg[dstIdx] = leftW[srcIdx];
+        }
+      }
+      if (right) {
+        for (let iy = 0; iy < CHUNK_HEIGHT; iy++) for (let iz = 0; iz < CHUNK_SIZE; iz++) {
+          const srcIdx = 0 + CHUNK_SIZE * (iy + CHUNK_HEIGHT * iz);
+          const dstIdx = iz + CHUNK_SIZE * iy;
+          edges.xPos[dstIdx] = right[srcIdx];
+          if (rightW && right[srcIdx] === BLOCKS.WATER) edges.wXPos[dstIdx] = rightW[srcIdx];
+        }
+      }
+      if (back) {
+        for (let iy = 0; iy < CHUNK_HEIGHT; iy++) for (let ix = 0; ix < CHUNK_SIZE; ix++) {
+          const srcIdx = ix + CHUNK_SIZE * (iy + CHUNK_HEIGHT * 15);
+          const dstIdx = ix + CHUNK_SIZE * iy;
+          edges.zNeg[dstIdx] = back[srcIdx];
+          if (backW && back[srcIdx] === BLOCKS.WATER) edges.wZNeg[dstIdx] = backW[srcIdx];
+        }
+      }
+      if (front) {
+        for (let iy = 0; iy < CHUNK_HEIGHT; iy++) for (let ix = 0; ix < CHUNK_SIZE; ix++) {
+          const srcIdx = ix + CHUNK_SIZE * (iy + CHUNK_HEIGHT * 0);
+          const dstIdx = ix + CHUNK_SIZE * iy;
+          edges.zPos[dstIdx] = front[srcIdx];
+          if (frontW && front[srcIdx] === BLOCKS.WATER) edges.wZPos[dstIdx] = frontW[srcIdx];
+        }
+      }
+      return edges;
+    }
+
+    function meshChunk(cx, cz) {
+      const k = chunkKey(cx, cz);
+      const chunk = game.world[k];
+      if (!chunk || !chunk.data) return;
+      game.worker.postMessage({
+        type: "MESH",
+        x: cx, z: cz,
+        voxels: chunk.data,
+        waterLevels: chunk.waterLevels,
+        edges: makeEdges(cx, cz)
+      });
+    }
+
+    // --- FLUID SIM (slower) ---
+    function scheduleFluid(x, y, z) {
+      if (y < 0 || y >= CHUNK_HEIGHT) return;
+      const k = `${x},${y},${z}`;
+      if (game.fluid.set.has(k)) return;
+      game.fluid.set.add(k);
+      game.fluid.queue.push(k);
+    }
+
+    function scheduleFluidAround(x, y, z) {
+      scheduleFluid(x, y, z);
+      scheduleFluid(x + 1, y, z);
+      scheduleFluid(x - 1, y, z);
+      scheduleFluid(x, y, z + 1);
+      scheduleFluid(x, y, z - 1);
+      scheduleFluid(x, y + 1, z);
+      scheduleFluid(x, y - 1, z);
+    }
+
+    function markChunkDirtyFromLoc(loc) {
+      game.fluid.dirtyChunks.add(loc.key);
+      if (loc.lx === 0) game.fluid.dirtyChunks.add(chunkKey(loc.cx - 1, loc.cz));
+      if (loc.lx === CHUNK_SIZE - 1) game.fluid.dirtyChunks.add(chunkKey(loc.cx + 1, loc.cz));
+      if (loc.lz === 0) game.fluid.dirtyChunks.add(chunkKey(loc.cx, loc.cz - 1));
+      if (loc.lz === CHUNK_SIZE - 1) game.fluid.dirtyChunks.add(chunkKey(loc.cx, loc.cz + 1));
+    }
+
+    function setCell(loc, newId, newLevel = 0) {
+      const chunk = loc.chunk;
+      const oldId = chunk.data[loc.idx];
+      const oldLevel = (oldId === BLOCKS.WATER && chunk.waterLevels) ? chunk.waterLevels[loc.idx] : 255;
+
+      if (oldId === newId) {
+        if (newId === BLOCKS.WATER && chunk.waterLevels && oldLevel !== newLevel) {
+          chunk.waterLevels[loc.idx] = newLevel;
+          markChunkDirtyFromLoc(loc);
+          scheduleFluidAround(loc.cx * CHUNK_SIZE + loc.lx, loc.ly, loc.cz * CHUNK_SIZE + loc.lz);
+          return true;
+        }
+        return false;
+      }
+
+      chunk.data[loc.idx] = newId;
+      if (!chunk.waterLevels) {
+        chunk.waterLevels = new Uint8Array(chunk.data.length);
+        chunk.waterLevels.fill(255);
+      }
+
+      if (newId === BLOCKS.WATER) chunk.waterLevels[loc.idx] = newLevel;
+      else chunk.waterLevels[loc.idx] = 255;
+
+      markChunkDirtyFromLoc(loc);
+      scheduleFluidAround(loc.cx * CHUNK_SIZE + loc.lx, loc.ly, loc.cz * CHUNK_SIZE + loc.lz);
+      return true;
+    }
+
+    function desiredForAir(x, y, z) {
+      const above = peek(x, y + 1, z);
+      if (above.id === BLOCKS.WATER) return { id: BLOCKS.WATER, level: 0 };
+
+      let best = 999;
+      let srcCount = 0;
+      let any = false;
+
+      for (const n of [peek(x + 1, y, z), peek(x - 1, y, z), peek(x, y, z + 1), peek(x, y, z - 1)]) {
+        if (n.id === BLOCKS.WATER) {
+          any = true;
+          best = Math.min(best, n.level + 1);
+          if (n.level === 0) srcCount++;
+        }
+      }
+
+      if (!any) return null;
+
+      const below = peek(x, y - 1, z);
+      if (below.id === BLOCKS.AIR) return { id: BLOCKS.WATER, level: 0 };
+
+      if (srcCount >= 2) return { id: BLOCKS.WATER, level: 0 };
+      if (best <= 7) return { id: BLOCKS.WATER, level: best };
+      return null;
+    }
+
+    function desiredForWater(x, y, z, level) {
+      const below = peek(x, y - 1, z);
+      if (level === 0 && below.id !== BLOCKS.AIR) return { id: BLOCKS.WATER, level: 0 };
+
+      const above = peek(x, y + 1, z);
+      if (above.id === BLOCKS.WATER) return { id: BLOCKS.WATER, level: 0 };
+      if (below.id === BLOCKS.AIR) return { id: BLOCKS.WATER, level: 0 };
+
+      let best = 999;
+      let srcCount = 0;
+      for (const n of [peek(x + 1, y, z), peek(x - 1, y, z), peek(x, y, z + 1), peek(x, y, z - 1)]) {
+        if (n.id === BLOCKS.WATER) {
+          best = Math.min(best, n.level + 1);
+          if (n.level === 0) srcCount++;
+        }
+      }
+
+      if (srcCount >= 2) return { id: BLOCKS.WATER, level: 0 };
+      if (best <= 7) return { id: BLOCKS.WATER, level: best };
+      return { id: BLOCKS.AIR, level: 255 };
+    }
+
+    function processFluids(maxOps = 220) {
+      let ops = 0;
+
+      while (ops < maxOps && game.fluid.queue.length) {
+        const k = game.fluid.queue.pop();
+        game.fluid.set.delete(k);
+
+        const [xs, ys, zs] = k.split(",");
+        const x = parseInt(xs, 10), y = parseInt(ys, 10), z = parseInt(zs, 10);
+
+        const loc = getLocal(x, y, z);
+        if (!loc) { ops++; continue; }
+
+        const id = loc.chunk.data[loc.idx];
+        if (id === BLOCKS.AIR) {
+          const want = desiredForAir(x, y, z);
+          if (want) setCell(loc, want.id, want.level);
+        } else if (id === BLOCKS.WATER) {
+          const level = loc.chunk.waterLevels ? loc.chunk.waterLevels[loc.idx] : 0;
+          const want = desiredForWater(x, y, z, level);
+          if (want.id !== id || (want.id === BLOCKS.WATER && want.level !== level)) {
+            setCell(loc, want.id, want.level);
+          }
+        }
+
+        ops++;
+      }
+
+      if (game.fluid.dirtyChunks.size) {
+        const list = Array.from(game.fluid.dirtyChunks);
+        game.fluid.dirtyChunks.clear();
+        for (const ck of list) {
+          const c = game.world[ck];
+          if (!c || !c.data) continue;
+          const [cx, cz] = ck.split(",").map(Number);
+          meshChunk(cx, cz);
+          meshChunk(cx - 1, cz);
+          meshChunk(cx + 1, cz);
+          meshChunk(cx, cz - 1);
+          meshChunk(cx, cz + 1);
+        }
+      }
+    }
+
+    // --- WATER / UNDERWATER HELPERS ---
+    function isPlayerInWater() {
+      const p = game.player.pos;
+      const b1 = getBlockAt(p.x, p.y + 0.15, p.z);
+      const b2 = getBlockAt(p.x, p.y + 0.95, p.z);
+      return (b1 === BLOCKS.WATER || b2 === BLOCKS.WATER);
+    }
+
+    function isCameraFullyUnderwater() {
+      const c = game.camera.position;
+      const b0 = getBlockAt(c.x, c.y, c.z);
+      const b1 = getBlockAt(c.x, c.y + 0.35, c.z);
+      return (b0 === BLOCKS.WATER && b1 === BLOCKS.WATER);
+    }
+
+    function isNearWater(radius = 6) {
+      const p = game.player.pos;
+      const y0 = Math.floor(p.y + 0.2);
+      const offsets = [-radius, -radius / 2, 0, radius / 2, radius];
+      for (let oy of [-1, 0, 1]) {
+        for (let dx of offsets) {
+          for (let dz of offsets) {
+            if (getBlockAt(p.x + dx, y0 + oy, p.z + dz) === BLOCKS.WATER) return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    // --- PARTICLES ---
+    function spawnParticlesAt(pos, color, count = 22, size = 0.08, life = 0.6, upBoost = 2.0, spread = 0.4) {
+      if (!game.scene || !game.particleGroup) return;
+
+      const positions = new Float32Array(count * 3);
+      const velocities = new Float32Array(count * 3);
+
+      for (let i = 0; i < count; i++) {
+        const ix = i * 3;
+        const rx = (Math.random() - 0.5) * spread;
+        const rz = (Math.random() - 0.5) * spread;
+
+        positions[ix + 0] = pos.x + rx;
+        positions[ix + 1] = pos.y + Math.random() * 0.3;
+        positions[ix + 2] = pos.z + rz;
+
+        velocities[ix + 0] = rx * 4.0;
+        velocities[ix + 1] = upBoost + Math.random() * 1.4;
+        velocities[ix + 2] = rz * 4.0;
+      }
+
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+
+      const mat = new THREE.PointsMaterial({
+        size,
+        transparent: true,
+        opacity: 0.9,
+        depthWrite: false,
+        color
+      });
+
+      const points = new THREE.Points(geo, mat);
+      points.frustumCulled = false;
+
+      game.particleGroup.add(points);
+      game.particleBursts.push({ points, positions, velocities, age: 0, life });
+    }
+
+    function spawnJumpParticles() {
+      const p = game.player.pos;
+      const under = getBlockAt(p.x, p.y - 0.05, p.z);
+      let color = 0xffffff;
+      if (under === BLOCKS.GRASS || under === BLOCKS.DIRT) color = 0x9ccc65;
+      else if (under === BLOCKS.SAND) color = 0xfff59d;
+      else if (under === BLOCKS.STONE || under === BLOCKS.BRICK || under === BLOCKS.BEDROCK) color = 0xb0bec5;
+      spawnParticlesAt(new THREE.Vector3(p.x, p.y, p.z), color, 18, 0.08, 0.55, 1.8, 0.35);
+    }
+
+    function updateParticles(dt) {
+      if (!game.particleBursts.length) return;
+
+      for (let i = game.particleBursts.length - 1; i >= 0; i--) {
+        const b = game.particleBursts[i];
+        b.age += dt;
+
+        const g = -6.5;
+        for (let j = 0; j < b.positions.length; j += 3) {
+          b.velocities[j + 1] += g * dt;
+
+          b.positions[j + 0] += b.velocities[j + 0] * dt;
+          b.positions[j + 1] += b.velocities[j + 1] * dt;
+          b.positions[j + 2] += b.velocities[j + 2] * dt;
+
+          b.velocities[j + 0] *= (1 - 2.2 * dt);
+          b.velocities[j + 2] *= (1 - 2.2 * dt);
+        }
+
+        b.points.geometry.getAttribute("position").needsUpdate = true;
+
+        const t = Math.min(1, b.age / b.life);
+        b.points.material.opacity = 0.9 * (1 - t);
+
+        if (b.age >= b.life) {
+          game.particleGroup.remove(b.points);
+          b.points.geometry.dispose();
+          b.points.material.dispose();
+          game.particleBursts.splice(i, 1);
+        }
+      }
+    }
+
+    // --- PLAYER FOOTSTEPS / SPLASH ---
+    function maybePlayFootstep(dt) {
+      const st = game.audioState;
+      st.stepCooldown = Math.max(0, st.stepCooldown - dt);
+
+      const p = game.player.pos;
+      const dx = p.x - st.lastPos.x;
+      const dz = p.z - st.lastPos.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      st.lastPos.copy(p);
+
+      const moving = game.player._moving && dist > 0.00001;
+      if (!moving) { st.stepDist = 0; return; }
+
+      const inWater = isPlayerInWater();
+      const canStep = inWater || game.player.onGround;
+      if (!canStep) return;
+
+      st.stepDist += dist;
+      const stepLen = inWater ? 0.85 : 0.75;
+      if (st.stepCooldown > 0) return;
+      if (st.stepDist < stepLen) return;
+
+      st.stepDist = 0;
+      st.stepCooldown = 0.12;
+
+      if (inWater) { AUDIO.playRandom(SOUND_URLS.swim, AUDIO.sfxGain, { volume: 0.40 }); return; }
+
+      const under = getBlockAt(p.x, p.y - 0.05, p.z);
+      const isStone = (under === BLOCKS.STONE || under === BLOCKS.BRICK || under === BLOCKS.BEDROCK);
+      if (isStone) AUDIO.playRandom(SOUND_URLS.step_stone, AUDIO.sfxGain, { volume: 0.32 });
+      else AUDIO.playRandom(SOUND_URLS.step_grass, AUDIO.sfxGain, { volume: 0.32 });
+    }
+
+    function maybePlaySplash() {
+      const st = game.audioState;
+      const inWater = isPlayerInWater();
+      const entered = (!st.lastInWater && inWater);
+      if (entered && st.lastVelY < -4) AUDIO.playRandom(SOUND_URLS.splash, AUDIO.sfxGain, { volume: 0.55 });
+      st.lastInWater = inWater;
+    }
+
+    // --- MOB COMBAT ---
+    function raycastMob(maxDist = 4.2) {
+      if (!game.camera) return null;
+
+      const ndc = new THREE.Vector2(0, 0);
+      game.raycaster.setFromCamera(ndc, game.camera);
+      game.raycaster.far = maxDist;
+
+      const mobMeshes = [];
+      for (const mob of game.mobs.values()) {
+        if (mob.state !== "alive") continue;
+        for (const m of mob.group.userData.meshes) mobMeshes.push(m);
+      }
+
+      const hits = game.raycaster.intersectObjects(mobMeshes, false);
+      if (!hits.length) return null;
+
+      const hit = hits[0];
+      const mobId = hit.object.userData.mobId;
+      if (!mobId) return null;
+      return game.mobs.get(mobId) || null;
+    }
+
+    function hurtMob(mob, dmg) {
+      if (!mob || mob.state !== "alive") return;
+
+      mob.health -= dmg;
+      mob.hurtTimer = 0.22;
+
+      const away = mob.pos.clone().sub(game.player.pos);
+      away.y = 0;
+      if (away.lengthSq() < 0.0001) away.set(Math.random() - 0.5, 0, Math.random() - 0.5);
+      away.normalize();
+
+      mob.vel.add(away.multiplyScalar(4.0));
+      mob.fleeTimer = 2.2;
+
+      const bank = SOUND_URLS.mob[mob.type];
+      if (bank?.say) AUDIO.playRandomSpatial(bank.say, AUDIO.sfxGain, mob.pos, { volume: 0.55, maxDist: 18 });
+
+      if (mob.health <= 0) {
+        killMob(mob);
+      }
+    }
+
+    function killMob(mob) {
+      if (!mob || mob.state !== "alive") return;
+      mob.state = "dying";
+      mob.deathT = 0;
+
+      const bank = SOUND_URLS.mob[mob.type];
+      if (bank?.say) AUDIO.playRandomSpatial(bank.say, AUDIO.sfxGain, mob.pos, { volume: 0.65, maxDist: 18 });
+    }
+
+    // --- MOB AI / PHYSICS ---
+    function mobCollides(px, py, pz, halfW = 0.55, height = 1.4) {
+      const minX = Math.floor(px - halfW);
+      const maxX = Math.floor(px + halfW);
+      const minY = Math.floor(py);
+      const maxY = Math.floor(py + height - 0.01);
+      const minZ = Math.floor(pz - halfW);
+      const maxZ = Math.floor(pz + halfW);
+
+      for (let x = minX; x <= maxX; x++) {
+        for (let y = minY; y <= maxY; y++) {
+          for (let z = minZ; z <= maxZ; z++) {
+            const b = getBlockAt(x, y, z);
+            if (isSolidForCollision(b)) return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    function mobHasSupport(px, py, pz) {
+      // simple support check under center
+      const under = getBlockAt(px, py - 0.05, pz);
+      return isSolidForCollision(under);
+    }
+
+    function mobTryStep(mob, dx, dz) {
+      if (!AUTO_STEP_ENABLED) return false;
+      // only if mostly grounded
+      if (!mobHasSupport(mob.pos.x, mob.pos.y, mob.pos.z)) return false;
+
+      const ox = mob.pos.x, oy = mob.pos.y, oz = mob.pos.z;
+
+      mob.pos.y = oy + STEP_HEIGHT_MOB;
+      mob.pos.x = ox + dx;
+      mob.pos.z = oz + dz;
+
+      const ok = !mobCollides(mob.pos.x, mob.pos.y, mob.pos.z) && mobHasSupport(mob.pos.x, mob.pos.y, mob.pos.z);
+
+      if (!ok) {
+        mob.pos.set(ox, oy, oz);
+        return false;
+      }
+
+      mob.vel.y = Math.max(0, mob.vel.y);
+      return true;
+    }
+
+    function updateMobs(dt) {
+      for (const mob of game.mobs.values()) {
+        if (mob.state === "dying") {
+          mob.deathT += dt;
+          mob.group.rotation.z = -Math.min(Math.PI / 2, mob.deathT * 3.2);
+          mob.group.rotation.y = (-mob.yaw) + mobVisualYawOffset(mob.type);
+          if (mob.deathT > 0.45 && mob.deathT < 0.45 + dt) {
+            const col = (mob.type === "pig") ? 0xff8ab8 : (mob.type === "cow") ? 0x7b5a4a : 0xffffff;
+            spawnParticlesAt(mob.pos.clone().add(new THREE.Vector3(0, 0.5, 0)), col, 28, 0.085, 0.65, 2.4, 0.55);
+          }
+          if (mob.deathT >= 0.85) {
+            removeMob(mob);
+          }
+          continue;
+        }
+
+        mob.hurtTimer = Math.max(0, mob.hurtTimer - dt);
+        tintMob(mob, mob.hurtTimer > 0);
+
+        mob.sayTimer -= dt;
+        if (mob.sayTimer <= 0) {
+          mob.sayTimer = 2.5 + Math.random() * 5.0;
+          const bank = SOUND_URLS.mob[mob.type];
+          if (bank?.say) AUDIO.playRandomSpatial(bank.say, AUDIO.sfxGain, mob.pos, { volume: 0.45, maxDist: 18 });
+        }
+
+        const toPlayer = game.player.pos.clone().sub(mob.pos);
+        const distToPlayer = toPlayer.length();
+
+        mob.wanderTimer -= dt;
+        if (mob.wanderTimer <= 0) {
+          mob.wanderTimer = 1.0 + Math.random() * 2.5;
+          mob.targetYaw = Math.random() * Math.PI * 2;
+        }
+
+        if (mob.fleeTimer > 0) {
+          mob.fleeTimer -= dt;
+          if (distToPlayer > 0.001) mob.targetYaw = Math.atan2(-toPlayer.z, -toPlayer.x);
+        }
+
+        const angDiff = ((mob.targetYaw - mob.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+        mob.yaw += angDiff * Math.min(1, dt * 3.5);
+        mob.group.rotation.y = (-mob.yaw) + mobVisualYawOffset(mob.type);
+
+        const speed = (mob.fleeTimer > 0) ? 3.2 : 1.4;
+        const dir = new THREE.Vector3(Math.cos(mob.yaw), 0, Math.sin(mob.yaw));
+        let moveScale = 1.0;
+        if (mob.fleeTimer <= 0 && distToPlayer < 2.0) moveScale = 0.25;
+
+        const targetVX = dir.x * speed * moveScale;
+        const targetVZ = dir.z * speed * moveScale;
+
+        const inWater = (getBlockAt(mob.pos.x, mob.pos.y + 0.2, mob.pos.z) === BLOCKS.WATER);
+        mob.vel.y -= (inWater ? 6 : 20) * dt;
+        if (inWater) mob.vel.y = Math.max(mob.vel.y, -2.0);
+
+        const dx = targetVX * dt;
+        const dz = targetVZ * dt;
+
+        const before = mob.pos.clone();
+        const moved = tryMoveWithStep(mob, dx, dz, mob.stepHeight || 0.6);
+
+        if (!moved) {
+          mob.stuckTime += dt;
+          if (mob.stuckTime > 0.25) {
+            mob.targetYaw += (Math.random() > 0.5 ? 1 : -1) * (0.9 + Math.random() * 1.2);
+            mob.stuckTime = 0;
+          }
+        } else {
+          mob.stuckTime = 0;
+        }
+
+        mob.pos.y += mob.vel.y * dt;
+        const halfW = (mob.width || 0.8) / 2;
+        const height = mob.height || 1.2;
+        if (mobCheckCollision(mob.pos.x, mob.pos.y, mob.pos.z, mob.width || 0.8, height)) {
+          const wasFalling = mob.vel.y < 0;
+          mob.pos.y -= mob.vel.y * dt;
+          mob.vel.y = 0;
+          mob.onGround = wasFalling;
+        } else {
+          mob.onGround = false;
+        }
+
+        if (mob.pos.y < -10) mob.pos.set(mob.pos.x, 80, mob.pos.z);
+        mob.group.position.copy(mob.pos);
+
+        const horizDist = new THREE.Vector2(mob.pos.x - before.x, mob.pos.z - before.z).length();
+        mob.stepDist += horizDist;
+
+        if (horizDist > 0.0001 && mob.onGround && mob.stepDist >= 0.55) {
+          mob.stepDist = 0;
+          const bank = SOUND_URLS.mob[mob.type];
+          if (bank?.step) AUDIO.playRandomSpatial(bank.step, AUDIO.sfxGain, mob.pos, { volume: 0.35, maxDist: 16 });
+        }
+
+        const horizSpeed = horizDist / Math.max(dt, 1e-6);
+        const speed01 = Math.min(horizSpeed / speed, 1);
+        animateMobWalk(mob, dt, speed01);
+      }
+    }
+
+    // --- PLAYER PHYSICS + AUTO STEP (auto-jump) ---
+    function updatePhysics(dt) {
+      const p = game.player.pos;
+      const v = game.player.vel;
+      
+      const inWater = isPlayerInWater();
+
+      // CROUCH & SPRINT STATE
+      const isCrouching = game.player.crouchToggled;
+      // Sprint is only active if not crouching and not in water
+      const isSprinting = keys.shift && !isCrouching && !inWater;
+      
+      // MOVEMENT SPEEDS
+      // Walk: 6
+      // Sprint: 10
+      // Swim: 9
+      // Crouch: 3.5 (slow/careful)
+      let moveSpeed = inWater ? 9 : (isSprinting ? 10 : (isCrouching ? 3.5 : 6));
+      
+      // Determine movement direction
+      const forward = new THREE.Vector3();
+      const right = new THREE.Vector3();
+      
+      if (inWater) {
+          game.camera.getWorldDirection(forward);
+          forward.normalize();
+          right.crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize().negate(); 
+          // Simpler right vector:
+          right.set(1, 0, 0).applyQuaternion(game.camera.quaternion).normalize();
+      } else {
+          const dir = new THREE.Vector3();
+          game.camera.getWorldDirection(dir);
+          forward.set(dir.x, 0, dir.z).normalize();
+          right.set(1, 0, 0).applyQuaternion(game.camera.quaternion);
+          right.y = 0; 
+          right.normalize();
+      }
+
+      const move = new THREE.Vector3();
+      if (keys.w) move.add(forward);
+      if (keys.s) move.sub(forward);
+      if (keys.d) move.add(right);
+      if (keys.a) move.sub(right);
+
+      const moving = move.lengthSq() > 0.0001;
+      game.player._moving = moving;
+
+      // Physics Loop
+      if (inWater) {
+          // --- WATER PHYSICS ---
+          if (moving) {
+              move.normalize().multiplyScalar(moveSpeed);
+              v.x += (move.x - v.x) * 4 * dt;
+              v.z += (move.z - v.z) * 4 * dt;
+              v.y += (move.y - v.y) * 4 * dt;
+          }
+          const drag = Math.pow(0.5, dt * 3); 
+          v.x *= drag;
+          v.z *= drag;
+          v.y *= drag;
+          v.y -= 3 * dt; 
+          if (keys.space) {
+              v.y += 15 * dt;
+              if (v.y > 5) v.y = 5;
+          }
+      } else {
+          // --- LAND PHYSICS ---
+          if (moving) move.normalize().multiplyScalar(moveSpeed);
+          v.x = move.x;
+          v.z = move.z;
+          v.y -= 30 * dt; 
+
+          if (keys.space && game.player.onGround && !isCrouching) {
+            v.y = 9;
+            game.player.onGround = false;
+            spawnJumpParticles();
+          }
+      }
+
+      game.audioState.lastVelY = v.y;
+      
+      // Collision Helpers
+      const boxW = game.player.width / 2;
+      const boxH = game.player.height;
+
+      function checkCollision(px, py, pz) {
+        const minX = Math.floor(px - boxW);
+        const maxX = Math.floor(px + boxW);
+        const minY = Math.floor(py);
+        const maxY = Math.floor(py + boxH - 0.01);
+        const minZ = Math.floor(pz - boxW);
+        const maxZ = Math.floor(pz + boxW);
+
+        for (let x = minX; x <= maxX; x++) {
+          for (let y = minY; y <= maxY; y++) {
+            for (let z = minZ; z <= maxZ; z++) {
+              const b = getBlockAt(x, y, z);
+              if (isSolidForCollision(b)) return true;
+            }
+          }
+        }
+        return false;
+      }
+
+      function hasSupport(px, py, pz) {
+        const under = getBlockAt(px, py - 0.05, pz);
+        return isSolidForCollision(under);
+      }
+
+      function tryStep(dx, dz) {
+        if (inWater || !AUTO_STEP_ENABLED || isCrouching) return false;
+        if (!moving || !game.player.onGround) return false;
+        if (!hasSupport(p.x, p.y, p.z)) return false;
+
+        const ox = p.x, oy = p.y, oz = p.z;
+
+        p.y = oy + STEP_HEIGHT_PLAYER;
+        p.x = ox + dx;
+        p.z = oz + dz;
+
+        const ok = !checkCollision(p.x, p.y, p.z) && hasSupport(p.x, p.y, p.z);
+        if (!ok) {
+          p.set(ox, oy, oz);
+          return false;
+        }
+
+        v.y = Math.max(0, v.y);
+        return true;
+      }
+
+      // --- X MOVEMENT & SAFE EDGE ---
+      let dx = v.x * dt;
+      let nextX = p.x + dx;
+      
+      // CROUCH SAFETY: Don't walk off edges if crouching and grounded
+      if (isCrouching && game.player.onGround) {
+          // If the new position is in air (no collision) BUT has no support (ledge) -> Stop
+          if (!checkCollision(nextX, p.y, p.z) && !hasSupport(nextX, p.y, p.z)) {
+              dx = 0; // Cancel X movement
+          }
+      }
+      
+      p.x += dx;
+      if (checkCollision(p.x, p.y, p.z)) {
+        p.x -= dx;
+        if (!tryStep(dx, 0)) v.x = 0;
+      }
+
+      // --- Z MOVEMENT & SAFE EDGE ---
+      let dz = v.z * dt;
+      let nextZ = p.z + dz;
+
+      // CROUCH SAFETY Z
+      if (isCrouching && game.player.onGround) {
+          if (!checkCollision(p.x, p.y, nextZ) && !hasSupport(p.x, p.y, nextZ)) {
+              dz = 0; // Cancel Z movement
+          }
+      }
+
+      p.z += dz;
+      if (checkCollision(p.x, p.y, p.z)) {
+        p.z -= dz;
+        if (!tryStep(0, dz)) v.z = 0;
+      }
+
+      // Y Movement & Collision
+      p.y += v.y * dt;
+      if (checkCollision(p.x, p.y, p.z)) {
+        const wasFalling = v.y < 0;
+        p.y -= v.y * dt;
+        v.y = 0;
+        if (wasFalling) game.player.onGround = true;
+      } else {
+        game.player.onGround = false;
+      }
+
+      if (p.y < -50) { p.y = 100; v.y = 0; }
+
+      // Camera Smoothing
+      const targetEye = isCrouching ? 1.3 : 1.6;
+      game.player.eyeHeight += (targetEye - game.player.eyeHeight) * dt * 10;
+
+      game.camera.position.copy(p);
+      game.camera.position.y += game.player.eyeHeight;
+
+      // --- CAMERA SPRINT EFFECT (FOV) ---
+      const targetFov = (isSprinting && moving) ? 85 : 70;
+      game.camera.fov += (targetFov - game.camera.fov) * dt * 4.0;
+      game.camera.updateProjectionMatrix();
+
+      game.camera.rotation.set(0, 0, 0);
+      game.camera.rotateY(game.player.yaw);
+      game.camera.rotateX(game.player.pitch);
+
+      const res = raycastBlock();
+      if (res.hit) {
+        game.blockSelectMesh.visible = true;
+        game.blockSelectMesh.position.set(res.hit.x + 0.5, res.hit.y + 0.5, res.hit.z + 0.5);
+      } else {
+        game.blockSelectMesh.visible = false;
+      }
+    }
+
+    function raycastBlock() {
+      let x = game.camera.position.x;
+      let y = game.camera.position.y;
+      let z = game.camera.position.z;
+      const dir = new THREE.Vector3();
+      game.camera.getWorldDirection(dir);
+
+      let dx = dir.x, dy = dir.y, dz = dir.z;
+      let stepX = Math.sign(dx), stepY = Math.sign(dy), stepZ = Math.sign(dz);
+      let tMaxX = (stepX > 0 ? Math.floor(x) + 1 - x : x - Math.floor(x)) / Math.abs(dx);
+      let tMaxY = (stepY > 0 ? Math.floor(y) + 1 - y : y - Math.floor(y)) / Math.abs(dy);
+      let tMaxZ = (stepZ > 0 ? Math.floor(z) + 1 - z : z - Math.floor(z)) / Math.abs(dz);
+      let tDeltaX = 1 / Math.abs(dx), tDeltaY = 1 / Math.abs(dy), tDeltaZ = 1 / Math.abs(dz);
+      let vx = Math.floor(x), vy = Math.floor(y), vz = Math.floor(z);
+      let hit = null, face = null;
+
+      for (let i = 0; i < 8; i++) {
+        if (tMaxX < tMaxY) {
+          if (tMaxX < tMaxZ) { vx += stepX; tMaxX += tDeltaX; face = { x: -stepX, y: 0, z: 0 }; }
+          else { vz += stepZ; tMaxZ += tDeltaZ; face = { x: 0, y: 0, z: -stepZ }; }
+        } else {
+          if (tMaxY < tMaxZ) { vy += stepY; tMaxY += tDeltaY; face = { x: 0, y: -stepY, z: 0 }; }
+          else { vz += stepZ; tMaxZ += tDeltaZ; face = { x: 0, y: 0, z: -stepZ }; }
+        }
+        const b = getBlockAt(vx, vy, vz);
+        if (b > 0 && b !== BLOCKS.WATER) { hit = { x: vx, y: vy, z: vz }; break; }
+      }
+      return { hit, face };
+    }
+
+    function onMouseDown(e) {
+      if (document.pointerLockElement !== game.renderer.domElement) return;
+
+      if (e.button === 0) {
+        const mob = raycastMob(4.2);
+        if (mob) {
+          hurtMob(mob, 3);
+          return;
+        }
+        const res = raycastBlock();
+        if (res.hit) setBlock(res.hit.x, res.hit.y, res.hit.z, BLOCKS.AIR, { fromUser: true });
+        return;
+      }
+
+      if (e.button === 2) {
+        const res = raycastBlock();
+        if (!res.hit || !res.face) return;
+
+        const nx = res.hit.x + res.face.x;
+        const ny = res.hit.y + res.face.y;
+        const nz = res.hit.z + res.face.z;
+
+        const p = game.player.pos;
+        const w = 0.3;
+        const minX = p.x - w, maxX = p.x + w;
+        const minZ = p.z - w, maxZ = p.z + w;
+        const minY = p.y, maxY = p.y + 1.8;
+        if (nx + 1 > minX && nx < maxX && ny + 1 > minY && ny < maxY && nz + 1 > minZ && nz < maxZ) return;
+
+        setBlock(nx, ny, nz, game.selectedBlock, { fromUser: true });
+      }
+    }
+
+    function setBlock(x, y, z, id, { fromUser = false } = {}) {
+      const loc = getLocal(x, y, z);
+      if (!loc) return;
+
+      if (!loc.chunk.waterLevels) {
+        loc.chunk.waterLevels = new Uint8Array(loc.chunk.data.length);
+        loc.chunk.waterLevels.fill(255);
+      }
+
+      loc.chunk.data[loc.idx] = id;
+      loc.chunk.waterLevels[loc.idx] = (id === BLOCKS.WATER) ? 0 : 255;
+
+      meshChunk(loc.cx, loc.cz);
+      meshChunk(loc.cx - 1, loc.cz);
+      meshChunk(loc.cx + 1, loc.cz);
+      meshChunk(loc.cx, loc.cz - 1);
+      meshChunk(loc.cx, loc.cz + 1);
+
+      scheduleFluidAround(Math.floor(x), Math.floor(y), Math.floor(z));
+
+      if (fromUser && game.socket && game.socket.readyState === WebSocket.OPEN) {
+        game.socket.send(JSON.stringify({ type: "BLOCK", x, y, z, id }));
+      }
+    }
 
     // --- LOOP ---
     function loop(timeMs) {
@@ -2673,7 +3387,6 @@
 
       updatePhysics(dt);
       updateChunks();
-      updatePlayerAnimation(dt); // Animate character
 
       // animated moving water
       if (game.waterTexture) {
@@ -2706,67 +3419,8 @@
       const underwater = isCameraFullyUnderwater();
       document.getElementById("underwater-overlay").style.opacity = underwater ? "1" : "0";
       AUDIO.setUnderwater(underwater);
-      
-      // Update Player Mesh Position
-      if (game.player.mesh) {
-          // Interpolate for smoothness? For now direct copy
-          // Offset Y slightly because mesh origin is center-ish
-          game.player.mesh.position.set(game.player.pos.x, game.player.pos.y - 0.8, game.player.pos.z);
-          
-          // Rotation: Match camera yaw but smoothed? Or body yaw?
-          // Minecraft style: Body follows head but can detach slightly.
-          // Simple: Match player Yaw
-          // game.player.yaw is camera yaw.
-          // Mesh should rotate opposite?
-          game.player.mesh.rotation.y = game.player.yaw + Math.PI; 
-          
-          // Update Doll Mesh too
-          if (game.dollMesh) {
-             game.dollMesh.rotation.y = game.timeSec * 0.5; // Rotate slowly
-             
-             // Sync animation state
-             const pParts = game.player.mesh.userData.parts;
-             const dParts = game.dollMesh.userData.parts;
-             
-             if(pParts && dParts) {
-                 dParts.lArm.rotation.x = pParts.lArm.rotation.x;
-                 dParts.rArm.rotation.x = pParts.rArm.rotation.x;
-                 dParts.lLeg.rotation.x = pParts.lLeg.rotation.x;
-                 dParts.rLeg.rotation.x = pParts.rLeg.rotation.x;
-                 dParts.head.rotation.x = pParts.head.rotation.x;
-                 dParts.headOver.rotation.x = pParts.headOver.rotation.x;
-                 game.dollMesh.rotation.x = game.player.mesh.rotation.x;
-                 // Head always visible on doll
-                 dParts.head.visible = true;
-                 dParts.headOver.visible = true;
-             }
-          }
-      }
-
-      // 3RD PERSON CAMERA LOGIC
-      if (game.camera.thirdPerson) {
-          // Calculate position behind player
-          const dist = 4;
-          const lookDir = new THREE.Vector3(0, 0, -1).applyQuaternion(game.camera.quaternion);
-          // Inverse direction
-          const camPos = game.player.pos.clone().add(new THREE.Vector3(0, 1.5, 0)).sub(lookDir.multiplyScalar(dist));
-          
-          // Raycast to prevent clipping? (Skipped for simplicity as per instructions, usually)
-          // Simple camera set
-          game.camera.position.copy(camPos);
-          game.camera.lookAt(game.player.pos.clone().add(new THREE.Vector3(0, 1, 0)));
-      }
 
       game.renderer.render(game.scene, game.camera);
-      
-      // Render Doll if Crouching
-      const dollContainer = document.getElementById("paper-doll-container");
-      if (game.player.crouchToggled) {
-          dollContainer.style.display = "block";
-          game.dollRenderer.render(game.dollScene, game.dollCamera);
-      } else {
-          dollContainer.style.display = "none";
-      }
 
       document.getElementById("debug-overlay").innerHTML = `
         FPS: ${Math.round(1 / dt)}<br>
@@ -2776,6 +3430,110 @@
         Mobs: ${game.mobs.size} / ${SPAWN_SETTINGS.cap}
       `;
     }
+
+    function updateChunks() {
+      const px = Math.floor(game.player.pos.x / CHUNK_SIZE);
+      const pz = Math.floor(game.player.pos.z / CHUNK_SIZE);
+      const dist = SETTINGS.renderDistance;
+
+      for (let x = px - dist; x <= px + dist; x++) {
+        for (let z = pz - dist; z <= pz + dist; z++) {
+          const key = chunkKey(x, z);
+          if (!game.world[key]) {
+            game.world[key] = {};
+            game.worker.postMessage({ type: "GENERATE", x, z, seed: 12345 });
+          }
+        }
+      }
+
+      for (const k in game.world) {
+        const [cx, cz] = k.split(",").map(Number);
+        if (Math.abs(cx - px) > dist + 2 || Math.abs(cz - pz) > dist + 2) {
+          const c = game.world[k];
+          if (c.mesh) { game.scene.remove(c.mesh); c.mesh.geometry.dispose(); }
+          if (c.waterMesh) { game.scene.remove(c.waterMesh); c.waterMesh.geometry.dispose(); }
+          delete game.world[k];
+        }
+      }
+    }
+
+    // --- UI ---
+    function setupUI() {
+      document.getElementById("btn-sp").onclick = () => startGame("SP");
+      document.getElementById("btn-mp").onclick = () => { document.getElementById("mp-options").classList.remove("hidden"); };
+      document.getElementById("btn-join").onclick = () => {
+        SETTINGS.nickname = document.getElementById("username").value;
+        startGame("MP");
+      };
+
+      document.getElementById("btn-skin").onclick = () => {
+        document.getElementById("main-menu").classList.add("hidden");
+        document.getElementById("skin-menu").classList.remove("hidden");
+        
+        // Move canvas to skin menu
+        const container = document.getElementById("skin-editor-viewport");
+        if (game.skinRenderer && container) {
+           // Clear any existing content to prevent duplicates if user goes back/forth
+           if (!container.contains(game.skinRenderer.domElement)) {
+              container.appendChild(game.skinRenderer.domElement);
+           }
+           resizeSkinPreview();
+        }
+      };
+      
+      document.getElementById("btn-skin-back").onclick = () => {
+        document.getElementById("skin-menu").classList.add("hidden");
+        document.getElementById("main-menu").classList.remove("hidden");
+        
+        // Move canvas back to main menu
+        const container = document.getElementById("main-menu-skin-container");
+        if (game.skinRenderer && container) {
+           if (!container.contains(game.skinRenderer.domElement)) {
+               container.appendChild(game.skinRenderer.domElement);
+           }
+           resizeSkinPreview();
+        }
+      };
+
+      // Removed file upload input logic here
+    }
+
+    // --- MP / CHAT ---
+    function connectServer() {
+      const url = document.getElementById("server-url").value;
+      game.socket = new WebSocket(`ws://${url}`);
+      game.socket.onopen = () => {
+        addChat("Connected!");
+        game.socket.send(JSON.stringify({ type: "JOIN", name: SETTINGS.nickname, skin: game.mySkin }));
+      };
+      game.socket.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        if (msg.type === "CHAT") addChat(`[${msg.name}]: ${msg.text}`);
+        if (msg.type === "BLOCK") setBlock(msg.x, msg.y, msg.z, msg.id);
+      };
+      game.socket.onclose = () => { addChat("Disconnected."); };
+    }
+
+    function sendChat() {
+      const input = document.getElementById("chat-input");
+      const text = input.value;
+      if (!text) return;
+      input.value = "";
+      input.style.display = "none";
+      input.blur();
+      game.renderer.domElement.requestPointerLock();
+      if (game.socket) game.socket.send(JSON.stringify({ type: "CHAT", text }));
+      else addChat("You: " + text);
+    }
+
+    function addChat(txt) {
+      const div = document.createElement("div");
+      div.className = "chat-msg";
+      div.innerText = txt;
+      document.getElementById("chat-history").appendChild(div);
+    }
+
+    init();
   </script>
 </body>
 </html>
