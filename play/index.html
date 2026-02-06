@@ -708,6 +708,7 @@
       selectedBlock: BLOCKS.DIRT,
 
       skinScene: null, skinCamera: null, skinRenderer: null, skinMesh: null,
+      dollMesh: null,
       
       skinCanvas: null,
       skinCtx: null,
@@ -2432,6 +2433,11 @@
       game.blockSelectMesh = new THREE.LineSegments(new THREE.EdgesGeometry(geo), mat);
       game.scene.add(game.blockSelectMesh);
 
+      if (game.dollMesh) game.scene.remove(game.dollMesh);
+      game.dollMesh = buildPlayerModel(game.skinTexture);
+      game.dollMesh.visible = false;
+      game.scene.add(game.dollMesh);
+
       if (mode === "MP") connectServer();
       requestAnimationFrame(loop);
     }
@@ -3471,6 +3477,77 @@
 
       updatePhysics(dt);
       updatePlayerAnimation(dt);
+
+      if (game.skinMesh && game.dollMesh) {
+        const pParts = {
+          mesh: game.skinMesh,
+          head: game.skinMesh.getObjectByName('Head'),
+          headOver: game.skinMesh.getObjectByName('HeadOverlay'),
+          body: game.skinMesh.getObjectByName('Body'),
+          bodyOver: game.skinMesh.getObjectByName('BodyOverlay'),
+          lArm: game.skinMesh.getObjectByName('LeftArm'),
+          lArmOver: game.skinMesh.getObjectByName('LeftArmOverlay'),
+          rArm: game.skinMesh.getObjectByName('RightArm'),
+          rArmOver: game.skinMesh.getObjectByName('RightArmOverlay'),
+          lLeg: game.skinMesh.getObjectByName('LeftLeg'),
+          lLegOver: game.skinMesh.getObjectByName('LeftLegOverlay'),
+          rLeg: game.skinMesh.getObjectByName('RightLeg'),
+          rLegOver: game.skinMesh.getObjectByName('RightLegOverlay')
+        };
+
+        const dParts = {
+          mesh: game.dollMesh,
+          head: game.dollMesh.getObjectByName('Head'),
+          headOver: game.dollMesh.getObjectByName('HeadOverlay'),
+          body: game.dollMesh.getObjectByName('Body'),
+          bodyOver: game.dollMesh.getObjectByName('BodyOverlay'),
+          lArm: game.dollMesh.getObjectByName('LeftArm'),
+          lArmOver: game.dollMesh.getObjectByName('LeftArmOverlay'),
+          rArm: game.dollMesh.getObjectByName('RightArm'),
+          rArmOver: game.dollMesh.getObjectByName('RightArmOverlay'),
+          lLeg: game.dollMesh.getObjectByName('LeftLeg'),
+          lLegOver: game.dollMesh.getObjectByName('LeftLegOverlay'),
+          rLeg: game.dollMesh.getObjectByName('RightLeg'),
+          rLegOver: game.dollMesh.getObjectByName('RightLegOverlay')
+        };
+
+        if (pParts.head && pParts.headOver && pParts.body && pParts.bodyOver && pParts.lArm && pParts.lArmOver && pParts.rArm && pParts.rArmOver && pParts.lLeg && pParts.lLegOver && pParts.rLeg && pParts.rLegOver && dParts.head && dParts.headOver && dParts.body && dParts.bodyOver && dParts.lArm && dParts.lArmOver && dParts.rArm && dParts.rArmOver && dParts.lLeg && dParts.lLegOver && dParts.rLeg && dParts.rLegOver) {
+          dParts.mesh.rotation.x = pParts.mesh.rotation.x;
+          dParts.mesh.rotation.z = pParts.mesh.rotation.z;
+
+          dParts.head.rotation.copy(pParts.head.rotation);
+          dParts.headOver.rotation.copy(pParts.headOver.rotation);
+          dParts.body.rotation.copy(pParts.body.rotation);
+          dParts.bodyOver.rotation.copy(pParts.bodyOver.rotation);
+
+          dParts.lArm.rotation.copy(pParts.lArm.rotation);
+          dParts.lArmOver.rotation.copy(pParts.lArmOver.rotation);
+          dParts.rArm.rotation.copy(pParts.rArm.rotation);
+          dParts.rArmOver.rotation.copy(pParts.rArmOver.rotation);
+          dParts.lLeg.rotation.copy(pParts.lLeg.rotation);
+          dParts.lLegOver.rotation.copy(pParts.lLegOver.rotation);
+          dParts.rLeg.rotation.copy(pParts.rLeg.rotation);
+          dParts.rLegOver.rotation.copy(pParts.rLegOver.rotation);
+
+          dParts.head.position.copy(pParts.head.position);
+          dParts.headOver.position.copy(pParts.headOver.position);
+          dParts.body.position.copy(pParts.body.position);
+          dParts.bodyOver.position.copy(pParts.bodyOver.position);
+          dParts.lArmOver.position.copy(pParts.lArmOver.position);
+          dParts.rArmOver.position.copy(pParts.rArmOver.position);
+          dParts.lLegOver.position.copy(pParts.lLegOver.position);
+          dParts.rLegOver.position.copy(pParts.rLegOver.position);
+
+          dParts.head.visible = true;
+          dParts.headOver.visible = true;
+        }
+
+        const crouchOffsetY = game.player.crouchToggled ? -0.3 : 0;
+        game.dollMesh.position.set(game.player.pos.x, game.player.pos.y + crouchOffsetY, game.player.pos.z);
+        game.dollMesh.rotation.y = -game.player.yaw;
+        game.dollMesh.visible = !!game.player.crouchToggled;
+      }
+
       updateChunks();
 
       // animated moving water
