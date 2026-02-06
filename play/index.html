@@ -3289,6 +3289,90 @@
       }
     }
 
+    function updatePlayerAnimation(dt) {
+      if (!game.skinMesh) return;
+
+      const isMoving = game.player._moving;
+      const inWater = isPlayerInWater();
+      const isCrouching = game.player.crouchToggled;
+      const onGround = game.player.onGround;
+      const isAirborne = !onGround && !inWater;
+
+      const head = game.skinMesh.getObjectByName('Head');
+      const headOver = game.skinMesh.getObjectByName('HeadOverlay');
+      const lArm = game.skinMesh.getObjectByName('LeftArm');
+      const lArmOver = game.skinMesh.getObjectByName('LeftArmOverlay');
+      const rArm = game.skinMesh.getObjectByName('RightArm');
+      const rArmOver = game.skinMesh.getObjectByName('RightArmOverlay');
+      const lLeg = game.skinMesh.getObjectByName('LeftLeg');
+      const lLegOver = game.skinMesh.getObjectByName('LeftLegOverlay');
+      const rLeg = game.skinMesh.getObjectByName('RightLeg');
+      const rLegOver = game.skinMesh.getObjectByName('RightLegOverlay');
+      if (!head || !headOver || !lArm || !lArmOver || !rArm || !rArmOver || !lLeg || !lLegOver || !rLeg || !rLegOver) return;
+
+      const walkSpeed = isCrouching ? 7 : 10;
+      const walkAmp = isCrouching ? 0.28 : 0.6;
+      const walkSwing = Math.sin(game.timeSec * walkSpeed) * walkAmp;
+
+      let lArmX = 0;
+      let rArmX = 0;
+      let lLegX = 0;
+      let rLegX = 0;
+      let headX = 0;
+
+      if (isAirborne) {
+        const fallBlend = THREE.MathUtils.clamp((-game.player.vel.y + 1.2) / 3.2, 0, 1);
+
+        const ascArm = -0.4;
+        const fallArm = 0.2;
+        lArmX = THREE.MathUtils.lerp(ascArm, fallArm, fallBlend);
+        rArmX = THREE.MathUtils.lerp(ascArm, fallArm, fallBlend);
+
+        const ascL = 0.35;
+        const ascR = 0.2;
+        const fallL = -0.18;
+        const fallR = -0.08;
+        lLegX = THREE.MathUtils.lerp(ascL, fallL, fallBlend);
+        rLegX = THREE.MathUtils.lerp(ascR, fallR, fallBlend);
+
+        headX = THREE.MathUtils.lerp(-0.05, 0.12, fallBlend);
+      } else if (inWater) {
+        lArmX = walkSwing * 0.55;
+        rArmX = -walkSwing * 0.55;
+        lLegX = -walkSwing * 0.35;
+        rLegX = walkSwing * 0.35;
+      } else if (isMoving) {
+        lArmX = walkSwing;
+        rArmX = -walkSwing;
+        lLegX = -walkSwing;
+        rLegX = walkSwing;
+      }
+
+      if (isCrouching && onGround && !inWater) {
+        headX += 0.12;
+        lArmX += 0.18;
+        rArmX += 0.18;
+      }
+
+      lArm.rotation.x = lArmX;
+      rArm.rotation.x = rArmX;
+      lLeg.rotation.x = lLegX;
+      rLeg.rotation.x = rLegX;
+      head.rotation.x = headX;
+
+      lArmOver.rotation.copy(lArm.rotation);
+      rArmOver.rotation.copy(rArm.rotation);
+      lLegOver.rotation.copy(lLeg.rotation);
+      rLegOver.rotation.copy(rLeg.rotation);
+      headOver.rotation.copy(head.rotation);
+
+      lArmOver.position.copy(lArm.position);
+      rArmOver.position.copy(rArm.position);
+      lLegOver.position.copy(lLeg.position);
+      rLegOver.position.copy(rLeg.position);
+      headOver.position.copy(head.position);
+    }
+
     function raycastBlock() {
       let x = game.camera.position.x;
       let y = game.camera.position.y;
@@ -3386,6 +3470,7 @@
       game.timeSec += dt;
 
       updatePhysics(dt);
+      updatePlayerAnimation(dt);
       updateChunks();
 
       // animated moving water
