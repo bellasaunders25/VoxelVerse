@@ -401,7 +401,6 @@
     // --- CONSTANTS ---
     const CHUNK_SIZE = 16;
     const CHUNK_HEIGHT = 128;
-    const CHUNK_STORAGE_PREFIX = "vv-chunk-v1:";
 
     // Auto-jump/step like Minecraft (step up 1-block ledges)
     const AUTO_STEP_ENABLED = true;
@@ -722,6 +721,8 @@
       roomId: "",
       selfPeerId: null,
       remotePlayers: new Map(),
+      pendingRemoteBlocks: new Map(),
+      requestedChunkStates: new Set(),
       lastStateSentAt: 0,
       loopFrameId: null,
 
@@ -799,8 +800,6 @@
         tickAcc: 0,
         tickRate: 10
       },
-
-      pendingBlockWrites: new Map(),
 
       // --- MOBS ---
       mobs: new Map(),
@@ -1164,13 +1163,13 @@
           for (let i = 0; i < voxels.length; i++) if (voxels[i] === BLOCKS.WATER) wl[i] = 0;
           game.world[key].waterLevels = wl;
 
-          drainPendingBlockWrites(x, z);
-
           meshChunk(x, z);
           meshChunk(x - 1, z);
           meshChunk(x + 1, z);
           meshChunk(x, z - 1);
           meshChunk(x, z + 1);
+          applyPendingRemoteBlocksForChunk(x, z);
+          requestChunkState(x, z);
           return;
         }
 
@@ -1315,54 +1314,35 @@
       refreshHeldBlockVisuals();
     }
 
-    function createHeldBlockMesh(blockId = game.selectedBlock, scale = 1) {
+    function createHeldBlockMesh(scale = 1, blockId = game.selectedBlock) {
       const color = BLOCK_COLORS[blockId] ?? 0xffffff;
       const mat = new THREE.MeshLambertMaterial({ color });
       return new THREE.Mesh(new THREE.BoxGeometry(0.24 * scale, 0.24 * scale, 0.24 * scale), mat);
     }
 
-    function removeHeldBlockFromOwner(owner, refKey) {
-      const held = owner?.[refKey];
-      if (!held) return;
-      if (held.parent) held.parent.remove(held);
-      held.geometry?.dispose?.();
-      held.material?.dispose?.();
-      owner[refKey] = null;
-    }
-
-    function attachHeldBlockToModel(model, refKey, scale, pos, rot, blockId = game.selectedBlock, owner = game) {
+    function attachHeldBlockToModel(model, refKey, scale, pos, rot) {
       if (!model) return;
-      removeHeldBlockFromOwner(owner, refKey);
+      if (game[refKey]?.parent) game[refKey].parent.remove(game[refKey]);
       const rightArm = model.getObjectByName('RightArm');
       if (!rightArm) return;
-      if (!isFiniteNumber(blockId) || blockId <= 0) return;
 
-      const held = createHeldBlockMesh(blockId, scale);
+      const held = createHeldBlockMesh(scale);
       held.position.set(pos.x, pos.y, pos.z);
       held.rotation.set(rot.x, rot.y, rot.z);
       rightArm.add(held);
-      owner[refKey] = held;
+      game[refKey] = held;
     }
 
-    function updateRemoteHeldBlockVisual(remote) {
+    function attachRemoteHeldBlock(remote) {
       if (!remote?.mesh) return;
-      const nextBlock = Number(remote.heldBlock);
-      if (!isFiniteNumber(nextBlock) || nextBlock <= 0 || !(nextBlock in BLOCK_COLORS)) {
-        remote.heldBlockAttachedId = 0;
-        removeHeldBlockFromOwner(remote, 'heldBlockMesh');
-        return;
-      }
-      if (remote.heldBlockAttachedId === nextBlock && remote.heldBlockMesh?.parent) return;
-      attachHeldBlockToModel(
-        remote.mesh,
-        'heldBlockMesh',
-        1.0,
-        { x: 0.08, y: -0.38, z: 0.12 },
-        { x: 0.15, y: 0.6, z: 0.1 },
-        nextBlock,
-        remote
-      );
-      remote.heldBlockAttachedId = nextBlock;
+      if (remote.heldMesh?.parent) remote.heldMesh.parent.remove(remote.heldMesh);
+      const rightArm = remote.mesh.getObjectByName('RightArm');
+      if (!rightArm) return;
+      const held = createHeldBlockMesh(1, remote.heldBlock);
+      held.position.set(0.08, -0.38, 0.12);
+      held.rotation.set(0.15, 0.6, 0.1);
+      rightArm.add(held);
+      remote.heldMesh = held;
     }
 
     function refreshHeldBlockVisuals() {
@@ -2601,6 +2581,8 @@
         game.socket = null;
       }
       clearRemotePlayers();
+      game.pendingRemoteBlocks.clear();
+      game.requestedChunkStates.clear();
       game.selfPeerId = null;
       if (game.loopFrameId !== null) {
         cancelAnimationFrame(game.loopFrameId);
@@ -2763,91 +2745,45 @@
     // --- WORLD HELPERS ---
     function chunkKey(cx, cz) { return `${cx},${cz}`; }
 
-    function bytesToBase64(bytes) {
-      let bin = "";
-      const step = 0x8000;
-      for (let i = 0; i < bytes.length; i += step) {
-        bin += String.fromCharCode(...bytes.subarray(i, i + step));
+    function chunkCoordsForBlock(x, z) {
+      return { cx: Math.floor(x / CHUNK_SIZE), cz: Math.floor(z / CHUNK_SIZE) };
+    }
+
+    function queuePendingRemoteBlock(x, y, z, id) {
+      const { cx, cz } = chunkCoordsForBlock(x, z);
+      const cKey = chunkKey(cx, cz);
+      if (!game.pendingRemoteBlocks.has(cKey)) game.pendingRemoteBlocks.set(cKey, new Map());
+      game.pendingRemoteBlocks.get(cKey).set(`${x},${y},${z}`, { x, y, z, id });
+    }
+
+    function applyOrQueueRemoteBlock(x, y, z, id) {
+      const loc = getLocal(x, y, z);
+      if (!loc) {
+        queuePendingRemoteBlock(x, y, z, id);
+        return;
       }
-      return btoa(bin);
+      setBlock(x, y, z, id, { fromUser: false });
     }
 
-    function base64ToBytes(b64) {
-      const bin = atob(b64);
-      const out = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-      return out;
-    }
-
-    function ensureChunkWaterLevels(chunk) {
-      if (chunk.waterLevels) return;
-      chunk.waterLevels = new Uint8Array(chunk.data.length);
-      chunk.waterLevels.fill(255);
-      for (let i = 0; i < chunk.data.length; i++) {
-        if (chunk.data[i] === BLOCKS.WATER) chunk.waterLevels[i] = 0;
+    function applyPendingRemoteBlocksForChunk(cx, cz) {
+      const cKey = chunkKey(cx, cz);
+      const pending = game.pendingRemoteBlocks.get(cKey);
+      if (!pending || pending.size === 0) return;
+      for (const patch of pending.values()) {
+        const loc = getLocal(patch.x, patch.y, patch.z);
+        if (!loc) continue;
+        setBlock(patch.x, patch.y, patch.z, patch.id, { fromUser: false });
       }
+      game.pendingRemoteBlocks.delete(cKey);
     }
 
-    function persistChunkByKey(key) {
-      const chunk = game.world[key];
-      if (!chunk || !chunk.data) return;
-      ensureChunkWaterLevels(chunk);
-      try {
-        localStorage.setItem(CHUNK_STORAGE_PREFIX + key, JSON.stringify({
-          data: bytesToBase64(chunk.data),
-          waterLevels: bytesToBase64(chunk.waterLevels)
-        }));
-      } catch (err) {
-        console.warn("Failed to persist chunk", key, err);
-      }
-    }
-
-    function loadStoredChunk(cx, cz) {
-      const key = chunkKey(cx, cz);
-      try {
-        const raw = localStorage.getItem(CHUNK_STORAGE_PREFIX + key);
-        if (!raw) return null;
-        const parsed = JSON.parse(raw);
-        if (!parsed || !parsed.data) return null;
-
-        const data = base64ToBytes(parsed.data);
-        if (data.length !== CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE) return null;
-
-        let waterLevels = null;
-        if (parsed.waterLevels) {
-          waterLevels = base64ToBytes(parsed.waterLevels);
-          if (waterLevels.length !== data.length) waterLevels = null;
-        }
-
-        if (!waterLevels) {
-          waterLevels = new Uint8Array(data.length);
-          waterLevels.fill(255);
-          for (let i = 0; i < data.length; i++) if (data[i] === BLOCKS.WATER) waterLevels[i] = 0;
-        }
-
-        return { data, waterLevels };
-      } catch (err) {
-        console.warn("Failed to load stored chunk", key, err);
-        return null;
-      }
-    }
-
-    function enqueuePendingBlockWrite(x, y, z, id, fromUser = false) {
-      const cx = Math.floor(x / CHUNK_SIZE);
-      const cz = Math.floor(z / CHUNK_SIZE);
-      const key = chunkKey(cx, cz);
-      if (!game.pendingBlockWrites.has(key)) game.pendingBlockWrites.set(key, []);
-      game.pendingBlockWrites.get(key).push({ x, y, z, id, fromUser });
-    }
-
-    function drainPendingBlockWrites(cx, cz) {
-      const key = chunkKey(cx, cz);
-      const pending = game.pendingBlockWrites.get(key);
-      if (!pending || pending.length === 0) return;
-      game.pendingBlockWrites.delete(key);
-      for (const upd of pending) {
-        setBlock(upd.x, upd.y, upd.z, upd.id, { fromUser: upd.fromUser });
-      }
+    function requestChunkState(cx, cz) {
+      if (STATE.mode !== "MP") return;
+      if (!game.socket || game.socket.readyState !== WebSocket.OPEN) return;
+      const cKey = chunkKey(cx, cz);
+      if (game.requestedChunkStates.has(cKey)) return;
+      game.requestedChunkStates.add(cKey);
+      game.socket.send(JSON.stringify({ type: "CHUNK_REQUEST", cx, cz }));
     }
 
     function getLocal(x, y, z) {
@@ -2987,7 +2923,6 @@
           chunk.waterLevels[loc.idx] = newLevel;
           markChunkDirtyFromLoc(loc);
           scheduleFluidAround(loc.cx * CHUNK_SIZE + loc.lx, loc.ly, loc.cz * CHUNK_SIZE + loc.lz);
-          persistChunkByKey(loc.key);
           return true;
         }
         return false;
@@ -3004,7 +2939,6 @@
 
       markChunkDirtyFromLoc(loc);
       scheduleFluidAround(loc.cx * CHUNK_SIZE + loc.lx, loc.ly, loc.cz * CHUNK_SIZE + loc.lz);
-      persistChunkByKey(loc.key);
       return true;
     }
 
@@ -3815,6 +3749,7 @@
       pose.headX = THREE.MathUtils.clamp(game.player.pitch * 0.6, -0.5, 0.5);
 
       if (isCrouching && onGround && !inWater) {
+        pose.headX += 0.12;
         pose.lArmX += 0.18;
         pose.rArmX += 0.18;
       }
@@ -3882,13 +3817,15 @@
           remotePose.bodyX = 0.1;
         }
 
-        if (remote.punchAnim > 0) {
-          const remotePunchWave = Math.sin((1 - remote.punchAnim) * Math.PI);
-          remotePose.rArmX += 1.15 * remotePunchWave;
+        const remotePunch = THREE.MathUtils.clamp(remote.punchAnim || 0, 0, 1);
+        const remotePlace = THREE.MathUtils.clamp(remote.placeAnim || 0, 0, 1);
+        if (remotePunch > 0) {
+          const punchWave = Math.sin((1 - remotePunch) * Math.PI);
+          remotePose.rArmX += 1.15 * punchWave;
         }
-        if (remote.placeAnim > 0) {
-          const remotePlaceWave = Math.sin((1 - remote.placeAnim) * Math.PI);
-          remotePose.rArmX += 0.65 * remotePlaceWave;
+        if (remotePlace > 0) {
+          const placeWave = Math.sin((1 - remotePlace) * Math.PI);
+          remotePose.rArmX += 0.65 * placeWave;
         }
 
         applyAnimationToModel(remote.mesh, remotePose);
@@ -3965,22 +3902,23 @@
 
     function setBlock(x, y, z, id, { fromUser = false } = {}) {
       const loc = getLocal(x, y, z);
-      if (!loc) {
-        enqueuePendingBlockWrite(x, y, z, id, fromUser);
-        if (fromUser && game.socket && game.socket.readyState === WebSocket.OPEN) {
-          game.socket.send(JSON.stringify({ type: "BLOCK", x, y, z, id }));
-        }
-        return;
+      if (!loc) return;
+
+      if (!loc.chunk.waterLevels) {
+        loc.chunk.waterLevels = new Uint8Array(loc.chunk.data.length);
+        loc.chunk.waterLevels.fill(255);
       }
 
-      const changed = setCell(loc, id, (id === BLOCKS.WATER) ? 0 : 255);
-      if (!changed) return;
+      loc.chunk.data[loc.idx] = id;
+      loc.chunk.waterLevels[loc.idx] = (id === BLOCKS.WATER) ? 0 : 255;
 
       meshChunk(loc.cx, loc.cz);
       meshChunk(loc.cx - 1, loc.cz);
       meshChunk(loc.cx + 1, loc.cz);
       meshChunk(loc.cx, loc.cz - 1);
       meshChunk(loc.cx, loc.cz + 1);
+
+      scheduleFluidAround(Math.floor(x), Math.floor(y), Math.floor(z));
 
       if (fromUser && game.socket && game.socket.readyState === WebSocket.OPEN) {
         game.socket.send(JSON.stringify({ type: "BLOCK", x, y, z, id }));
@@ -4066,19 +4004,7 @@
           const key = chunkKey(x, z);
           if (!game.world[key]) {
             game.world[key] = {};
-            const stored = loadStoredChunk(x, z);
-            if (stored) {
-              game.world[key].data = stored.data;
-              game.world[key].waterLevels = stored.waterLevels;
-              drainPendingBlockWrites(x, z);
-              meshChunk(x, z);
-              meshChunk(x - 1, z);
-              meshChunk(x + 1, z);
-              meshChunk(x, z - 1);
-              meshChunk(x, z + 1);
-            } else {
-              game.worker.postMessage({ type: "GENERATE", x, z, seed: 12345 });
-            }
+            game.worker.postMessage({ type: "GENERATE", x, z, seed: 12345 });
           }
         }
       }
@@ -4089,6 +4015,7 @@
           const c = game.world[k];
           if (c.mesh) { game.scene.remove(c.mesh); c.mesh.geometry.dispose(); }
           if (c.waterMesh) { game.scene.remove(c.waterMesh); c.waterMesh.geometry.dispose(); }
+          game.requestedChunkStates.delete(k);
           delete game.world[k];
         }
       }
@@ -4239,9 +4166,8 @@
         isCrouching: false,
         punchAnim: 0,
         placeAnim: 0,
-        heldBlock: 0,
-        heldBlockAttachedId: 0,
-        heldBlockMesh: null
+        heldBlock: BLOCKS.DIRT,
+        heldMesh: null
       };
       game.remotePlayers.set(id, remote);
       return remote;
@@ -4251,10 +4177,10 @@
       const remote = game.remotePlayers.get(peerId);
       if (!remote) return;
       game.scene.remove(remote.group || remote.mesh);
+      if (remote.heldMesh?.parent) remote.heldMesh.parent.remove(remote.heldMesh);
       if (remote.nameTag?.material) remote.nameTag.material.dispose();
       if (remote.nameTag?.texture) remote.nameTag.texture.dispose();
       if (remote.skinTexture && remote.skinTexture !== game.skinTexture) remote.skinTexture.dispose();
-      removeHeldBlockFromOwner(remote, 'heldBlockMesh');
       game.remotePlayers.delete(peerId);
     }
 
@@ -4291,10 +4217,14 @@
       remote.target.pitch = state.pitch;
       remote.isMoving = !!state.moving;
       remote.isCrouching = !!state.crouching;
-      remote.punchAnim = THREE.MathUtils.clamp(Number(state.punchAnim) || 0, 0, 1);
-      remote.placeAnim = THREE.MathUtils.clamp(Number(state.placeAnim) || 0, 0, 1);
-      remote.heldBlock = Number(state.heldBlock) || 0;
-      updateRemoteHeldBlockVisual(remote);
+      remote.punchAnim = isFiniteNumber(state.punchAnim) ? state.punchAnim : 0;
+      remote.placeAnim = isFiniteNumber(state.placeAnim) ? state.placeAnim : 0;
+
+      const nextHeld = isFiniteNumber(state.heldBlock) ? state.heldBlock : remote.heldBlock;
+      if (nextHeld !== remote.heldBlock || !remote.heldMesh) {
+        remote.heldBlock = nextHeld;
+        attachRemoteHeldBlock(remote);
+      }
     }
 
     function clearRemotePlayers() {
@@ -4314,11 +4244,11 @@
         z: game.player.pos.z,
         yaw: game.player.yaw,
         pitch: game.player.pitch,
+        moving: !!game.player._moving,
+        crouching: !!game.player.crouchToggled,
         punchAnim: game.player.punchAnim,
         placeAnim: game.player.placeAnim,
-        heldBlock: game.selectedBlock,
-        moving: game.player._moving,
-        crouching: game.player.crouchToggled
+        heldBlock: game.selectedBlock
       }));
     }
 
@@ -4330,6 +4260,8 @@
       }
       game.selfPeerId = null;
       clearRemotePlayers();
+      game.pendingRemoteBlocks.clear();
+      game.requestedChunkStates.clear();
       game.lastStateSentAt = 0;
       game.socket = new WebSocket(endpoint);
       game.socket.onopen = () => {
@@ -4339,7 +4271,7 @@
       game.socket.onmessage = (e) => {
         const msg = JSON.parse(e.data);
         if (msg.type === "CHAT") addChat(`[${msg.name}]: ${msg.text}`);
-        if (msg.type === "BLOCK") setBlock(msg.x, msg.y, msg.z, msg.id);
+        if (msg.type === "BLOCK") applyOrQueueRemoteBlock(msg.x, msg.y, msg.z, msg.id);
         if (msg.type === "SELF") game.selfPeerId = msg.id || null;
         if (msg.type === "PLAYER_JOIN") {
           createRemotePlayer(msg.id, msg.name, msg.skin);
@@ -4353,6 +4285,9 @@
           }
         }
         if (msg.type === "PLAYER_STATE") updateRemotePlayerState(msg.id, msg);
+        if (msg.type === "CHUNK_DATA" && Array.isArray(msg.blocks)) {
+          for (const b of msg.blocks) applyOrQueueRemoteBlock(b.x, b.y, b.z, b.id);
+        }
         if (msg.type === "PLAYER_LEAVE") removeRemotePlayer(msg.id);
       };
       game.socket.onerror = () => { document.getElementById("disconnect-msg").textContent = "Could not connect. Verify your wss:// realtime server is running and public."; };
@@ -4360,6 +4295,8 @@
         addChat("Disconnected.");
         document.getElementById("disconnect-msg").textContent = "Disconnected from server.";
         clearRemotePlayers();
+        game.pendingRemoteBlocks.clear();
+        game.requestedChunkStates.clear();
         game.selfPeerId = null;
       };
     }
