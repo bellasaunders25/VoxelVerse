@@ -241,16 +241,6 @@
       display: none;
     }
 
-    #first-person-hand {
-      position: absolute;
-      right: 24px;
-      bottom: -6px;
-      width: 260px;
-      height: 220px;
-      pointer-events: none;
-      display: none;
-      z-index: 30;
-    }
 
     #disconnect-msg { color: red; margin-top: 10px; }
   </style>
@@ -283,7 +273,6 @@
       <div id="chat-history"></div>
       <input type="text" id="chat-input" placeholder="Press T to chat..." />
     </div>
-    <div id="first-person-hand"></div>
     <div id="hud-player-preview"></div>
     <div id="hotbar"></div>
   </div>
@@ -738,8 +727,8 @@
       skinScene: null, skinCamera: null, skinRenderer: null, skinMesh: null,
       worldPlayerMesh: null,
       hudSkinScene: null, hudSkinCamera: null, hudSkinRenderer: null, hudSkinMesh: null,
-      fpHandScene: null, fpHandCamera: null, fpHandRenderer: null, fpHandArm: null, fpHandBlock: null,
       worldHeldBlock: null,
+      hudHeldBlock: null,
       
       skinCanvas: null,
       skinCtx: null,
@@ -1303,26 +1292,22 @@
       return new THREE.Mesh(new THREE.BoxGeometry(0.24 * scale, 0.24 * scale, 0.24 * scale), mat);
     }
 
-    function attachWorldHeldBlock() {
-      if (!game.worldPlayerMesh) return;
-      if (game.worldHeldBlock?.parent) game.worldHeldBlock.parent.remove(game.worldHeldBlock);
-      const rightArm = game.worldPlayerMesh.getObjectByName('RightArm');
+    function attachHeldBlockToModel(model, refKey, scale, pos, rot) {
+      if (!model) return;
+      if (game[refKey]?.parent) game[refKey].parent.remove(game[refKey]);
+      const rightArm = model.getObjectByName('RightArm');
       if (!rightArm) return;
-      game.worldHeldBlock = createHeldBlockMesh(1);
-      game.worldHeldBlock.position.set(0.08, -0.38, 0.12);
-      game.worldHeldBlock.rotation.set(0.15, 0.6, 0.1);
-      rightArm.add(game.worldHeldBlock);
+
+      const held = createHeldBlockMesh(scale);
+      held.position.set(pos.x, pos.y, pos.z);
+      held.rotation.set(rot.x, rot.y, rot.z);
+      rightArm.add(held);
+      game[refKey] = held;
     }
 
     function refreshHeldBlockVisuals() {
-      if (game.worldPlayerMesh) attachWorldHeldBlock();
-      if (game.fpHandArm) {
-        if (game.fpHandBlock?.parent) game.fpHandBlock.parent.remove(game.fpHandBlock);
-        game.fpHandBlock = createHeldBlockMesh(1.2);
-        game.fpHandBlock.position.set(0.12, -0.28, 0.16);
-        game.fpHandBlock.rotation.set(0.3, 0.6, 0.15);
-        game.fpHandArm.add(game.fpHandBlock);
-      }
+      attachHeldBlockToModel(game.worldPlayerMesh, 'worldHeldBlock', 1.0, { x: 0.08, y: -0.38, z: 0.12 }, { x: 0.15, y: 0.6, z: 0.1 });
+      attachHeldBlockToModel(game.hudSkinMesh, 'hudHeldBlock', 1.0, { x: 0.08, y: -0.38, z: 0.12 }, { x: 0.15, y: 0.6, z: 0.1 });
     }
 
     // --- MOB TEXTURES (Detailed, Pixel Art) ---
@@ -2430,14 +2415,6 @@
             game.hudSkinCamera.aspect = w / h;
             game.hudSkinCamera.updateProjectionMatrix();
         }
-        if (game.fpHandRenderer && game.fpHandCamera) {
-            const fpContainer = document.getElementById('first-person-hand');
-            const w = fpContainer?.clientWidth || 260;
-            const h = fpContainer?.clientHeight || 220;
-            game.fpHandRenderer.setSize(w, h);
-            game.fpHandCamera.aspect = w / h;
-            game.fpHandCamera.updateProjectionMatrix();
-        }
     });
 
     // --- START GAME ---
@@ -2520,7 +2497,6 @@
       game.scene.add(game.worldPlayerMesh);
 
       ensureHudPlayerPreview();
-      ensureFirstPersonHand();
       refreshHeldBlockVisuals();
 
       if (mode === "MP") connectServer();
@@ -2986,8 +2962,11 @@
     function raycastMob(maxDist = 4.2) {
       if (!game.camera) return null;
 
-      const ndc = new THREE.Vector2(0, 0);
-      game.raycaster.setFromCamera(ndc, game.camera);
+      const origin = new THREE.Vector3(game.player.pos.x, game.player.pos.y + game.player.eyeHeight, game.player.pos.z);
+      const dir = new THREE.Vector3(0, 0, -1)
+        .applyEuler(new THREE.Euler(game.player.pitch, game.player.yaw, 0, 'YXZ'))
+        .normalize();
+      game.raycaster.set(origin, dir);
       game.raycaster.far = maxDist;
 
       const mobMeshes = [];
@@ -3404,66 +3383,6 @@
       }
     }
 
-    function ensureFirstPersonHand() {
-      if (game.fpHandRenderer || !game.skinTexture) return;
-      const container = document.getElementById('first-person-hand');
-      if (!container) return;
-
-      game.fpHandScene = new THREE.Scene();
-      game.fpHandCamera = new THREE.PerspectiveCamera(55, (container.clientWidth || 260) / (container.clientHeight || 220), 0.1, 20);
-      game.fpHandCamera.position.set(0, 0, 3.2);
-
-      game.fpHandRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
-      game.fpHandRenderer.setPixelRatio(window.devicePixelRatio);
-      game.fpHandRenderer.setSize(container.clientWidth || 260, container.clientHeight || 220);
-      container.appendChild(game.fpHandRenderer.domElement);
-
-      game.fpHandScene.add(new THREE.AmbientLight(0xffffff, 1.2));
-      const light = new THREE.DirectionalLight(0xffffff, 0.65);
-      light.position.set(1, 2, 2);
-      game.fpHandScene.add(light);
-
-      const fpModel = buildPlayerModel(game.skinTexture);
-      const armBase = fpModel.getObjectByName('RightArm');
-      const armOverlay = fpModel.getObjectByName('RightArmOverlay');
-      game.fpHandArm = new THREE.Group();
-      if (armBase) {
-        const armClone = armBase.clone();
-        armClone.position.set(0, 0, 0);
-        game.fpHandArm.add(armClone);
-      }
-      if (armOverlay) {
-        const overlayClone = armOverlay.clone();
-        overlayClone.position.set(0, 0, 0);
-        game.fpHandArm.add(overlayClone);
-      }
-      game.fpHandArm.scale.set(1.45, 1.45, 1.45);
-      game.fpHandArm.position.set(0.78, -0.55, -0.2);
-      game.fpHandArm.rotation.set(-0.35, -0.45, -0.3);
-      game.fpHandScene.add(game.fpHandArm);
-
-      refreshHeldBlockVisuals();
-    }
-
-    function renderFirstPersonHand(dt) {
-      if (!game.fpHandRenderer || !game.fpHandCamera || !game.fpHandScene || !game.fpHandArm) return;
-      const container = document.getElementById('first-person-hand');
-      const show = !!STATE.isRunning && !game.camera?.thirdPerson;
-      if (container) container.style.display = show ? 'block' : 'none';
-      if (!show) return;
-
-      const walkBob = Math.sin(game.timeSec * 9.5) * (game.player._moving ? 0.06 : 0.015);
-      const actionStrength = Math.max(game.player.punchAnim, game.player.placeAnim);
-      const actionPitch = Math.sin((1 - actionStrength) * Math.PI) * 1.1;
-
-      game.fpHandArm.position.set(0.78 + walkBob * 0.3, -0.55 - walkBob * 0.22, -0.2 + walkBob * 0.12);
-      game.fpHandArm.rotation.x = -0.35 + actionPitch;
-      game.fpHandArm.rotation.y = -0.45 + actionPitch * 0.2;
-      game.fpHandArm.rotation.z = -0.3 - actionPitch * 0.25;
-
-      game.fpHandRenderer.render(game.fpHandScene, game.fpHandCamera);
-    }
-
     function ensureHudPlayerPreview() {
       if (game.hudSkinRenderer || !game.skinTexture) return;
       const container = document.getElementById('hud-player-preview');
@@ -3487,6 +3406,7 @@
       game.hudSkinMesh = buildPlayerModel(game.skinTexture);
       game.hudSkinMesh.rotation.y = -0.35;
       game.hudSkinScene.add(game.hudSkinMesh);
+      refreshHeldBlockVisuals();
     }
 
     function renderHudPlayerPreview() {
@@ -3545,7 +3465,8 @@
         rArmX: 0,
         lLegX: 0,
         rLegX: 0,
-        headX: 0
+        headX: 0,
+        bodyX: 0
       };
 
       if (isAirborne) {
@@ -3565,6 +3486,7 @@
 
         pose.headX = THREE.MathUtils.lerp(-0.05, 0.12, fallBlend);
       } else if (inWater) {
+        pose.bodyX = -Math.PI / 2;
         pose.lArmX = walkSwing * 0.55;
         pose.rArmX = -walkSwing * 0.55;
         pose.lLegX = -walkSwing * 0.35;
@@ -3593,6 +3515,12 @@
         pose.rArmX += 0.65 * placeWave;
       }
 
+
+      const applyPosture = (model) => {
+        if (!model) return;
+        model.rotation.x += (pose.bodyX - model.rotation.x) * 0.25;
+      };
+
       if (game.worldPlayerMesh) {
         const showHead = !!game.camera?.thirdPerson;
         const head = game.worldPlayerMesh.getObjectByName("Head");
@@ -3604,6 +3532,10 @@
       applyAnimationToModel(game.hudSkinMesh, pose);
       applyAnimationToModel(game.skinMesh, pose);
       applyAnimationToModel(game.worldPlayerMesh, pose);
+
+      applyPosture(game.hudSkinMesh);
+      applyPosture(game.skinMesh);
+      applyPosture(game.worldPlayerMesh);
     }
 
     function raycastBlock() {
@@ -3746,7 +3678,6 @@
 
       game.renderer.render(game.scene, game.camera);
       renderHudPlayerPreview();
-      renderFirstPersonHand(dt);
 
       document.getElementById("debug-overlay").innerHTML = `
         FPS: ${Math.round(1 / dt)}<br>
