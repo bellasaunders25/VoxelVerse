@@ -293,11 +293,14 @@
         
         <!-- Hidden MP Options -->
         <div id="mp-options" class="hidden input-group">
-          <label>Server URL (ws://...)</label>
-          <input type="text" id="server-url" value="localhost:8080" />
+          <label>Join Code</label>
+          <input type="text" id="join-code" placeholder="Paste join code" />
           <label>Username</label>
           <input type="text" id="username" value="Player" />
-          <button id="btn-join" style="margin-top:10px; width:100%">Join</button>
+          <div class="button-row" style="margin-top:10px;">
+            <button id="btn-host" class="btn-half">Host Room</button>
+            <button id="btn-join" class="btn-half">Join Room</button>
+          </div>
           <div id="disconnect-msg"></div>
         </div>
       </div>
@@ -321,6 +324,16 @@
       <input type="number" id="mouse-sens" value="0.002" step="0.001" />
     </div>
     <button id="btn-settings-back">Back</button>
+  </div>
+
+  <div id="pause-menu" class="screen hidden">
+    <h1>Paused</h1>
+    <div class="input-group" id="pause-room-wrap" style="display:none;">
+      <label>Room Code</label>
+      <input type="text" id="pause-room-code" readonly />
+    </div>
+    <button id="btn-resume">Resume</button>
+    <button id="btn-exit">Exit</button>
   </div>
 
   <div id="skin-menu" class="screen hidden">
@@ -395,7 +408,7 @@
     const BLOCK_COLORS = [0x000000, 0x5d4037, 0x388e3c, 0x757575, 0x5d4037, 0x2e7d32, 0x212121, 0xfbc02d, 0x1976d2, 0x8d6e63];
 
     let SETTINGS = { renderDistance: 6, sensitivity: 0.002, nickname: "Player" };
-    let STATE = { mode: "MENU", isRunning: false };
+    let STATE = { mode: "MENU", isRunning: false, isPaused: false };
 
     // --- AUDIO URLS ---
     const SOUND_URLS = {
@@ -699,6 +712,9 @@
       scene: null, camera: null, renderer: null,
       world: {},
       socket: null,
+      multiplayerEndpoint: "",
+      roomCode: "",
+      roomId: "",
 
       player: {
         pos: new THREE.Vector3(0, 80, 0),
@@ -2417,6 +2433,73 @@
         }
     });
 
+    function generateRoomId() {
+      return Math.random().toString(36).slice(2, 8).toUpperCase();
+    }
+
+    function buildDefaultEndpoint() {
+      const proto = location.protocol === "https:" ? "wss" : "ws";
+      return `${proto}://${location.host}`;
+    }
+
+    function buildJoinCode(endpoint, roomId) {
+      return btoa(JSON.stringify({ e: endpoint, r: roomId }));
+    }
+
+    function parseJoinCode(code) {
+      try {
+        const payload = JSON.parse(atob((code || "").trim()));
+        if (!payload || !payload.e || !payload.r) return null;
+        return { endpoint: String(payload.e), roomId: String(payload.r) };
+      } catch {
+        return null;
+      }
+    }
+
+    function setPauseRoomCode() {
+      const wrap = document.getElementById("pause-room-wrap");
+      const input = document.getElementById("pause-room-code");
+      if (!wrap || !input) return;
+      if (STATE.mode === "MP" && game.roomCode) {
+        wrap.style.display = "block";
+        input.value = game.roomCode;
+      } else {
+        wrap.style.display = "none";
+        input.value = "";
+      }
+    }
+
+    function resumeGame() {
+      if (!STATE.isRunning) return;
+      STATE.isPaused = false;
+      document.getElementById("pause-menu").classList.add("hidden");
+      if (game.renderer?.domElement) game.renderer.domElement.requestPointerLock();
+    }
+
+    function openPauseMenu() {
+      if (!STATE.isRunning || STATE.mode === "MENU") return;
+      STATE.isPaused = true;
+      setPauseRoomCode();
+      document.getElementById("pause-menu").classList.remove("hidden");
+      document.exitPointerLock();
+    }
+
+    function exitToMenu() {
+      STATE.isPaused = false;
+      STATE.isRunning = false;
+      STATE.mode = "MENU";
+      document.getElementById("pause-menu").classList.add("hidden");
+      document.getElementById("ui-layer").classList.add("hidden");
+      document.getElementById("main-menu").classList.remove("hidden");
+      if (game.socket) {
+        try { game.socket.close(); } catch {}
+        game.socket = null;
+      }
+      if (game.renderer?.domElement) {
+        game.renderer.domElement.remove();
+      }
+    }
+
     // --- START GAME ---
     function startGame(mode) {
       AUDIO.ensureUnlocked();
@@ -2428,6 +2511,8 @@
 
       STATE.mode = mode;
       STATE.isRunning = true;
+      STATE.isPaused = false;
+      document.getElementById("pause-menu").classList.add("hidden");
 
       game.scene = new THREE.Scene();
       game.scene.background = new THREE.Color(0x87CEEB);
@@ -2506,6 +2591,14 @@
     // --- INPUT ---
     const keys = { w: 0, a: 0, s: 0, d: 0, space: 0, shift: 0 };
     function onKeyDown(e) {
+      if (e.code === "Escape" && STATE.isRunning) {
+        if (STATE.isPaused) resumeGame();
+        else openPauseMenu();
+        return;
+      }
+
+      if (STATE.isPaused) return;
+
       if (e.code === "KeyW") keys.w = 1;
       if (e.code === "KeyA") keys.a = 1;
       if (e.code === "KeyS") keys.s = 1;
@@ -3572,6 +3665,7 @@
     }
 
     function onMouseDown(e) {
+      if (STATE.isPaused) return;
       if (document.pointerLockElement !== game.renderer.domElement) return;
 
       if (e.button === 0) {
@@ -3641,6 +3735,12 @@
 
       game.player.punchAnim = Math.max(0, game.player.punchAnim - dt * 6.5);
       game.player.placeAnim = Math.max(0, game.player.placeAnim - dt * 8.0);
+
+      if (STATE.isPaused) {
+        game.renderer.render(game.scene, game.camera);
+        renderHudPlayerPreview();
+        return;
+      }
 
       updatePhysics(dt);
       updatePlayerAnimation(dt);
@@ -3720,10 +3820,32 @@
     function setupUI() {
       document.getElementById("btn-sp").onclick = () => startGame("SP");
       document.getElementById("btn-mp").onclick = () => { document.getElementById("mp-options").classList.remove("hidden"); };
-      document.getElementById("btn-join").onclick = () => {
-        SETTINGS.nickname = document.getElementById("username").value;
+
+      document.getElementById("btn-host").onclick = () => {
+        SETTINGS.nickname = document.getElementById("username").value || "Player";
+        game.multiplayerEndpoint = buildDefaultEndpoint();
+        game.roomId = generateRoomId();
+        game.roomCode = buildJoinCode(game.multiplayerEndpoint, game.roomId);
+        document.getElementById("join-code").value = game.roomCode;
         startGame("MP");
       };
+
+      document.getElementById("btn-join").onclick = () => {
+        SETTINGS.nickname = document.getElementById("username").value || "Player";
+        const parsed = parseJoinCode(document.getElementById("join-code").value);
+        if (!parsed) {
+          document.getElementById("disconnect-msg").textContent = "Invalid join code.";
+          return;
+        }
+        game.multiplayerEndpoint = parsed.endpoint;
+        game.roomId = parsed.roomId;
+        game.roomCode = document.getElementById("join-code").value.trim();
+        document.getElementById("disconnect-msg").textContent = "";
+        startGame("MP");
+      };
+
+      document.getElementById("btn-resume").onclick = resumeGame;
+      document.getElementById("btn-exit").onclick = exitToMenu;
 
       document.getElementById("btn-skin").onclick = () => {
         document.getElementById("main-menu").classList.add("hidden");
@@ -3759,18 +3881,18 @@
 
     // --- MP / CHAT ---
     function connectServer() {
-      const url = document.getElementById("server-url").value;
-      game.socket = new WebSocket(`ws://${url}`);
+      const endpoint = game.multiplayerEndpoint || buildDefaultEndpoint();
+      game.socket = new WebSocket(endpoint);
       game.socket.onopen = () => {
-        addChat("Connected!");
-        game.socket.send(JSON.stringify({ type: "JOIN", name: SETTINGS.nickname, skin: game.mySkin }));
+        addChat(`Connected to ${endpoint}`);
+        game.socket.send(JSON.stringify({ type: "JOIN", name: SETTINGS.nickname, skin: game.mySkin, room: game.roomId }));
       };
       game.socket.onmessage = (e) => {
         const msg = JSON.parse(e.data);
         if (msg.type === "CHAT") addChat(`[${msg.name}]: ${msg.text}`);
         if (msg.type === "BLOCK") setBlock(msg.x, msg.y, msg.z, msg.id);
       };
-      game.socket.onclose = () => { addChat("Disconnected."); };
+      game.socket.onclose = () => { addChat("Disconnected."); document.getElementById("disconnect-msg").textContent = "Disconnected from server."; };
     }
 
     function sendChat() {
