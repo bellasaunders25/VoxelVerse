@@ -2,8 +2,9 @@ import { WebSocketServer } from "ws";
 
 const port = Number(process.env.PORT || 8080);
 const wss = new WebSocketServer({ port });
+let nextPeerId = 1;
 
-const peers = new Map(); // socket -> { name, room }
+const peers = new Map(); // socket -> { id, name, skin, room, state }
 const rooms = new Map(); // room -> Set<socket>
 
 function normalizeRoom(room) {
@@ -35,7 +36,13 @@ function broadcastToRoom(room, payload, except = null) {
 }
 
 wss.on("connection", (ws) => {
-  peers.set(ws, { name: "Player", room: "GLOBAL" });
+  peers.set(ws, {
+    id: `p${nextPeerId++}`,
+    name: "Player",
+    skin: "",
+    room: "GLOBAL",
+    state: { x: 0, y: 80, z: 0, yaw: 0, pitch: 0 }
+  });
   addToRoom(ws, "GLOBAL");
 
   ws.on("message", (data) => {
@@ -53,6 +60,7 @@ wss.on("connection", (ws) => {
       const oldRoom = peer.room;
       const room = normalizeRoom(msg.room);
       peer.name = typeof msg.name === "string" ? msg.name.slice(0, 24) : "Player";
+      peer.skin = typeof msg.skin === "string" ? msg.skin.slice(0, 200000) : "";
       peer.room = room;
 
       if (oldRoom !== room) {
@@ -60,7 +68,30 @@ wss.on("connection", (ws) => {
         addToRoom(ws, room);
       }
 
+      const roomPeers = rooms.get(room);
+      const snapshot = [];
+      if (roomPeers) {
+        for (const client of roomPeers) {
+          if (client === ws) continue;
+          const roomPeer = peers.get(client);
+          if (!roomPeer) continue;
+          snapshot.push({
+            id: roomPeer.id,
+            name: roomPeer.name,
+            skin: roomPeer.skin,
+            x: roomPeer.state.x,
+            y: roomPeer.state.y,
+            z: roomPeer.state.z,
+            yaw: roomPeer.state.yaw,
+            pitch: roomPeer.state.pitch
+          });
+        }
+      }
+
       ws.send(JSON.stringify({ type: "SYSTEM", text: `Joined room ${room}` }));
+      ws.send(JSON.stringify({ type: "ROOM_SNAPSHOT", peers: snapshot }));
+      ws.send(JSON.stringify({ type: "SELF", id: peer.id }));
+      broadcastToRoom(room, { type: "PLAYER_JOIN", id: peer.id, name: peer.name, skin: peer.skin }, ws);
       broadcastToRoom(room, { type: "SYSTEM", text: `${peer.name} joined.` }, ws);
       return;
     }
@@ -82,6 +113,29 @@ wss.on("connection", (ws) => {
       if (![x, y, z, id].every(Number.isFinite)) return;
 
       broadcastToRoom(peer.room, { type: "BLOCK", x, y, z, id }, ws);
+      return;
+    }
+
+    if (msg.type === "PLAYER_STATE") {
+      const x = Number(msg.x);
+      const y = Number(msg.y);
+      const z = Number(msg.z);
+      const yaw = Number(msg.yaw);
+      const pitch = Number(msg.pitch);
+      if (![x, y, z, yaw, pitch].every(Number.isFinite)) return;
+
+      peer.state = { x, y, z, yaw, pitch };
+      broadcastToRoom(peer.room, {
+        type: "PLAYER_STATE",
+        id: peer.id,
+        name: peer.name,
+        skin: peer.skin,
+        x,
+        y,
+        z,
+        yaw,
+        pitch
+      }, ws);
     }
   });
 
@@ -89,6 +143,7 @@ wss.on("connection", (ws) => {
     const peer = peers.get(ws);
     if (!peer) return;
     removeFromRoom(ws, peer.room);
+    broadcastToRoom(peer.room, { type: "PLAYER_LEAVE", id: peer.id }, ws);
     broadcastToRoom(peer.room, { type: "SYSTEM", text: `${peer.name} left.` }, ws);
     peers.delete(ws);
   });
