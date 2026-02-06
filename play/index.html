@@ -3494,7 +3494,7 @@
         const lStroke = Math.sin(swimPhase);
         const rStroke = Math.sin(swimPhase + Math.PI);
 
-        pose.bodyX = -Math.PI / 2 + THREE.MathUtils.clamp(game.player.pitch, -0.7, 0.7) * 0.4;
+        pose.bodyX = -Math.PI / 2;
 
         // Front crawl style arms (reach + pull)
         pose.lArmX = -0.85 + lStroke * 1.05;
@@ -3506,7 +3506,7 @@
         pose.lLegX = Math.sin(swimPhase + Math.PI) * 0.28;
         pose.rLegX = Math.sin(swimPhase) * 0.28;
 
-        pose.headX = -THREE.MathUtils.clamp(game.player.pitch, -0.5, 0.5) * 0.2;
+        pose.headX = 0;
       } else if (isMoving) {
         pose.lArmX = walkSwing;
         pose.rArmX = -walkSwing;
