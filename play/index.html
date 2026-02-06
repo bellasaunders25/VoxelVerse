@@ -1998,6 +1998,58 @@
       return group;
     }
 
+    function createPlayerNameTag(name) {
+      const canvas = document.createElement("canvas");
+      canvas.width = 256;
+      canvas.height = 64;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
+      ctx.fillRect(0, 8, canvas.width, 48);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(1.5, 9.5, canvas.width - 3, 45);
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 28px 'Courier New', monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(name || "Player", canvas.width / 2, canvas.height / 2 + 1);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.needsUpdate = true;
+
+      const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false });
+      const sprite = new THREE.Sprite(material);
+      sprite.position.set(0, game.player.height + 0.4, 0);
+      sprite.scale.set(1.7, 0.45, 1);
+      sprite.renderOrder = 4;
+
+      return { sprite, texture, material };
+    }
+
+    function setPlayerNameTagText(nameTag, name) {
+      if (!nameTag?.texture?.image) return;
+      const canvas = nameTag.texture.image;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
+      ctx.fillRect(0, 8, canvas.width, 48);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(1.5, 9.5, canvas.width - 3, 45);
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 28px 'Courier New', monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(name || "Player", canvas.width / 2, canvas.height / 2 + 1);
+      nameTag.texture.needsUpdate = true;
+    }
+
     function createGridTexture() {
       const c = document.createElement("canvas");
       c.width = 64; c.height = 64;
@@ -2509,7 +2561,7 @@
         try { game.socket.close(); } catch {}
         game.socket = null;
       }
-      for (const peerId of Array.from(game.remotePlayers.keys())) removeRemotePlayer(peerId);
+      clearRemotePlayers();
       game.selfPeerId = null;
       if (game.renderer?.domElement) {
         game.renderer.domElement.remove();
@@ -3484,8 +3536,19 @@
       }
 
       for (const remote of game.remotePlayers.values()) {
-        remote.mesh.position.set(remote.state.x, remote.state.y + PLAYER_MODEL_GROUND_OFFSET, remote.state.z);
-        remote.mesh.rotation.y = remote.state.yaw + Math.PI;
+        const lerpT = 1 - Math.exp(-dt * 12);
+        remote.current.x = THREE.MathUtils.lerp(remote.current.x, remote.target.x, lerpT);
+        remote.current.y = THREE.MathUtils.lerp(remote.current.y, remote.target.y, lerpT);
+        remote.current.z = THREE.MathUtils.lerp(remote.current.z, remote.target.z, lerpT);
+        remote.current.yaw = THREE.MathUtils.lerpAngle(remote.current.yaw, remote.target.yaw, lerpT);
+        remote.current.pitch = THREE.MathUtils.lerp(remote.current.pitch, remote.target.pitch, lerpT);
+
+        remote.mesh.position.set(remote.current.x, remote.current.y + PLAYER_MODEL_GROUND_OFFSET, remote.current.z);
+        remote.mesh.rotation.y = remote.current.yaw + Math.PI;
+
+        if (remote.nameTag?.sprite && game.camera) {
+          remote.nameTag.sprite.lookAt(game.camera.position);
+        }
       }
       sendLocalPlayerState(performance.now());
 
@@ -3653,6 +3716,40 @@
       applyPosture(game.hudSkinMesh);
       applyPosture(game.skinMesh);
       applyPosture(game.worldPlayerMesh);
+
+      for (const remote of game.remotePlayers.values()) {
+        const remotePose = {
+          lArmX: 0,
+          rArmX: 0,
+          lLegX: 0,
+          rLegX: 0,
+          headX: THREE.MathUtils.clamp(remote.current.pitch * 0.6, -0.5, 0.5),
+          bodyX: 0
+        };
+
+        const movingSpeedSq =
+          (remote.target.x - remote.current.x) * (remote.target.x - remote.current.x) +
+          (remote.target.z - remote.current.z) * (remote.target.z - remote.current.z);
+        const remoteMoving = remote.isMoving || movingSpeedSq > 0.0008;
+        const remoteWalk = Math.sin(game.timeSec * (remote.isCrouching ? 7 : 10)) * (remote.isCrouching ? 0.28 : 0.6);
+
+        if (remoteMoving) {
+          remotePose.lArmX = remoteWalk;
+          remotePose.rArmX = -remoteWalk;
+          remotePose.lLegX = -remoteWalk;
+          remotePose.rLegX = remoteWalk;
+        }
+
+        if (remote.isCrouching) {
+          remotePose.headX += 0.12;
+          remotePose.lArmX += 0.18;
+          remotePose.rArmX += 0.18;
+          remotePose.bodyX = 0.1;
+        }
+
+        applyAnimationToModel(remote.mesh, remotePose);
+        remote.mesh.rotation.x += (remotePose.bodyX - remote.mesh.rotation.x) * 0.25;
+      }
     }
 
     function raycastBlock() {
@@ -3934,53 +4031,98 @@
       return tex;
     }
 
-    function spawnRemotePlayer(peerInfo) {
-      if (!peerInfo || !peerInfo.id || peerInfo.id === game.selfPeerId) return;
-      if (game.remotePlayers.has(peerInfo.id)) return;
+    function createRemotePlayer(id, name, skinDataUrl) {
+      if (!id || id === game.selfPeerId) return null;
+      if (game.remotePlayers.has(id)) return game.remotePlayers.get(id);
 
-      const skinTexture = createSkinTextureFromDataUrl(peerInfo.skin) || game.skinTexture;
-      const mesh = buildPlayerModel(skinTexture);
-      game.scene.add(mesh);
+      const skinTexture = createSkinTextureFromDataUrl(skinDataUrl) || game.skinTexture;
+      const group = buildPlayerModel(skinTexture);
+      const nameTag = createPlayerNameTag(name || "Player");
+      if (nameTag?.sprite) group.add(nameTag.sprite);
+      game.scene.add(group);
 
-      game.remotePlayers.set(peerInfo.id, {
-        id: peerInfo.id,
-        name: peerInfo.name || "Player",
-        skin: peerInfo.skin || "",
-        mesh,
+      const remote = {
+        id,
+        name: name || "Player",
+        skin: skinDataUrl || "",
+        metadata: {
+          id,
+          name: name || "Player",
+          skin: skinDataUrl || ""
+        },
+        group,
+        mesh: group,
+        nameTag,
         skinTexture,
-        state: {
-          x: isFiniteNumber(peerInfo.x) ? peerInfo.x : 0,
-          y: isFiniteNumber(peerInfo.y) ? peerInfo.y : 80,
-          z: isFiniteNumber(peerInfo.z) ? peerInfo.z : 0,
-          yaw: isFiniteNumber(peerInfo.yaw) ? peerInfo.yaw : 0,
-          pitch: isFiniteNumber(peerInfo.pitch) ? peerInfo.pitch : 0
-        }
-      });
+        current: {
+          x: 0,
+          y: 80,
+          z: 0,
+          yaw: 0,
+          pitch: 0
+        },
+        target: {
+          x: 0,
+          y: 80,
+          z: 0,
+          yaw: 0,
+          pitch: 0
+        },
+        isMoving: false,
+        isCrouching: false
+      };
+      game.remotePlayers.set(id, remote);
+      return remote;
     }
 
     function removeRemotePlayer(peerId) {
       const remote = game.remotePlayers.get(peerId);
       if (!remote) return;
-      game.scene.remove(remote.mesh);
+      game.scene.remove(remote.group || remote.mesh);
+      if (remote.nameTag?.material) remote.nameTag.material.dispose();
+      if (remote.nameTag?.texture) remote.nameTag.texture.dispose();
       if (remote.skinTexture && remote.skinTexture !== game.skinTexture) remote.skinTexture.dispose();
       game.remotePlayers.delete(peerId);
     }
 
-    function updateRemotePlayerState(msg) {
-      if (!msg || !msg.id || msg.id === game.selfPeerId) return;
-      if (![msg.x, msg.y, msg.z, msg.yaw, msg.pitch].every(isFiniteNumber)) return;
+    function updateRemotePlayerState(id, state) {
+      if (!id || id === game.selfPeerId) return;
+      if (!state || ![state.x, state.y, state.z, state.yaw, state.pitch].every(isFiniteNumber)) return;
 
-      if (!game.remotePlayers.has(msg.id)) {
-        spawnRemotePlayer(msg);
+      const remote = game.remotePlayers.get(id) || createRemotePlayer(id, state.name, state.skin);
+      if (!remote) return;
+
+      if (typeof state.name === "string" && state.name !== remote.name) {
+        remote.name = state.name || "Player";
+        remote.metadata.name = remote.name;
+        setPlayerNameTagText(remote.nameTag, remote.name);
+      }
+      if (typeof state.skin === "string" && state.skin && state.skin !== remote.skin) {
+        remote.skin = state.skin;
+        remote.metadata.skin = state.skin;
       }
 
-      const remote = game.remotePlayers.get(msg.id);
-      if (!remote) return;
-      remote.state.x = msg.x;
-      remote.state.y = msg.y;
-      remote.state.z = msg.z;
-      remote.state.yaw = msg.yaw;
-      remote.state.pitch = msg.pitch;
+      if (state.snap || !remote.hasState) {
+        remote.current.x = state.x;
+        remote.current.y = state.y;
+        remote.current.z = state.z;
+        remote.current.yaw = state.yaw;
+        remote.current.pitch = state.pitch;
+        remote.hasState = true;
+      }
+
+      remote.target.x = state.x;
+      remote.target.y = state.y;
+      remote.target.z = state.z;
+      remote.target.yaw = state.yaw;
+      remote.target.pitch = state.pitch;
+      remote.isMoving = !!state.moving;
+      remote.isCrouching = !!state.crouching;
+    }
+
+    function clearRemotePlayers() {
+      for (const peerId of Array.from(game.remotePlayers.keys())) removeRemotePlayer(peerId);
+      game.remotePlayers.clear();
     }
 
     function sendLocalPlayerState(nowMs) {
@@ -4005,7 +4147,7 @@
         return;
       }
       game.selfPeerId = null;
-      for (const peerId of Array.from(game.remotePlayers.keys())) removeRemotePlayer(peerId);
+      clearRemotePlayers();
       game.lastStateSentAt = 0;
       game.socket = new WebSocket(endpoint);
       game.socket.onopen = () => {
@@ -4018,20 +4160,24 @@
         if (msg.type === "BLOCK") setBlock(msg.x, msg.y, msg.z, msg.id);
         if (msg.type === "SELF") game.selfPeerId = msg.id || null;
         if (msg.type === "PLAYER_JOIN") {
-          spawnRemotePlayer(msg);
+          createRemotePlayer(msg.id, msg.name, msg.skin);
+          updateRemotePlayerState(msg.id, { ...msg, snap: true });
           if (msg.name) addChat(`${msg.name} joined the room.`);
         }
         if (msg.type === "ROOM_SNAPSHOT" && Array.isArray(msg.peers)) {
-          for (const peerInfo of msg.peers) spawnRemotePlayer(peerInfo);
+          for (const peerInfo of msg.peers) {
+            createRemotePlayer(peerInfo.id, peerInfo.name, peerInfo.skin);
+            updateRemotePlayerState(peerInfo.id, { ...peerInfo, snap: true });
+          }
         }
-        if (msg.type === "PLAYER_STATE") updateRemotePlayerState(msg);
+        if (msg.type === "PLAYER_STATE") updateRemotePlayerState(msg.id, msg);
         if (msg.type === "PLAYER_LEAVE") removeRemotePlayer(msg.id);
       };
       game.socket.onerror = () => { document.getElementById("disconnect-msg").textContent = "Could not connect. Verify your wss:// realtime server is running and public."; };
       game.socket.onclose = () => {
         addChat("Disconnected.");
         document.getElementById("disconnect-msg").textContent = "Disconnected from server.";
-        for (const peerId of Array.from(game.remotePlayers.keys())) removeRemotePlayer(peerId);
+        clearRemotePlayers();
         game.selfPeerId = null;
       };
     }
