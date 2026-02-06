@@ -293,8 +293,10 @@
         
         <!-- Hidden MP Options -->
         <div id="mp-options" class="hidden input-group">
-          <label>Realtime Server (wss://...)</label>
-          <input type="text" id="mp-endpoint" placeholder="wss://your-realtime-server.example.com" />
+          <div id="mp-endpoint-wrap" class="hidden">
+            <label>Realtime Server (wss://...)</label>
+            <input type="text" id="mp-endpoint" placeholder="wss://your-realtime-server.example.com" />
+          </div>
           <label>Join Code</label>
           <input type="text" id="join-code" placeholder="Paste join code" />
           <label>Username</label>
@@ -2448,7 +2450,7 @@
         const proto = location.protocol === "https:" ? "wss" : "ws";
         return `${proto}://${location.host}`;
       }
-      return "";
+      return "wss://voxelverse.fly.dev";
     }
 
     function buildJoinCode(endpoint, roomId) {
