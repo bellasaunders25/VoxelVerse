@@ -241,6 +241,17 @@
       display: none;
     }
 
+    #first-person-hand {
+      position: absolute;
+      right: 24px;
+      bottom: -6px;
+      width: 260px;
+      height: 220px;
+      pointer-events: none;
+      display: none;
+      z-index: 30;
+    }
+
     #disconnect-msg { color: red; margin-top: 10px; }
   </style>
 
@@ -272,6 +283,7 @@
       <div id="chat-history"></div>
       <input type="text" id="chat-input" placeholder="Press T to chat..." />
     </div>
+    <div id="first-person-hand"></div>
     <div id="hud-player-preview"></div>
     <div id="hotbar"></div>
   </div>
@@ -707,7 +719,9 @@
         width: 0.6, height: 1.8,
         eyeHeight: 1.6, // Added for smoothing
         _moving: false,
-        crouchToggled: false
+        crouchToggled: false,
+        punchAnim: 0,
+        placeAnim: 0
       },
 
       lastTime: 0,
@@ -724,6 +738,8 @@
       skinScene: null, skinCamera: null, skinRenderer: null, skinMesh: null,
       worldPlayerMesh: null,
       hudSkinScene: null, hudSkinCamera: null, hudSkinRenderer: null, hudSkinMesh: null,
+      fpHandScene: null, fpHandCamera: null, fpHandRenderer: null, fpHandArm: null, fpHandBlock: null,
+      worldHeldBlock: null,
       
       skinCanvas: null,
       skinCtx: null,
@@ -1278,6 +1294,35 @@
       slots.forEach((s) => s.classList.remove("selected"));
       slots[idx]?.classList.add("selected");
       if (slots[idx]) game.selectedBlock = parseInt(slots[idx].dataset.id);
+      refreshHeldBlockVisuals();
+    }
+
+    function createHeldBlockMesh(scale = 1) {
+      const color = BLOCK_COLORS[game.selectedBlock] ?? 0xffffff;
+      const mat = new THREE.MeshLambertMaterial({ color });
+      return new THREE.Mesh(new THREE.BoxGeometry(0.24 * scale, 0.24 * scale, 0.24 * scale), mat);
+    }
+
+    function attachWorldHeldBlock() {
+      if (!game.worldPlayerMesh) return;
+      if (game.worldHeldBlock?.parent) game.worldHeldBlock.parent.remove(game.worldHeldBlock);
+      const rightArm = game.worldPlayerMesh.getObjectByName('RightArm');
+      if (!rightArm) return;
+      game.worldHeldBlock = createHeldBlockMesh(1);
+      game.worldHeldBlock.position.set(0.08, -0.38, 0.12);
+      game.worldHeldBlock.rotation.set(0.15, 0.6, 0.1);
+      rightArm.add(game.worldHeldBlock);
+    }
+
+    function refreshHeldBlockVisuals() {
+      if (game.worldPlayerMesh) attachWorldHeldBlock();
+      if (game.fpHandArm) {
+        if (game.fpHandBlock?.parent) game.fpHandBlock.parent.remove(game.fpHandBlock);
+        game.fpHandBlock = createHeldBlockMesh(1.2);
+        game.fpHandBlock.position.set(0.12, -0.28, 0.16);
+        game.fpHandBlock.rotation.set(0.3, 0.6, 0.15);
+        game.fpHandArm.add(game.fpHandBlock);
+      }
     }
 
     // --- MOB TEXTURES (Detailed, Pixel Art) ---
@@ -2385,6 +2430,14 @@
             game.hudSkinCamera.aspect = w / h;
             game.hudSkinCamera.updateProjectionMatrix();
         }
+        if (game.fpHandRenderer && game.fpHandCamera) {
+            const fpContainer = document.getElementById('first-person-hand');
+            const w = fpContainer?.clientWidth || 260;
+            const h = fpContainer?.clientHeight || 220;
+            game.fpHandRenderer.setSize(w, h);
+            game.fpHandCamera.aspect = w / h;
+            game.fpHandCamera.updateProjectionMatrix();
+        }
     });
 
     // --- START GAME ---
@@ -2467,6 +2520,8 @@
       game.scene.add(game.worldPlayerMesh);
 
       ensureHudPlayerPreview();
+      ensureFirstPersonHand();
+      refreshHeldBlockVisuals();
 
       if (mode === "MP") connectServer();
       requestAnimationFrame(loop);
@@ -3347,6 +3402,53 @@
       }
     }
 
+    function ensureFirstPersonHand() {
+      if (game.fpHandRenderer || !game.textureAtlas) return;
+      const container = document.getElementById('first-person-hand');
+      if (!container) return;
+
+      game.fpHandScene = new THREE.Scene();
+      game.fpHandCamera = new THREE.PerspectiveCamera(55, (container.clientWidth || 260) / (container.clientHeight || 220), 0.1, 20);
+      game.fpHandCamera.position.set(0, 0, 3.2);
+
+      game.fpHandRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+      game.fpHandRenderer.setPixelRatio(window.devicePixelRatio);
+      game.fpHandRenderer.setSize(container.clientWidth || 260, container.clientHeight || 220);
+      container.appendChild(game.fpHandRenderer.domElement);
+
+      game.fpHandScene.add(new THREE.AmbientLight(0xffffff, 1.2));
+      const light = new THREE.DirectionalLight(0xffffff, 0.65);
+      light.position.set(1, 2, 2);
+      game.fpHandScene.add(light);
+
+      const armMat = new THREE.MeshLambertMaterial({ color: 0xd4a47e });
+      game.fpHandArm = new THREE.Mesh(new THREE.BoxGeometry(0.45, 1.0, 0.42), armMat);
+      game.fpHandArm.position.set(0.78, -0.55, -0.2);
+      game.fpHandArm.rotation.set(-0.35, -0.45, -0.3);
+      game.fpHandScene.add(game.fpHandArm);
+
+      refreshHeldBlockVisuals();
+    }
+
+    function renderFirstPersonHand(dt) {
+      if (!game.fpHandRenderer || !game.fpHandCamera || !game.fpHandScene || !game.fpHandArm) return;
+      const container = document.getElementById('first-person-hand');
+      const show = !!STATE.isRunning && !game.camera?.thirdPerson;
+      if (container) container.style.display = show ? 'block' : 'none';
+      if (!show) return;
+
+      const walkBob = Math.sin(game.timeSec * 9.5) * (game.player._moving ? 0.06 : 0.015);
+      const actionStrength = Math.max(game.player.punchAnim, game.player.placeAnim);
+      const actionPitch = Math.sin((1 - actionStrength) * Math.PI) * 1.1;
+
+      game.fpHandArm.position.set(0.78 + walkBob * 0.3, -0.55 - walkBob * 0.22, -0.2 + walkBob * 0.12);
+      game.fpHandArm.rotation.x = -0.35 + actionPitch;
+      game.fpHandArm.rotation.y = -0.45 + actionPitch * 0.2;
+      game.fpHandArm.rotation.z = -0.3 - actionPitch * 0.25;
+
+      game.fpHandRenderer.render(game.fpHandScene, game.fpHandCamera);
+    }
+
     function ensureHudPlayerPreview() {
       if (game.hudSkinRenderer || !game.skinTexture) return;
       const container = document.getElementById('hud-player-preview');
@@ -3465,6 +3567,17 @@
         pose.rArmX += 0.18;
       }
 
+      const punchStrength = game.player.punchAnim;
+      const placeStrength = game.player.placeAnim;
+      if (punchStrength > 0) {
+        const punchWave = Math.sin((1 - punchStrength) * Math.PI);
+        pose.rArmX += 1.15 * punchWave;
+      }
+      if (placeStrength > 0) {
+        const placeWave = Math.sin((1 - placeStrength) * Math.PI);
+        pose.rArmX += 0.65 * placeWave;
+      }
+
       if (game.worldPlayerMesh) {
         const showHead = !!game.camera?.thirdPerson;
         const head = game.worldPlayerMesh.getObjectByName("Head");
@@ -3512,6 +3625,7 @@
       if (document.pointerLockElement !== game.renderer.domElement) return;
 
       if (e.button === 0) {
+        game.player.punchAnim = 1;
         const mob = raycastMob(4.2);
         if (mob) {
           hurtMob(mob, 3);
@@ -3523,6 +3637,7 @@
       }
 
       if (e.button === 2) {
+        game.player.placeAnim = 1;
         const res = raycastBlock();
         if (!res.hit || !res.face) return;
 
@@ -3574,6 +3689,9 @@
       game.lastTime = timeMs;
       game.timeSec += dt;
 
+      game.player.punchAnim = Math.max(0, game.player.punchAnim - dt * 6.5);
+      game.player.placeAnim = Math.max(0, game.player.placeAnim - dt * 8.0);
+
       updatePhysics(dt);
       updatePlayerAnimation(dt);
       updateChunks();
@@ -3612,6 +3730,7 @@
 
       game.renderer.render(game.scene, game.camera);
       renderHudPlayerPreview();
+      renderFirstPersonHand(dt);
 
       document.getElementById("debug-overlay").innerHTML = `
         FPS: ${Math.round(1 / dt)}<br>
