@@ -388,6 +388,7 @@
     const AUTO_STEP_ENABLED = true;
     const STEP_HEIGHT_PLAYER = 0.6;
     const STEP_HEIGHT_MOB = 0.6;
+    const PLAYER_MODEL_GROUND_OFFSET = 0.575; // model feet alignment from mesh pivot to ground
 
     const BLOCKS = { AIR: 0, DIRT: 1, GRASS: 2, STONE: 3, WOOD: 4, LEAVES: 5, BEDROCK: 6, SAND: 7, WATER: 8, BRICK: 9 };
     const BLOCK_COLORS = [0x000000, 0x5d4037, 0x388e3c, 0x757575, 0x5d4037, 0x2e7d32, 0x212121, 0xfbc02d, 0x1976d2, 0x8d6e63];
@@ -3333,7 +3334,7 @@
 
       if (game.worldPlayerMesh) {
         game.worldPlayerMesh.visible = !!game.camera.thirdPerson;
-        game.worldPlayerMesh.position.copy(p);
+        game.worldPlayerMesh.position.set(p.x, p.y + PLAYER_MODEL_GROUND_OFFSET, p.z);
         game.worldPlayerMesh.rotation.y = game.player.yaw + Math.PI;
       }
 
