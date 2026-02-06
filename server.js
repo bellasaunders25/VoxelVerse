@@ -41,7 +41,18 @@ wss.on("connection", (ws) => {
     name: "Player",
     skin: "",
     room: "GLOBAL",
-    state: { x: 0, y: 80, z: 0, yaw: 0, pitch: 0 }
+    state: {
+      x: 0,
+      y: 80,
+      z: 0,
+      yaw: 0,
+      pitch: 0,
+      moving: false,
+      crouching: false,
+      punchAnim: 0,
+      placeAnim: 0,
+      heldBlock: 0
+    }
   });
   addToRoom(ws, "GLOBAL");
 
@@ -83,7 +94,12 @@ wss.on("connection", (ws) => {
             y: roomPeer.state.y,
             z: roomPeer.state.z,
             yaw: roomPeer.state.yaw,
-            pitch: roomPeer.state.pitch
+            pitch: roomPeer.state.pitch,
+            moving: roomPeer.state.moving,
+            crouching: roomPeer.state.crouching,
+            punchAnim: roomPeer.state.punchAnim,
+            placeAnim: roomPeer.state.placeAnim,
+            heldBlock: roomPeer.state.heldBlock
           });
         }
       }
@@ -122,19 +138,29 @@ wss.on("connection", (ws) => {
       const z = Number(msg.z);
       const yaw = Number(msg.yaw);
       const pitch = Number(msg.pitch);
+      const punchAnim = Number(msg.punchAnim);
+      const placeAnim = Number(msg.placeAnim);
+      const heldBlock = Number(msg.heldBlock);
       if (![x, y, z, yaw, pitch].every(Number.isFinite)) return;
 
-      peer.state = { x, y, z, yaw, pitch };
+      peer.state = {
+        x,
+        y,
+        z,
+        yaw,
+        pitch,
+        moving: !!msg.moving,
+        crouching: !!msg.crouching,
+        punchAnim: Number.isFinite(punchAnim) ? Math.max(0, Math.min(1, punchAnim)) : 0,
+        placeAnim: Number.isFinite(placeAnim) ? Math.max(0, Math.min(1, placeAnim)) : 0,
+        heldBlock: Number.isFinite(heldBlock) ? heldBlock : 0
+      };
       broadcastToRoom(peer.room, {
         type: "PLAYER_STATE",
         id: peer.id,
         name: peer.name,
         skin: peer.skin,
-        x,
-        y,
-        z,
-        yaw,
-        pitch
+        ...peer.state
       }, ws);
     }
   });
