@@ -3540,7 +3540,7 @@
         remote.current.x = THREE.MathUtils.lerp(remote.current.x, remote.target.x, lerpT);
         remote.current.y = THREE.MathUtils.lerp(remote.current.y, remote.target.y, lerpT);
         remote.current.z = THREE.MathUtils.lerp(remote.current.z, remote.target.z, lerpT);
-        remote.current.yaw = THREE.MathUtils.lerpAngle(remote.current.yaw, remote.target.yaw, lerpT);
+        remote.current.yaw = lerpYaw(remote.current.yaw, remote.target.yaw, lerpT);
         remote.current.pitch = THREE.MathUtils.lerp(remote.current.pitch, remote.target.pitch, lerpT);
 
         remote.mesh.position.set(remote.current.x, remote.current.y + PLAYER_MODEL_GROUND_OFFSET, remote.current.z);
@@ -4017,6 +4017,14 @@
     // --- MP / CHAT ---
     function isFiniteNumber(v) {
       return typeof v === "number" && Number.isFinite(v);
+    }
+
+    function lerpYaw(current, target, t) {
+      const twoPi = Math.PI * 2;
+      let delta = (target - current) % twoPi;
+      if (delta > Math.PI) delta -= twoPi;
+      if (delta < -Math.PI) delta += twoPi;
+      return current + delta * t;
     }
 
     function createSkinTextureFromDataUrl(dataUrl) {
