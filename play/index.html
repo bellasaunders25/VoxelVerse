@@ -401,6 +401,7 @@
     // --- CONSTANTS ---
     const CHUNK_SIZE = 16;
     const CHUNK_HEIGHT = 128;
+    const CHUNK_STORAGE_PREFIX = "vv-chunk-v1:";
 
     // Auto-jump/step like Minecraft (step up 1-block ledges)
     const AUTO_STEP_ENABLED = true;
@@ -799,6 +800,8 @@
         tickRate: 10
       },
 
+      pendingBlockWrites: new Map(),
+
       // --- MOBS ---
       mobs: new Map(),
       mobId: 1,
@@ -1160,6 +1163,8 @@
           wl.fill(255);
           for (let i = 0; i < voxels.length; i++) if (voxels[i] === BLOCKS.WATER) wl[i] = 0;
           game.world[key].waterLevels = wl;
+
+          drainPendingBlockWrites(x, z);
 
           meshChunk(x, z);
           meshChunk(x - 1, z);
@@ -2758,6 +2763,93 @@
     // --- WORLD HELPERS ---
     function chunkKey(cx, cz) { return `${cx},${cz}`; }
 
+    function bytesToBase64(bytes) {
+      let bin = "";
+      const step = 0x8000;
+      for (let i = 0; i < bytes.length; i += step) {
+        bin += String.fromCharCode(...bytes.subarray(i, i + step));
+      }
+      return btoa(bin);
+    }
+
+    function base64ToBytes(b64) {
+      const bin = atob(b64);
+      const out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    }
+
+    function ensureChunkWaterLevels(chunk) {
+      if (chunk.waterLevels) return;
+      chunk.waterLevels = new Uint8Array(chunk.data.length);
+      chunk.waterLevels.fill(255);
+      for (let i = 0; i < chunk.data.length; i++) {
+        if (chunk.data[i] === BLOCKS.WATER) chunk.waterLevels[i] = 0;
+      }
+    }
+
+    function persistChunkByKey(key) {
+      const chunk = game.world[key];
+      if (!chunk || !chunk.data) return;
+      ensureChunkWaterLevels(chunk);
+      try {
+        localStorage.setItem(CHUNK_STORAGE_PREFIX + key, JSON.stringify({
+          data: bytesToBase64(chunk.data),
+          waterLevels: bytesToBase64(chunk.waterLevels)
+        }));
+      } catch (err) {
+        console.warn("Failed to persist chunk", key, err);
+      }
+    }
+
+    function loadStoredChunk(cx, cz) {
+      const key = chunkKey(cx, cz);
+      try {
+        const raw = localStorage.getItem(CHUNK_STORAGE_PREFIX + key);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed || !parsed.data) return null;
+
+        const data = base64ToBytes(parsed.data);
+        if (data.length !== CHUNK_SIZE * CHUNK_HEIGHT * CHUNK_SIZE) return null;
+
+        let waterLevels = null;
+        if (parsed.waterLevels) {
+          waterLevels = base64ToBytes(parsed.waterLevels);
+          if (waterLevels.length !== data.length) waterLevels = null;
+        }
+
+        if (!waterLevels) {
+          waterLevels = new Uint8Array(data.length);
+          waterLevels.fill(255);
+          for (let i = 0; i < data.length; i++) if (data[i] === BLOCKS.WATER) waterLevels[i] = 0;
+        }
+
+        return { data, waterLevels };
+      } catch (err) {
+        console.warn("Failed to load stored chunk", key, err);
+        return null;
+      }
+    }
+
+    function enqueuePendingBlockWrite(x, y, z, id, fromUser = false) {
+      const cx = Math.floor(x / CHUNK_SIZE);
+      const cz = Math.floor(z / CHUNK_SIZE);
+      const key = chunkKey(cx, cz);
+      if (!game.pendingBlockWrites.has(key)) game.pendingBlockWrites.set(key, []);
+      game.pendingBlockWrites.get(key).push({ x, y, z, id, fromUser });
+    }
+
+    function drainPendingBlockWrites(cx, cz) {
+      const key = chunkKey(cx, cz);
+      const pending = game.pendingBlockWrites.get(key);
+      if (!pending || pending.length === 0) return;
+      game.pendingBlockWrites.delete(key);
+      for (const upd of pending) {
+        setBlock(upd.x, upd.y, upd.z, upd.id, { fromUser: upd.fromUser });
+      }
+    }
+
     function getLocal(x, y, z) {
       const cx = Math.floor(x / CHUNK_SIZE);
       const cz = Math.floor(z / CHUNK_SIZE);
@@ -2895,6 +2987,7 @@
           chunk.waterLevels[loc.idx] = newLevel;
           markChunkDirtyFromLoc(loc);
           scheduleFluidAround(loc.cx * CHUNK_SIZE + loc.lx, loc.ly, loc.cz * CHUNK_SIZE + loc.lz);
+          persistChunkByKey(loc.key);
           return true;
         }
         return false;
@@ -2911,6 +3004,7 @@
 
       markChunkDirtyFromLoc(loc);
       scheduleFluidAround(loc.cx * CHUNK_SIZE + loc.lx, loc.ly, loc.cz * CHUNK_SIZE + loc.lz);
+      persistChunkByKey(loc.key);
       return true;
     }
 
@@ -3871,23 +3965,22 @@
 
     function setBlock(x, y, z, id, { fromUser = false } = {}) {
       const loc = getLocal(x, y, z);
-      if (!loc) return;
-
-      if (!loc.chunk.waterLevels) {
-        loc.chunk.waterLevels = new Uint8Array(loc.chunk.data.length);
-        loc.chunk.waterLevels.fill(255);
+      if (!loc) {
+        enqueuePendingBlockWrite(x, y, z, id, fromUser);
+        if (fromUser && game.socket && game.socket.readyState === WebSocket.OPEN) {
+          game.socket.send(JSON.stringify({ type: "BLOCK", x, y, z, id }));
+        }
+        return;
       }
 
-      loc.chunk.data[loc.idx] = id;
-      loc.chunk.waterLevels[loc.idx] = (id === BLOCKS.WATER) ? 0 : 255;
+      const changed = setCell(loc, id, (id === BLOCKS.WATER) ? 0 : 255);
+      if (!changed) return;
 
       meshChunk(loc.cx, loc.cz);
       meshChunk(loc.cx - 1, loc.cz);
       meshChunk(loc.cx + 1, loc.cz);
       meshChunk(loc.cx, loc.cz - 1);
       meshChunk(loc.cx, loc.cz + 1);
-
-      scheduleFluidAround(Math.floor(x), Math.floor(y), Math.floor(z));
 
       if (fromUser && game.socket && game.socket.readyState === WebSocket.OPEN) {
         game.socket.send(JSON.stringify({ type: "BLOCK", x, y, z, id }));
@@ -3973,7 +4066,19 @@
           const key = chunkKey(x, z);
           if (!game.world[key]) {
             game.world[key] = {};
-            game.worker.postMessage({ type: "GENERATE", x, z, seed: 12345 });
+            const stored = loadStoredChunk(x, z);
+            if (stored) {
+              game.world[key].data = stored.data;
+              game.world[key].waterLevels = stored.waterLevels;
+              drainPendingBlockWrites(x, z);
+              meshChunk(x, z);
+              meshChunk(x - 1, z);
+              meshChunk(x + 1, z);
+              meshChunk(x, z - 1);
+              meshChunk(x, z + 1);
+            } else {
+              game.worker.postMessage({ type: "GENERATE", x, z, seed: 12345 });
+            }
           }
         }
       }
