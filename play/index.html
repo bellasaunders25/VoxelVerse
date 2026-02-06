@@ -721,6 +721,7 @@
       selectedBlock: BLOCKS.DIRT,
 
       skinScene: null, skinCamera: null, skinRenderer: null, skinMesh: null,
+      worldPlayerMesh: null,
       hudSkinScene: null, hudSkinCamera: null, hudSkinRenderer: null, hudSkinMesh: null,
       
       skinCanvas: null,
@@ -2457,6 +2458,13 @@
       game.blockSelectMesh = new THREE.LineSegments(new THREE.EdgesGeometry(geo), mat);
       game.scene.add(game.blockSelectMesh);
 
+      if (game.worldPlayerMesh) game.scene.remove(game.worldPlayerMesh);
+      game.worldPlayerMesh = buildPlayerModel(game.skinTexture);
+      game.worldPlayerMesh.traverse((obj) => {
+        if (obj.type === "GridHelper") obj.visible = false;
+      });
+      game.scene.add(game.worldPlayerMesh);
+
       ensureHudPlayerPreview();
 
       if (mode === "MP") connectServer();
@@ -3323,6 +3331,12 @@
         game.camera.position.copy(eyeTarget);
       }
 
+      if (game.worldPlayerMesh) {
+        game.worldPlayerMesh.visible = !!game.camera.thirdPerson;
+        game.worldPlayerMesh.position.copy(p);
+        game.worldPlayerMesh.rotation.y = game.player.yaw + Math.PI;
+      }
+
       const res = raycastBlock();
       if (res.hit) {
         game.blockSelectMesh.visible = true;
@@ -3450,16 +3464,17 @@
         pose.rArmX += 0.18;
       }
 
-      if (game.skinMesh) {
+      if (game.worldPlayerMesh) {
         const showHead = !!game.camera?.thirdPerson;
-        const head = game.skinMesh.getObjectByName("Head");
-        const headOver = game.skinMesh.getObjectByName("HeadOverlay");
+        const head = game.worldPlayerMesh.getObjectByName("Head");
+        const headOver = game.worldPlayerMesh.getObjectByName("HeadOverlay");
         if (head) head.visible = showHead;
         if (headOver) headOver.visible = showHead;
       }
 
       applyAnimationToModel(game.hudSkinMesh, pose);
       applyAnimationToModel(game.skinMesh, pose);
+      applyAnimationToModel(game.worldPlayerMesh, pose);
     }
 
     function raycastBlock() {
