@@ -3378,11 +3378,13 @@
       game.camera.rotateX(game.player.pitch);
 
       const eyeTarget = new THREE.Vector3(p.x, p.y + game.player.eyeHeight, p.z);
+      const aimDir = new THREE.Vector3(0, 0, -1)
+        .applyEuler(new THREE.Euler(game.player.pitch, game.player.yaw, 0, 'YXZ'))
+        .normalize();
       if (game.camera.thirdPerson) {
-        const viewDir = new THREE.Vector3(0, 0, -1).applyQuaternion(game.camera.quaternion).normalize();
-        game.camera.position.copy(eyeTarget).addScaledVector(viewDir, -3.2);
+        game.camera.position.copy(eyeTarget).addScaledVector(aimDir, -3.2);
         game.camera.position.y += 0.6;
-        game.camera.lookAt(eyeTarget);
+        game.camera.lookAt(eyeTarget.clone().addScaledVector(aimDir, 8));
       } else {
         game.camera.position.copy(eyeTarget);
       }
@@ -3403,7 +3405,7 @@
     }
 
     function ensureFirstPersonHand() {
-      if (game.fpHandRenderer || !game.textureAtlas) return;
+      if (game.fpHandRenderer || !game.skinTexture) return;
       const container = document.getElementById('first-person-hand');
       if (!container) return;
 
@@ -3421,8 +3423,21 @@
       light.position.set(1, 2, 2);
       game.fpHandScene.add(light);
 
-      const armMat = new THREE.MeshLambertMaterial({ color: 0xd4a47e });
-      game.fpHandArm = new THREE.Mesh(new THREE.BoxGeometry(0.45, 1.0, 0.42), armMat);
+      const fpModel = buildPlayerModel(game.skinTexture);
+      const armBase = fpModel.getObjectByName('RightArm');
+      const armOverlay = fpModel.getObjectByName('RightArmOverlay');
+      game.fpHandArm = new THREE.Group();
+      if (armBase) {
+        const armClone = armBase.clone();
+        armClone.position.set(0, 0, 0);
+        game.fpHandArm.add(armClone);
+      }
+      if (armOverlay) {
+        const overlayClone = armOverlay.clone();
+        overlayClone.position.set(0, 0, 0);
+        game.fpHandArm.add(overlayClone);
+      }
+      game.fpHandArm.scale.set(1.45, 1.45, 1.45);
       game.fpHandArm.position.set(0.78, -0.55, -0.2);
       game.fpHandArm.rotation.set(-0.35, -0.45, -0.3);
       game.fpHandScene.add(game.fpHandArm);
@@ -3592,11 +3607,12 @@
     }
 
     function raycastBlock() {
-      let x = game.camera.position.x;
-      let y = game.camera.position.y;
-      let z = game.camera.position.z;
-      const dir = new THREE.Vector3();
-      game.camera.getWorldDirection(dir);
+      let x = game.player.pos.x;
+      let y = game.player.pos.y + game.player.eyeHeight;
+      let z = game.player.pos.z;
+      const dir = new THREE.Vector3(0, 0, -1)
+        .applyEuler(new THREE.Euler(game.player.pitch, game.player.yaw, 0, 'YXZ'))
+        .normalize();
 
       let dx = dir.x, dy = dir.y, dz = dir.z;
       let stepX = Math.sign(dx), stepY = Math.sign(dy), stepZ = Math.sign(dz);
