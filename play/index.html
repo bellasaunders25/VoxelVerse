@@ -722,6 +722,7 @@
       selfPeerId: null,
       remotePlayers: new Map(),
       lastStateSentAt: 0,
+      loopFrameId: null,
 
       player: {
         pos: new THREE.Vector3(0, 80, 0),
@@ -1838,7 +1839,7 @@
     }
 
     // --- SKIN PREVIEW (player) ---
-    function buildPlayerModel(skinTexture) {
+    function buildPlayerModel(skinTexture, { includeGrid = false } = {}) {
       const group = new THREE.Group();
       
       // FIX: Add alphaTest to handle transparent pixels in the skin texture (overlay layer gaps)
@@ -1990,10 +1991,12 @@
          const llG = addGrid(-0.13, -0.2, 0, 0.25, 0.75, 0.25, 16, 48); llG.name = 'LeftLegGrid';
       }
       
-      // Add Grid Helper to ensure scene visibility
-      const gridHelper = new THREE.GridHelper(10, 10, 0x444444, 0x222222);
-      gridHelper.position.y = -1;
-      group.add(gridHelper);
+      if (includeGrid) {
+        // Add Grid Helper only for preview/editor meshes
+        const gridHelper = new THREE.GridHelper(10, 10, 0x444444, 0x222222);
+        gridHelper.position.y = -1;
+        group.add(gridHelper);
+      }
 
       return group;
     }
@@ -2136,7 +2139,7 @@
       dir.position.set(2, 2, 5);
       game.skinScene.add(dir);
 
-      game.skinMesh = buildPlayerModel(game.skinTexture);
+      game.skinMesh = buildPlayerModel(game.skinTexture, { includeGrid: true });
       game.skinScene.add(game.skinMesh);
 
       const colorPicker = document.getElementById("skin-color-picker");
@@ -2563,6 +2566,10 @@
       }
       clearRemotePlayers();
       game.selfPeerId = null;
+      if (game.loopFrameId !== null) {
+        cancelAnimationFrame(game.loopFrameId);
+        game.loopFrameId = null;
+      }
       if (game.renderer?.domElement) {
         game.renderer.domElement.remove();
       }
@@ -2644,16 +2651,18 @@
 
       if (game.worldPlayerMesh) game.scene.remove(game.worldPlayerMesh);
       game.worldPlayerMesh = buildPlayerModel(game.skinTexture);
-      game.worldPlayerMesh.traverse((obj) => {
-        if (obj.type === "GridHelper") obj.visible = false;
-      });
       game.scene.add(game.worldPlayerMesh);
 
       ensureHudPlayerPreview();
       refreshHeldBlockVisuals();
 
       if (mode === "MP") connectServer();
-      requestAnimationFrame(loop);
+      if (game.loopFrameId !== null) {
+        cancelAnimationFrame(game.loopFrameId);
+        game.loopFrameId = null;
+      }
+      game.lastTime = performance.now();
+      game.loopFrameId = requestAnimationFrame(loop);
     }
 
     // --- INPUT ---
@@ -3846,7 +3855,11 @@
 
     // --- LOOP ---
     function loop(timeMs) {
-      requestAnimationFrame(loop);
+      if (!STATE.isRunning) {
+        game.loopFrameId = null;
+        return;
+      }
+      game.loopFrameId = requestAnimationFrame(loop);
 
       const dt = Math.min((timeMs - game.lastTime) / 1000, 0.1);
       game.lastTime = timeMs;
@@ -3901,7 +3914,7 @@
       renderHudPlayerPreview();
 
       document.getElementById("debug-overlay").innerHTML = `
-        FPS: ${Math.round(1 / dt)}<br>
+        FPS: ${dt > 0 ? Math.round(1 / dt) : "--"}<br>
         Pos: ${game.player.pos.x.toFixed(1)}, ${game.player.pos.y.toFixed(1)}, ${game.player.pos.z.toFixed(1)}<br>
         Chunks: ${Object.keys(game.world).length}<br>
         FluidQ: ${game.fluid.queue.length}<br>
