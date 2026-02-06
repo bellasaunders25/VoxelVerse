@@ -2460,12 +2460,12 @@
         const p = game.player;
         if (!p.mesh) return;
         
-        const isTP = game.camera.thirdPerson;
+        const isTP = !!game.camera.thirdPerson;
         const parts = p.mesh.userData.parts;
         if (!parts) return;
         
         // Visibility Logic (Head)
-        const showHead = isTP;
+        const showHead = STATE.mode === "SP" ? isTP : true;
         parts.head.visible = showHead;
         parts.headOver.visible = showHead;
         
@@ -2474,6 +2474,7 @@
         const inWater = isPlayerInWater();
         const isCrouching = p.crouchToggled;
         const onGround = p.onGround;
+        const isJumping = !onGround && !inWater;
         
         // Walk Cycle
         if (isMoving || inWater) {
@@ -2490,6 +2491,10 @@
         p.mesh.rotation.x = 0;
         p.mesh.rotation.z = 0;
         
+        // Reset base pose
+        parts.head.rotation.x = 0;
+        parts.headOver.rotation.x = 0;
+
         // Swimming: Rotate body horizontal
         if (inWater) {
              p.mesh.rotation.x = -Math.PI / 2;
@@ -2517,10 +2522,17 @@
                  // Arms swing less
                  parts.lArm.rotation.x = -Math.sin(p.walkPhase) * 0.3;
                  parts.rArm.rotation.x = Math.sin(p.walkPhase) * 0.3;
-             } else {
-                 parts.head.rotation.x = 0;
-                 parts.headOver.rotation.x = 0;
              }
+        }
+
+        // Jump pose (applies only while airborne and not swimming)
+        if (isJumping) {
+            const jumpTilt = Math.max(-0.3, Math.min(0.4, -p.vel.y * 0.08));
+            p.mesh.rotation.x = jumpTilt;
+            parts.lArm.rotation.x = -1.0;
+            parts.rArm.rotation.x = -1.0;
+            parts.lLeg.rotation.x = 0.35;
+            parts.rLeg.rotation.x = 0.35;
         }
         
         // Apply overlays rotations too
@@ -2556,6 +2568,7 @@
       game.scene.fog = new THREE.Fog(0x87CEEB, 20, SETTINGS.renderDistance * CHUNK_SIZE - 10);
 
       game.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+      game.camera.thirdPerson = false;
       game.renderer = new THREE.WebGLRenderer({ antialias: false });
       game.renderer.setSize(window.innerWidth, window.innerHeight);
       game.renderer.setPixelRatio(window.devicePixelRatio);
@@ -2720,6 +2733,9 @@
                  dParts.rArm.rotation.x = pParts.rArm.rotation.x;
                  dParts.lLeg.rotation.x = pParts.lLeg.rotation.x;
                  dParts.rLeg.rotation.x = pParts.rLeg.rotation.x;
+                 dParts.head.rotation.x = pParts.head.rotation.x;
+                 dParts.headOver.rotation.x = pParts.headOver.rotation.x;
+                 game.dollMesh.rotation.x = game.player.mesh.rotation.x;
                  // Head always visible on doll
                  dParts.head.visible = true;
                  dParts.headOver.visible = true;
