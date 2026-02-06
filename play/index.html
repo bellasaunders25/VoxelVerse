@@ -3434,8 +3434,6 @@
       rArm.rotation.x = pose.rArmX;
       lLeg.rotation.x = pose.lLegX;
       rLeg.rotation.x = pose.rLegX;
-      lArm.rotation.z = pose.lArmZ || 0;
-      rArm.rotation.z = pose.rArmZ || 0;
       head.rotation.x = pose.headX;
 
       lArmOver.rotation.copy(lArm.rotation);
@@ -3467,8 +3465,6 @@
         rArmX: 0,
         lLegX: 0,
         rLegX: 0,
-        lArmZ: 0,
-        rArmZ: 0,
         headX: 0,
         bodyX: 0
       };
@@ -3490,22 +3486,12 @@
 
         pose.headX = THREE.MathUtils.lerp(-0.05, 0.12, fallBlend);
       } else if (inWater) {
-        const swimPhase = game.timeSec * 6.2;
-        const lStroke = Math.sin(swimPhase);
-        const rStroke = Math.sin(swimPhase + Math.PI);
-
-        pose.bodyX = -Math.PI / 2;
-
-        // Front crawl style arms (reach + pull)
-        pose.lArmX = -0.85 + lStroke * 1.05;
-        pose.rArmX = -0.85 + rStroke * 1.05;
-        pose.lArmZ = 0.22 + Math.cos(swimPhase) * 0.28;
-        pose.rArmZ = -0.22 - Math.cos(swimPhase) * 0.28;
-
-        // Light flutter kick
-        pose.lLegX = Math.sin(swimPhase + Math.PI) * 0.28;
-        pose.rLegX = Math.sin(swimPhase) * 0.28;
-
+        // Original swim cycle
+        pose.bodyX = 0;
+        pose.lArmX = walkSwing * 0.55;
+        pose.rArmX = -walkSwing * 0.55;
+        pose.lLegX = -walkSwing * 0.35;
+        pose.rLegX = walkSwing * 0.35;
         pose.headX = 0;
       } else if (isMoving) {
         pose.lArmX = walkSwing;
