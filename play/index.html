@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>Voxel Sandbox</title>
+  <title>VoxelVerse</title>
+  <!-- Supabase JS Library -->
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  
   <style>
     body { margin: 0; overflow: hidden; background: #000; font-family: 'Minecraft', 'Courier New', monospace; user-select: none; }
     #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
@@ -96,6 +99,7 @@
     button { background: #727272; border: 2px solid #000; border-top-color: #aaa; border-left-color: #aaa; color: #fff; padding: 10px 20px; font-size: 1.2rem; cursor: pointer; text-shadow: 1px 1px #000; font-family: inherit; }
     button:hover { background: #8b8b8b; }
     button:active { border-top-color: #000; border-left-color: #000; border-bottom-color: #aaa; border-right-color: #aaa; background: #555; }
+    button:disabled { background: #444; color: #888; cursor: not-allowed; }
 
     .button-row {
       display: flex;
@@ -118,7 +122,7 @@
 
     /* Input Group */
     .input-group { display: flex; flex-direction: column; margin: 10px; color: white; width: 300px; }
-    input[type="text"], input[type="number"] { padding: 10px; font-family: inherit; margin-top: 5px; background: #333; border: 1px solid #aaa; color: white; }
+    input[type="text"], input[type="number"], input[type="password"], input[type="email"] { padding: 10px; font-family: inherit; margin-top: 5px; background: #333; border: 1px solid #aaa; color: white; }
 
     /* Skin Editor Styles */
     #skin-menu {
@@ -243,6 +247,47 @@
 
 
     #disconnect-msg { color: red; margin-top: 10px; }
+
+    /* --- AUTH & CLOUD MODALS --- */
+    #auth-modal, #cloud-skin-modal {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.95);
+      z-index: 6000;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      color: white;
+    }
+    
+    .auth-container {
+        background: #333; border: 2px solid #aaa; padding: 30px; width: 350px;
+        display: flex; flex-direction: column; gap: 15px;
+    }
+
+    .skin-grid {
+        display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+        max-height: 400px; overflow-y: auto; padding: 10px; background: #222; border: 1px solid #555; width: 500px;
+    }
+    
+    .skin-item {
+        border: 2px solid #555; background: #111; padding: 5px; cursor: pointer;
+        display: flex; flex-direction: column; align-items: center;
+    }
+    .skin-item:hover { border-color: #fff; }
+    .skin-item img { width: 64px; height: 64px; image-rendering: pixelated; background: #555; }
+    .skin-item span { margin-top: 5px; font-size: 10px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; width: 100%; text-align: center; }
+
+    #user-info-display {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(0,0,0,0.6);
+      padding: 5px 10px;
+      color: #fff;
+      font-size: 14px;
+      border: 1px solid #777;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
   </style>
 
   <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"></script>
@@ -277,7 +322,54 @@
     <div id="hotbar"></div>
   </div>
 
+  <!-- Auth Modal -->
+  <div id="auth-modal" class="hidden">
+    <div class="auth-container">
+        <h2 style="margin:0; text-align:center; border-bottom:1px solid #555; padding-bottom:10px;">Voxel Account</h2>
+        <div id="auth-error" style="color:#ff5555; font-size:12px; display:none;"></div>
+        
+        <label>Email</label>
+        <input type="email" id="auth-email" placeholder="email@example.com">
+        
+        <label>Password</label>
+        <input type="password" id="auth-password" placeholder="Password">
+        
+        <div id="signup-fields" class="hidden">
+            <label>Username</label>
+            <input type="text" id="auth-username" placeholder="PlayerName">
+        </div>
+
+        <button id="btn-login-submit" style="background:#2E7D32;">Login</button>
+        <button id="btn-signup-submit" style="background:#1565C0;">Create Account</button>
+        <button id="btn-auth-close" style="background:#444;">Cancel</button>
+        
+        <p style="font-size:10px; color:#777; text-align:center; margin:0;">
+            Toggle between Login/Signup using the buttons.
+        </p>
+    </div>
+  </div>
+
+  <!-- Cloud Skin Modal -->
+  <div id="cloud-skin-modal" class="hidden">
+      <h2 style="margin-bottom:10px;">My Skin Library</h2>
+      <div id="skin-library-list" class="skin-grid">
+          <!-- Populated by JS -->
+          <p style="color:#aaa; grid-column:span 4; text-align:center;">Loading skins...</p>
+      </div>
+      <div style="display:flex; gap:10px; margin-top:20px;">
+          <button id="btn-cloud-load-selected" disabled>Load Selected</button>
+          <button id="btn-cloud-delete" style="background:#c62828;" disabled>Delete</button>
+          <button id="btn-cloud-close" style="background:#444;">Close</button>
+      </div>
+  </div>
+
   <div id="main-menu" class="screen">
+    <!-- User Info Display in Corner -->
+    <div id="user-info-display" class="hidden">
+        <span id="display-username">Guest</span>
+        <button id="btn-logout" style="padding:2px 8px; font-size:10px; height:auto;">Logout</button>
+    </div>
+
     <div class="menu-layout">
       <!-- LEFT COLUMN: Logo & Game Buttons -->
       <div class="menu-left">
@@ -289,23 +381,24 @@
           <button id="btn-mp" class="btn-half">Multiplayer</button>
         </div>
         
+        <button id="btn-login-menu" class="btn-full" style="background:#1565C0;">Login / Sign Up</button>
         <button id="btn-settings" class="btn-full">Settings</button>
         
         <!-- Hidden MP Options -->
         <div id="mp-options" class="hidden input-group">
-          <div id="mp-endpoint-wrap" class="hidden">
-            <label>Realtime Server (wss://...)</label>
-            <input type="text" id="mp-endpoint" placeholder="wss://your-realtime-server.example.com" />
-          </div>
-          <label>Join Code</label>
-          <input type="text" id="join-code" placeholder="Paste join code" />
-          <label>Username</label>
-          <input type="text" id="username" value="Player" />
-          <div class="button-row" style="margin-top:10px;">
-            <button id="btn-host" class="btn-half">Host Room</button>
-            <button id="btn-join" class="btn-half">Join Room</button>
-          </div>
-          <div id="disconnect-msg"></div>
+            <div id="mp-endpoint-wrap" class="hidden">
+              <label>Realtime Server (wss://...)</label>
+              <input type="text" id="mp-endpoint" placeholder="wss://your-realtime-server.example.com" />
+            </div>
+            <label>Join Code</label>
+            <input type="text" id="join-code" placeholder="Paste join code" />
+            <label>Username</label>
+            <input type="text" id="username" value="Player" />
+            <div class="button-row" style="margin-top:10px;">
+              <button id="btn-host" class="btn-half">Host Room</button>
+              <button id="btn-join" class="btn-half">Join Room</button>
+            </div>
+            <div id="disconnect-msg"></div>
         </div>
       </div>
 
@@ -336,8 +429,8 @@
       <label>Room Code</label>
       <input type="text" id="pause-room-code" readonly />
     </div>
-    <button id="btn-resume">Resume</button>
-    <button id="btn-exit">Exit</button>
+    <button id="btn-resume" class="btn-full" style="margin-bottom:10px;">Resume</button>
+    <button id="btn-exit" class="btn-full">Exit to Menu</button>
   </div>
 
   <div id="skin-menu" class="screen hidden">
@@ -372,8 +465,11 @@
         
         <div style="display:flex; gap:5px; margin-bottom:5px;">
             <button id="btn-import-skin" style="flex:1; font-size: 12px; padding:6px; background:#1976D2;">Import</button>
-            <button id="btn-export-skin" style="flex:1; font-size: 12px; padding:6px; background:#388E3C;">Save</button>
+            <button id="btn-export-skin" style="flex:1; font-size: 12px; padding:6px; background:#388E3C;">Save File</button>
         </div>
+
+        <button id="btn-cloud-lib" style="width:100%; margin-bottom: 5px; font-size: 14px; background:#FF9800; display:none;">☁ Cloud Library</button>
+        <button id="btn-save-cloud" style="width:100%; margin-bottom: 5px; font-size: 14px; background:#009688; display:none;">☁ Save to Cloud</button>
 
         <button id="btn-reset-skin" style="width:100%; margin-bottom: 5px; font-size: 14px; background:#d32f2f;">Reset Skin</button>
         <button id="btn-skin-back" style="width:100%; background:#555;">Back</button>
@@ -397,6 +493,329 @@
 
   <script type="module">
     import * as THREE from "three";
+    
+    // --- SUPABASE CONFIGURATION ---
+    const SUPABASE_URL = 'https://qvebydmxycyhdgiyoldm.supabase.co';
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF2ZWJ5ZG14eWN5aGRnaXlvbGRtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA1NTgyMDQsImV4cCI6MjA4NjEzNDIwNH0.qKhvDMxCVG0mDbmo0wuJSInj3brRnO9e9Pm9ZFWEtT4';
+    
+    // Initialize Supabase Client
+    let supabase = null;
+    let currentUser = null;
+    let userProfile = null;
+    
+    if (window.supabase) {
+        supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    } else {
+        console.error("Supabase script failed to load.");
+    }
+
+    // --- SUPABASE LOGIC ---
+    async function checkUserSession() {
+        if (!supabase) return;
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+            currentUser = session.user;
+            await fetchProfile();
+            updateAuthUI(true);
+        } else {
+            updateAuthUI(false);
+        }
+
+        // Listen for auth changes
+        supabase.auth.onAuthStateChange(async (event, session) => {
+            if (event === 'SIGNED_IN') {
+                currentUser = session.user;
+                await fetchProfile();
+                updateAuthUI(true);
+                document.getElementById('auth-modal').classList.add('hidden');
+                showNotification("Logged in successfully!");
+            } else if (event === 'SIGNED_OUT') {
+                currentUser = null;
+                userProfile = null;
+                updateAuthUI(false);
+                cachedSkins = null; // Clear cache on logout
+                showNotification("Logged out.");
+            }
+        });
+    }
+
+    async function fetchProfile() {
+        if (!currentUser) return;
+        const { data, error } = await supabase
+            .from('profiles')
+            .select('username')
+            .eq('id', currentUser.id)
+            .single();
+        
+        if (data) {
+            userProfile = data;
+            // Update UI elements with username
+            document.getElementById('display-username').innerText = data.username || "User";
+            document.getElementById('username').value = data.username || "Player"; // Update MP name
+            SETTINGS.nickname = data.username || "Player";
+        }
+    }
+
+    function updateAuthUI(isLoggedIn) {
+        const loginBtn = document.getElementById('btn-login-menu');
+        const userInfo = document.getElementById('user-info-display');
+        const cloudLibBtn = document.getElementById('btn-cloud-lib');
+        const saveCloudBtn = document.getElementById('btn-save-cloud');
+
+        if (isLoggedIn) {
+            loginBtn.classList.add('hidden');
+            userInfo.classList.remove('hidden');
+            cloudLibBtn.style.display = 'block';
+            saveCloudBtn.style.display = 'block';
+        } else {
+            loginBtn.classList.remove('hidden');
+            userInfo.classList.add('hidden');
+            cloudLibBtn.style.display = 'none';
+            saveCloudBtn.style.display = 'none';
+        }
+    }
+
+    async function handleLogin() {
+        const email = document.getElementById('auth-email').value;
+        const password = document.getElementById('auth-password').value;
+        const errorDiv = document.getElementById('auth-error');
+        
+        errorDiv.style.display = 'none';
+        if(!email || !password) { errorDiv.innerText = "Please enter email and password"; errorDiv.style.display='block'; return; }
+
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) {
+            errorDiv.innerText = error.message;
+            errorDiv.style.display = 'block';
+        }
+    }
+
+    async function handleSignup() {
+        const email = document.getElementById('auth-email').value;
+        const password = document.getElementById('auth-password').value;
+        const username = document.getElementById('auth-username').value;
+        const errorDiv = document.getElementById('auth-error');
+
+        errorDiv.style.display = 'none';
+        if(!email || !password || !username) { errorDiv.innerText = "All fields required"; errorDiv.style.display='block'; return; }
+        if(username.length < 3) { errorDiv.innerText = "Username too short"; errorDiv.style.display='block'; return; }
+
+        const { data, error } = await supabase.auth.signUp({
+            email,
+            password,
+            options: {
+                data: { username: username }
+            }
+        });
+        
+        if (error) {
+            errorDiv.innerText = error.message;
+            errorDiv.style.display = 'block';
+        } else {
+            showNotification("Account created! You can now log in.");
+        }
+    }
+
+    // --- REPLACED: Save to BUCKET first, then Database ---
+    async function saveSkinToCloud() {
+        if (!currentUser) return;
+        const name = prompt("Enter a name for this skin:");
+        if (!name) return;
+
+        // 1. Convert Canvas to Blob
+        game.skinCanvas.toBlob(async (blob) => {
+            if (!blob) {
+                showNotification("Error: Could not convert skin to file.");
+                return;
+            }
+
+            try {
+                showNotification("Uploading...");
+                
+                // 2. Upload to Supabase Storage (Bucket: 'skins')
+                // Path: userID / timestamp_cleanName.png
+                const cleanName = name.replace(/[^a-z0-9]/gi, '_');
+                const fileName = `${currentUser.id}/${Date.now()}_${cleanName}.png`;
+                
+                const { data: uploadData, error: uploadError } = await supabase.storage
+                    .from('skins')
+                    .upload(fileName, blob, {
+                        cacheControl: '3600',
+                        upsert: true
+                    });
+
+                if (uploadError) {
+                    console.error("Supabase Storage Error:", uploadError);
+                    showNotification("Upload failed: " + uploadError.message);
+                    return;
+                }
+
+                // 3. Get Public URL
+                const { data: { publicUrl } } = supabase.storage
+                    .from('skins')
+                    .getPublicUrl(fileName);
+
+                console.log("Upload Success, URL:", publicUrl);
+
+                // 4. Save Metadata (Name + URL) to Database
+                // Using .select() to get back the new row ID for caching
+                const { data: insertedData, error: dbError } = await supabase
+                    .from('skins')
+                    .insert({ 
+                        user_id: currentUser.id, 
+                        name: name, 
+                        texture_data: publicUrl // Store the URL instead of huge base64 string
+                    })
+                    .select()
+                    .single();
+
+                if (dbError) {
+                    console.error("Database Insert Error:", dbError);
+                    showNotification("DB Error: " + dbError.message);
+                } else {
+                    showNotification("Skin saved to Cloud Bucket!");
+                    
+                    // Update Cache immediately
+                    if (cachedSkins) {
+                        cachedSkins.unshift(insertedData); // Add to top
+                    }
+                    
+                    // Refresh lib if it's open
+                    if(!document.getElementById('cloud-skin-modal').classList.contains('hidden')) {
+                        // If we have cache, render from cache, otherwise trigger load
+                        if (cachedSkins) renderSkinList(cachedSkins);
+                        else loadCloudSkins();
+                    }
+                }
+            } catch (err) {
+                console.error("Unexpected Error in upload:", err);
+                showNotification("Unexpected error: " + err.message);
+            }
+        }, 'image/png');
+    }
+
+    let cachedSkins = null; // Cache variable to store loaded skins
+    let isCloudLoading = false; 
+
+    function renderSkinList(skins) {
+        const list = document.getElementById('skin-library-list');
+        list.innerHTML = '';
+
+        if (!skins || skins.length === 0) { 
+            list.innerHTML = '<p style="color:#aaa; grid-column: 1 / -1; text-align: center; padding: 20px;">No skins saved yet.</p>'; 
+            return; 
+        }
+
+        skins.forEach(skin => {
+            const div = document.createElement('div');
+            div.className = 'skin-item';
+            // Use a container for the image to handle aspect ratios neatly
+            div.innerHTML = `
+                <div style="width:100%; aspect-ratio:1; background:#333; display:flex; align-items:center; justify-content:center; overflow:hidden;">
+                    <img src="${skin.texture_data}" crossorigin="anonymous" style="width:100%; height:100%; object-fit:contain; image-rendering:pixelated;" loading="lazy">
+                </div>
+                <span>${skin.name}</span>
+            `;
+            div.onclick = () => selectCloudSkin(div, skin);
+            list.appendChild(div);
+        });
+    }
+
+    async function loadCloudSkins() {
+        if (!currentUser) return;
+        
+        // CACHE HIT: Render immediately if we already loaded skins this session
+        if (cachedSkins !== null) {
+            renderSkinList(cachedSkins);
+            return; 
+        }
+
+        if (isCloudLoading) return; // Debounce
+        
+        const list = document.getElementById('skin-library-list');
+        // Ensure loading message spans all columns
+        list.innerHTML = '<p style="color:#aaa; grid-column: 1 / -1; text-align: center; padding: 20px;">Loading library...</p>';
+        isCloudLoading = true;
+
+        try {
+            const { data, error } = await supabase
+                .from('skins')
+                .select('id, name, texture_data, created_at')
+                .eq('user_id', currentUser.id)
+                .order('created_at', { ascending: false })
+                .limit(60); // Limit to prevent massive fetches if history is long
+
+            if (error) { 
+                console.error("Supabase Error:", error);
+                list.innerHTML = `<p style="color:#ff5555; grid-column: 1 / -1; text-align: center;">Error loading skins: ${error.message}</p>`;
+                return; 
+            }
+            
+            cachedSkins = data || []; // Store in cache
+            renderSkinList(cachedSkins); // Render from cache
+
+        } catch (err) {
+            console.error("Unexpected load error:", err);
+            list.innerHTML = '<p style="color:#ff5555; grid-column: 1 / -1; text-align: center;">Connection error.</p>';
+        } finally {
+            isCloudLoading = false;
+        }
+    }
+
+    let selectedSkinData = null;
+    function selectCloudSkin(el, skin) {
+        document.querySelectorAll('.skin-item').forEach(e => e.style.borderColor = '#555');
+        el.style.borderColor = '#2196F3';
+        selectedSkinData = skin;
+        document.getElementById('btn-cloud-load-selected').disabled = false;
+        document.getElementById('btn-cloud-delete').disabled = false;
+    }
+    
+    async function deleteSelectedSkin() {
+        if(!selectedSkinData) return;
+        if(!confirm(`Delete skin "${selectedSkinData.name}"?`)) return;
+        
+        // Note: This only deletes the DB record to keep it simple.
+        // The file remains in the bucket (which is fine for a basic implementation).
+        const { error } = await supabase
+            .from('skins')
+            .delete()
+            .eq('id', selectedSkinData.id);
+            
+        if(error) showNotification("Error deleting: " + error.message);
+        else {
+            // Update Cache locally
+            if (cachedSkins) {
+                cachedSkins = cachedSkins.filter(s => s.id !== selectedSkinData.id);
+                renderSkinList(cachedSkins);
+            }
+            
+            selectedSkinData = null;
+            document.getElementById('btn-cloud-load-selected').disabled = true;
+            document.getElementById('btn-cloud-delete').disabled = true;
+        }
+    }
+    
+    // The load selected button logic needs a small tweak for Cross-Origin if using buckets
+    // But since it's drawing to canvas, we need to handle CORS on the Image object
+    document.getElementById("btn-cloud-load-selected").onclick = () => {
+          if(!selectedSkinData) return;
+          const img = new Image();
+          img.crossOrigin = "Anonymous"; // Crucial for loading from Bucket URL to Canvas
+          img.onload = () => {
+              game.skinCtx.clearRect(0, 0, 64, 64);
+              game.skinCtx.drawImage(img, 0, 0);
+              game.skinTexture.needsUpdate = true;
+              game.mySkin = game.skinCanvas.toDataURL();
+              document.getElementById('cloud-skin-modal').classList.add('hidden');
+              showNotification(`Loaded: ${selectedSkinData.name}`);
+          };
+          img.onerror = () => {
+              showNotification("Error loading image from bucket.");
+          };
+          img.src = selectedSkinData.texture_data;
+    };
+
 
     // --- CONSTANTS ---
     const CHUNK_SIZE = 16;
@@ -445,8 +864,8 @@
         "https://assets.mcasset.cloud/1.21.11/assets/minecraft/sounds/liquid/splash2.ogg"
       ],
       water_loop: "https://assets.mcasset.cloud/1.21.11/assets/minecraft/sounds/liquid/water.ogg",
-      ui_click: "https://github.com/bellasaunders25/VoxelVerse-Assets/raw/refs/heads/main/Button_click_sound_f-%232-1758959535901.mp3",
-      ui_hover: "https://github.com/bellasaunders25/VoxelVerse-Assets/raw/refs/heads/main/Button_Hover_sound_f-%231-1758959463352.mp3",
+      ui_click: "/resources/sounds/Button_click_sound.mp3",
+      ui_hover: "/resources/sounds/Button_Hover_sound.mp3",
       music: "https://github.com/bellasaunders25/VoxelVerse-Assets/raw/refs/heads/main/Pixel%20Reflections.mp3",
 
       mob: {
@@ -1168,6 +1587,7 @@
           meshChunk(x + 1, z);
           meshChunk(x, z - 1);
           meshChunk(x, z + 1);
+          // Apply pending MP blocks
           applyPendingRemoteBlocksForChunk(x, z);
           requestChunkState(x, z);
           return;
@@ -1243,6 +1663,9 @@
 
       // Stop browser context menu on right click (so placing blocks feels normal)
       document.addEventListener("contextmenu", (e) => e.preventDefault());
+      
+      // Init Session check
+      checkUserSession();
     }
 
     // --- TEXTURES / MATERIALS ---
@@ -2007,11 +2430,11 @@
          const llG = addGrid(-0.13, -0.2, 0, 0.25, 0.75, 0.25, 16, 48); llG.name = 'LeftLegGrid';
       }
       
+      // Add Grid Helper only if specifically requested (for editor viewport)
       if (includeGrid) {
-        // Add Grid Helper only for preview/editor meshes
-        const gridHelper = new THREE.GridHelper(10, 10, 0x444444, 0x222222);
-        gridHelper.position.y = -1;
-        group.add(gridHelper);
+         const gridHelper = new THREE.GridHelper(10, 10, 0x444444, 0x222222);
+         gridHelper.position.y = -1;
+         group.add(gridHelper);
       }
 
       return group;
@@ -2042,7 +2465,7 @@
 
       const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false });
       const sprite = new THREE.Sprite(material);
-      sprite.position.set(0, game.player.height + 0.4, 0);
+      sprite.position.set(0, 2.2, 0); // 1.8 + 0.4
       sprite.scale.set(1.7, 0.45, 1);
       sprite.renderOrder = 4;
 
@@ -2099,22 +2522,18 @@
       const canvas = game.skinCanvas;
       const ctx = game.skinCtx;
       ctx.clearRect(0,0,64,64);
-      const skin = "#f0bca0";
-      const shirt = "#00aaaa";
-      const pants = "#4444aa";
       
-      ctx.fillStyle = skin; ctx.fillRect(0,0, 32,16); 
-      ctx.fillStyle = "#fff"; ctx.fillRect(10,10,2,2); ctx.fillRect(18,10,2,2); 
-      ctx.fillStyle = "#4a2e1d"; ctx.fillRect(11,10,1,1); ctx.fillRect(19,10,1,1); 
-      ctx.fillStyle = "#633"; ctx.fillRect(12,13,6,1); 
-      ctx.fillStyle = shirt; ctx.fillRect(16, 16, 24, 16);
-      ctx.fillStyle = skin; ctx.fillRect(40, 16, 16, 16); 
-      ctx.fillStyle = skin; ctx.fillRect(32, 48, 16, 16); 
-      ctx.fillStyle = pants; ctx.fillRect(0, 16, 16, 16); 
-      ctx.fillStyle = pants; ctx.fillRect(16, 48, 16, 16); 
-
-      if (game.skinTexture) game.skinTexture.needsUpdate = true;
-      game.mySkin = canvas.toDataURL(); 
+      const img = new Image();
+      img.crossOrigin = "Anonymous";
+      img.onload = () => {
+          ctx.drawImage(img, 0, 0);
+          if (game.skinTexture) game.skinTexture.needsUpdate = true;
+          game.mySkin = canvas.toDataURL();
+      };
+      img.onerror = () => {
+         console.error("Failed to load default skin");
+      }
+      img.src = "https://qvebydmxycyhdgiyoldm.supabase.co/storage/v1/object/public/skins/5017f037-f0c0-4558-a571-a34ae46cfd13/1770570823144_Default_Skin.png";
     }
 
     function showNotification(msg) {
@@ -2282,6 +2701,34 @@
           };
           input.click();
       };
+      
+      // CLOUD HANDLERS
+      document.getElementById("btn-save-cloud").onclick = saveSkinToCloud;
+      document.getElementById("btn-cloud-lib").onclick = () => {
+          document.getElementById('cloud-skin-modal').classList.remove('hidden');
+          loadCloudSkins();
+      };
+      document.getElementById("btn-cloud-close").onclick = () => {
+          document.getElementById('cloud-skin-modal').classList.add('hidden');
+      };
+      document.getElementById("btn-cloud-load-selected").onclick = () => {
+          if(!selectedSkinData) return;
+          const img = new Image();
+          img.crossOrigin = "Anonymous"; // Crucial for loading from Bucket URL to Canvas
+          img.onload = () => {
+              game.skinCtx.clearRect(0, 0, 64, 64);
+              game.skinCtx.drawImage(img, 0, 0);
+              game.skinTexture.needsUpdate = true;
+              game.mySkin = game.skinCanvas.toDataURL();
+              document.getElementById('cloud-skin-modal').classList.add('hidden');
+              showNotification(`Loaded: ${selectedSkinData.name}`);
+          };
+          img.onerror = () => {
+              showNotification("Error loading image from bucket.");
+          };
+          img.src = selectedSkinData.texture_data;
+      };
+      document.getElementById("btn-cloud-delete").onclick = deleteSelectedSkin;
 
 
       const raycaster = game.editor.raycaster;
@@ -2511,6 +2958,31 @@
         }
     });
 
+    // --- MP / CHAT HELPER FUNCTIONS ---
+    function isFiniteNumber(v) {
+      return typeof v === "number" && Number.isFinite(v);
+    }
+
+    function lerpYaw(current, target, t) {
+      const twoPi = Math.PI * 2;
+      let delta = (target - current) % twoPi;
+      if (delta > Math.PI) delta -= twoPi;
+      if (delta < -Math.PI) delta += twoPi;
+      return current + delta * t;
+    }
+
+    function createSkinTextureFromDataUrl(dataUrl) {
+      if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:image")) return null;
+      const img = new Image();
+      img.src = dataUrl;
+      const tex = new THREE.Texture(img);
+      tex.magFilter = THREE.NearestFilter;
+      tex.minFilter = THREE.NearestFilter;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      img.onload = () => { tex.needsUpdate = true; };
+      return tex;
+    }
+
     function generateRoomId() {
       return Math.random().toString(36).slice(2, 8).toUpperCase();
     }
@@ -2524,7 +2996,7 @@
         const proto = location.protocol === "https:" ? "wss" : "ws";
         return `${proto}://${location.host}`;
       }
-      return "wss://voxelverse.fly.dev";
+      return "wss://voxelverse.fly.dev"; // Default public server if none provided
     }
 
     function buildJoinCode(endpoint, roomId) {
@@ -2576,21 +3048,199 @@
       document.getElementById("pause-menu").classList.add("hidden");
       document.getElementById("ui-layer").classList.add("hidden");
       document.getElementById("main-menu").classList.remove("hidden");
+      
+      // Close socket
       if (game.socket) {
         try { game.socket.close(); } catch {}
         game.socket = null;
       }
+      
+      // Clear game state
       clearRemotePlayers();
       game.pendingRemoteBlocks.clear();
       game.requestedChunkStates.clear();
       game.selfPeerId = null;
+      
       if (game.loopFrameId !== null) {
         cancelAnimationFrame(game.loopFrameId);
         game.loopFrameId = null;
       }
+      
       if (game.renderer?.domElement) {
         game.renderer.domElement.remove();
       }
+    }
+
+    // --- REMOTE PLAYER MANAGEMENT ---
+    function createRemotePlayer(id, name, skinDataUrl) {
+      if (!id || id === game.selfPeerId) return null;
+      if (game.remotePlayers.has(id)) return game.remotePlayers.get(id);
+
+      const skinTexture = createSkinTextureFromDataUrl(skinDataUrl) || game.skinTexture;
+      // Note: We don't include grid for in-game models
+      const group = buildPlayerModel(skinTexture, { includeGrid: false });
+      
+      const nameTag = createPlayerNameTag(name || "Player");
+      if (nameTag?.sprite) group.add(nameTag.sprite);
+      
+      game.scene.add(group);
+
+      const remote = {
+        id,
+        name: name || "Player",
+        skin: skinDataUrl || "",
+        metadata: {
+          id,
+          name: name || "Player",
+          skin: skinDataUrl || ""
+        },
+        group,
+        mesh: group,
+        nameTag,
+        skinTexture,
+        current: { x: 0, y: 80, z: 0, yaw: 0, pitch: 0 },
+        target: { x: 0, y: 80, z: 0, yaw: 0, pitch: 0 },
+        isMoving: false,
+        isCrouching: false,
+        punchAnim: 0,
+        placeAnim: 0,
+        heldBlock: BLOCKS.DIRT,
+        heldMesh: null,
+        hasState: false
+      };
+      
+      game.remotePlayers.set(id, remote);
+      return remote;
+    }
+
+    function removeRemotePlayer(peerId) {
+      const remote = game.remotePlayers.get(peerId);
+      if (!remote) return;
+      
+      game.scene.remove(remote.group || remote.mesh);
+      
+      if (remote.heldMesh?.parent) remote.heldMesh.parent.remove(remote.heldMesh);
+      if (remote.nameTag?.material) remote.nameTag.material.dispose();
+      if (remote.nameTag?.texture) remote.nameTag.texture.dispose();
+      
+      // Only dispose if it's a unique texture created for this player
+      if (remote.skinTexture && remote.skinTexture !== game.skinTexture) {
+         remote.skinTexture.dispose();
+      }
+      
+      game.remotePlayers.delete(peerId);
+    }
+
+    function updateRemotePlayerState(id, state) {
+      if (!id || id === game.selfPeerId) return;
+      if (!state || ![state.x, state.y, state.z, state.yaw, state.pitch].every(isFiniteNumber)) return;
+
+      const remote = game.remotePlayers.get(id) || createRemotePlayer(id, state.name, state.skin);
+      if (!remote) return;
+
+      if (typeof state.name === "string" && state.name !== remote.name) {
+        remote.name = state.name || "Player";
+        remote.metadata.name = remote.name;
+        setPlayerNameTagText(remote.nameTag, remote.name);
+      }
+      if (typeof state.skin === "string" && state.skin && state.skin !== remote.skin) {
+        remote.skin = state.skin;
+        remote.metadata.skin = state.skin;
+        // Optionally update texture here if needed, but usually skin doesn't change mid-session
+      }
+
+      if (state.snap || !remote.hasState) {
+        remote.current.x = state.x;
+        remote.current.y = state.y;
+        remote.current.z = state.z;
+        remote.current.yaw = state.yaw;
+        remote.current.pitch = state.pitch;
+        remote.hasState = true;
+      }
+
+      remote.target.x = state.x;
+      remote.target.y = state.y;
+      remote.target.z = state.z;
+      remote.target.yaw = state.yaw;
+      remote.target.pitch = state.pitch;
+      remote.isMoving = !!state.moving;
+      remote.isCrouching = !!state.crouching;
+      remote.punchAnim = isFiniteNumber(state.punchAnim) ? state.punchAnim : 0;
+      remote.placeAnim = isFiniteNumber(state.placeAnim) ? state.placeAnim : 0;
+
+      const nextHeld = isFiniteNumber(state.heldBlock) ? state.heldBlock : remote.heldBlock;
+      if (nextHeld !== remote.heldBlock || !remote.heldMesh) {
+        remote.heldBlock = nextHeld;
+        attachRemoteHeldBlock(remote);
+      }
+    }
+
+    function clearRemotePlayers() {
+      for (const peerId of Array.from(game.remotePlayers.keys())) removeRemotePlayer(peerId);
+      game.remotePlayers.clear();
+    }
+
+    function sendLocalPlayerState(nowMs) {
+      if (STATE.mode !== "MP") return;
+      if (!game.socket || game.socket.readyState !== WebSocket.OPEN) return;
+      if (nowMs - game.lastStateSentAt < 67) return; // ~15 ticks per second cap
+      
+      game.lastStateSentAt = nowMs;
+      game.socket.send(JSON.stringify({
+        type: "PLAYER_STATE",
+        x: game.player.pos.x,
+        y: game.player.pos.y,
+        z: game.player.pos.z,
+        yaw: game.player.yaw,
+        pitch: game.player.pitch,
+        moving: !!game.player._moving,
+        crouching: !!game.player.crouchToggled,
+        punchAnim: game.player.punchAnim,
+        placeAnim: game.player.placeAnim,
+        heldBlock: game.selectedBlock
+      }));
+    }
+
+    // --- BLOCK SYNC HELPERS ---
+    function chunkCoordsForBlock(x, z) {
+      return { cx: Math.floor(x / CHUNK_SIZE), cz: Math.floor(z / CHUNK_SIZE) };
+    }
+
+    function queuePendingRemoteBlock(x, y, z, id) {
+      const { cx, cz } = chunkCoordsForBlock(x, z);
+      const cKey = chunkKey(cx, cz);
+      if (!game.pendingRemoteBlocks.has(cKey)) game.pendingRemoteBlocks.set(cKey, new Map());
+      game.pendingRemoteBlocks.get(cKey).set(`${x},${y},${z}`, { x, y, z, id });
+    }
+
+    function applyOrQueueRemoteBlock(x, y, z, id) {
+      const loc = getLocal(x, y, z);
+      if (!loc) {
+        queuePendingRemoteBlock(x, y, z, id);
+        return;
+      }
+      setBlock(x, y, z, id, { fromUser: false });
+    }
+
+    function applyPendingRemoteBlocksForChunk(cx, cz) {
+      const cKey = chunkKey(cx, cz);
+      const pending = game.pendingRemoteBlocks.get(cKey);
+      if (!pending || pending.size === 0) return;
+      for (const patch of pending.values()) {
+        const loc = getLocal(patch.x, patch.y, patch.z);
+        if (!loc) continue;
+        setBlock(patch.x, patch.y, patch.z, patch.id, { fromUser: false });
+      }
+      game.pendingRemoteBlocks.delete(cKey);
+    }
+
+    function requestChunkState(cx, cz) {
+      if (STATE.mode !== "MP") return;
+      if (!game.socket || game.socket.readyState !== WebSocket.OPEN) return;
+      const cKey = chunkKey(cx, cz);
+      if (game.requestedChunkStates.has(cKey)) return;
+      game.requestedChunkStates.add(cKey);
+      game.socket.send(JSON.stringify({ type: "CHUNK_REQUEST", cx, cz }));
     }
 
     // --- START GAME ---
@@ -2675,6 +3325,8 @@
       refreshHeldBlockVisuals();
 
       if (mode === "MP") connectServer();
+      
+      // Start loop
       if (game.loopFrameId !== null) {
         cancelAnimationFrame(game.loopFrameId);
         game.loopFrameId = null;
@@ -2686,12 +3338,12 @@
     // --- INPUT ---
     const keys = { w: 0, a: 0, s: 0, d: 0, space: 0, shift: 0 };
     function onKeyDown(e) {
+      // Pause toggle
       if (e.code === "Escape" && STATE.isRunning) {
         if (STATE.isPaused) resumeGame();
         else openPauseMenu();
         return;
       }
-
       if (STATE.isPaused) return;
 
       if (e.code === "KeyW") keys.w = 1;
@@ -2744,47 +3396,6 @@
 
     // --- WORLD HELPERS ---
     function chunkKey(cx, cz) { return `${cx},${cz}`; }
-
-    function chunkCoordsForBlock(x, z) {
-      return { cx: Math.floor(x / CHUNK_SIZE), cz: Math.floor(z / CHUNK_SIZE) };
-    }
-
-    function queuePendingRemoteBlock(x, y, z, id) {
-      const { cx, cz } = chunkCoordsForBlock(x, z);
-      const cKey = chunkKey(cx, cz);
-      if (!game.pendingRemoteBlocks.has(cKey)) game.pendingRemoteBlocks.set(cKey, new Map());
-      game.pendingRemoteBlocks.get(cKey).set(`${x},${y},${z}`, { x, y, z, id });
-    }
-
-    function applyOrQueueRemoteBlock(x, y, z, id) {
-      const loc = getLocal(x, y, z);
-      if (!loc) {
-        queuePendingRemoteBlock(x, y, z, id);
-        return;
-      }
-      setBlock(x, y, z, id, { fromUser: false });
-    }
-
-    function applyPendingRemoteBlocksForChunk(cx, cz) {
-      const cKey = chunkKey(cx, cz);
-      const pending = game.pendingRemoteBlocks.get(cKey);
-      if (!pending || pending.size === 0) return;
-      for (const patch of pending.values()) {
-        const loc = getLocal(patch.x, patch.y, patch.z);
-        if (!loc) continue;
-        setBlock(patch.x, patch.y, patch.z, patch.id, { fromUser: false });
-      }
-      game.pendingRemoteBlocks.delete(cKey);
-    }
-
-    function requestChunkState(cx, cz) {
-      if (STATE.mode !== "MP") return;
-      if (!game.socket || game.socket.readyState !== WebSocket.OPEN) return;
-      const cKey = chunkKey(cx, cz);
-      if (game.requestedChunkStates.has(cKey)) return;
-      game.requestedChunkStates.add(cKey);
-      game.socket.send(JSON.stringify({ type: "CHUNK_REQUEST", cx, cz }));
-    }
 
     function getLocal(x, y, z) {
       const cx = Math.floor(x / CHUNK_SIZE);
@@ -3603,6 +4214,7 @@
         game.worldPlayerMesh.rotation.y = game.player.yaw + Math.PI;
       }
 
+      // --- MULTIPLAYER INTERPOLATION ---
       for (const remote of game.remotePlayers.values()) {
         const lerpT = 1 - Math.exp(-dt * 12);
         remote.current.x = THREE.MathUtils.lerp(remote.current.x, remote.target.x, lerpT);
@@ -3745,7 +4357,8 @@
         pose.lLegX = -walkSwing;
         pose.rLegX = walkSwing;
       }
-
+      
+      // Local player head pitch influence
       pose.headX = THREE.MathUtils.clamp(game.player.pitch * 0.6, -0.5, 0.5);
 
       if (isCrouching && onGround && !inWater) {
@@ -3786,7 +4399,8 @@
       applyPosture(game.hudSkinMesh);
       applyPosture(game.skinMesh);
       applyPosture(game.worldPlayerMesh);
-
+      
+      // --- ANIMATE REMOTE PLAYERS ---
       for (const remote of game.remotePlayers.values()) {
         const remotePose = {
           lArmX: 0,
@@ -3928,8 +4542,8 @@
     // --- LOOP ---
     function loop(timeMs) {
       if (!STATE.isRunning) {
-        game.loopFrameId = null;
-        return;
+         game.loopFrameId = null;
+         return;
       }
       game.loopFrameId = requestAnimationFrame(loop);
 
@@ -3939,11 +4553,12 @@
 
       game.player.punchAnim = Math.max(0, game.player.punchAnim - dt * 6.5);
       game.player.placeAnim = Math.max(0, game.player.placeAnim - dt * 8.0);
-
+      
       if (STATE.isPaused) {
-        game.renderer.render(game.scene, game.camera);
-        renderHudPlayerPreview();
-        return;
+         // Still render if paused so screen isn't black, but stop physics
+         game.renderer.render(game.scene, game.camera);
+         renderHudPlayerPreview();
+         return;
       }
 
       updatePhysics(dt);
@@ -3986,7 +4601,7 @@
       renderHudPlayerPreview();
 
       document.getElementById("debug-overlay").innerHTML = `
-        FPS: ${dt > 0 ? Math.round(1 / dt) : "--"}<br>
+        FPS: ${Math.round(1 / dt)}<br>
         Pos: ${game.player.pos.x.toFixed(1)}, ${game.player.pos.y.toFixed(1)}, ${game.player.pos.z.toFixed(1)}<br>
         Chunks: ${Object.keys(game.world).length}<br>
         FluidQ: ${game.fluid.queue.length}<br>
@@ -4015,8 +4630,8 @@
           const c = game.world[k];
           if (c.mesh) { game.scene.remove(c.mesh); c.mesh.geometry.dispose(); }
           if (c.waterMesh) { game.scene.remove(c.waterMesh); c.waterMesh.geometry.dispose(); }
-          game.requestedChunkStates.delete(k);
           delete game.world[k];
+          game.requestedChunkStates.delete(k);
         }
       }
     }
@@ -4025,20 +4640,22 @@
     function setupUI() {
       document.getElementById("btn-sp").onclick = () => startGame("SP");
       document.getElementById("btn-mp").onclick = () => { document.getElementById("mp-options").classList.remove("hidden"); };
-
+      
       const endpointInput = document.getElementById("mp-endpoint");
       endpointInput.value = buildDefaultEndpoint();
       endpointInput.addEventListener("change", () => {
-        const endpoint = endpointInput.value.trim();
-        if (endpoint) localStorage.setItem("vv-mp-endpoint", endpoint);
+         const endpoint = endpointInput.value.trim();
+         if (endpoint) localStorage.setItem("vv-mp-endpoint", endpoint);
       });
 
       document.getElementById("btn-host").onclick = () => {
-        SETTINGS.nickname = document.getElementById("username").value || "Player";
+        // If not logged in, use input value, else use profile name
+        if (!currentUser) SETTINGS.nickname = document.getElementById("username").value || "Player";
+        
         const endpoint = endpointInput.value.trim();
         if (!endpoint) {
-          document.getElementById("disconnect-msg").textContent = "Set a realtime server URL. Vercel hosting needs a separate WebSocket server (wss://...).";
-          return;
+             document.getElementById("disconnect-msg").textContent = "Set a realtime server URL. Vercel hosting needs a separate WebSocket server (wss://...).";
+             return;
         }
         localStorage.setItem("vv-mp-endpoint", endpoint);
         game.multiplayerEndpoint = endpoint;
@@ -4048,14 +4665,16 @@
         document.getElementById("disconnect-msg").textContent = "";
         startGame("MP");
       };
-
+      
       document.getElementById("btn-join").onclick = () => {
-        SETTINGS.nickname = document.getElementById("username").value || "Player";
+        if (!currentUser) SETTINGS.nickname = document.getElementById("username").value || "Player";
+        
         const parsed = parseJoinCode(document.getElementById("join-code").value);
         if (!parsed) {
-          document.getElementById("disconnect-msg").textContent = "Invalid join code.";
-          return;
+             document.getElementById("disconnect-msg").textContent = "Invalid join code.";
+             return;
         }
+        
         localStorage.setItem("vv-mp-endpoint", parsed.endpoint);
         endpointInput.value = parsed.endpoint;
         game.multiplayerEndpoint = parsed.endpoint;
@@ -4097,207 +4716,115 @@
         }
       };
 
-      // Removed file upload input logic here
+      // AUTH UI EVENTS
+      document.getElementById("btn-login-menu").onclick = () => {
+          document.getElementById('auth-modal').classList.remove('hidden');
+      };
+      document.getElementById("btn-auth-close").onclick = () => {
+          document.getElementById('auth-modal').classList.add('hidden');
+      };
+      
+      // Toggle Login/Signup view logic (simple toggle)
+      let isSignupMode = false;
+      const toggleBtn = document.createElement('button');
+      toggleBtn.innerText = "Switch to Sign Up";
+      toggleBtn.style.background = "transparent";
+      toggleBtn.style.border = "none";
+      toggleBtn.style.color = "#aaa";
+      toggleBtn.style.fontSize = "12px";
+      toggleBtn.style.textDecoration = "underline";
+      toggleBtn.onclick = () => {
+          isSignupMode = !isSignupMode;
+          const signupFields = document.getElementById('signup-fields');
+          const loginBtn = document.getElementById('btn-login-submit');
+          const signupBtn = document.getElementById('btn-signup-submit');
+          
+          if(isSignupMode) {
+              signupFields.classList.remove('hidden');
+              loginBtn.style.display = 'none';
+              signupBtn.style.display = 'block';
+              toggleBtn.innerText = "Switch to Login";
+          } else {
+              signupFields.classList.add('hidden');
+              loginBtn.style.display = 'block';
+              signupBtn.style.display = 'none';
+              toggleBtn.innerText = "Switch to Sign Up";
+          }
+      };
+      // Append toggle button to auth container
+      document.querySelector('.auth-container').insertBefore(toggleBtn, document.getElementById('btn-auth-close'));
+      
+      // Initially hide signup button
+      document.getElementById('btn-signup-submit').style.display = 'none';
+
+      document.getElementById("btn-login-submit").onclick = handleLogin;
+      document.getElementById("btn-signup-submit").onclick = handleSignup;
+      
+      document.getElementById("btn-logout").onclick = async () => {
+          await supabase.auth.signOut();
+      };
     }
 
     // --- MP / CHAT ---
-    function isFiniteNumber(v) {
-      return typeof v === "number" && Number.isFinite(v);
-    }
-
-    function lerpYaw(current, target, t) {
-      const twoPi = Math.PI * 2;
-      let delta = (target - current) % twoPi;
-      if (delta > Math.PI) delta -= twoPi;
-      if (delta < -Math.PI) delta += twoPi;
-      return current + delta * t;
-    }
-
-    function createSkinTextureFromDataUrl(dataUrl) {
-      if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:image")) return null;
-      const img = new Image();
-      img.src = dataUrl;
-      const tex = new THREE.Texture(img);
-      tex.magFilter = THREE.NearestFilter;
-      tex.minFilter = THREE.NearestFilter;
-      tex.colorSpace = THREE.SRGBColorSpace;
-      img.onload = () => { tex.needsUpdate = true; };
-      return tex;
-    }
-
-    function createRemotePlayer(id, name, skinDataUrl) {
-      if (!id || id === game.selfPeerId) return null;
-      if (game.remotePlayers.has(id)) return game.remotePlayers.get(id);
-
-      const skinTexture = createSkinTextureFromDataUrl(skinDataUrl) || game.skinTexture;
-      const group = buildPlayerModel(skinTexture);
-      const nameTag = createPlayerNameTag(name || "Player");
-      if (nameTag?.sprite) group.add(nameTag.sprite);
-      game.scene.add(group);
-
-      const remote = {
-        id,
-        name: name || "Player",
-        skin: skinDataUrl || "",
-        metadata: {
-          id,
-          name: name || "Player",
-          skin: skinDataUrl || ""
-        },
-        group,
-        mesh: group,
-        nameTag,
-        skinTexture,
-        current: {
-          x: 0,
-          y: 80,
-          z: 0,
-          yaw: 0,
-          pitch: 0
-        },
-        target: {
-          x: 0,
-          y: 80,
-          z: 0,
-          yaw: 0,
-          pitch: 0
-        },
-        isMoving: false,
-        isCrouching: false,
-        punchAnim: 0,
-        placeAnim: 0,
-        heldBlock: BLOCKS.DIRT,
-        heldMesh: null
-      };
-      game.remotePlayers.set(id, remote);
-      return remote;
-    }
-
-    function removeRemotePlayer(peerId) {
-      const remote = game.remotePlayers.get(peerId);
-      if (!remote) return;
-      game.scene.remove(remote.group || remote.mesh);
-      if (remote.heldMesh?.parent) remote.heldMesh.parent.remove(remote.heldMesh);
-      if (remote.nameTag?.material) remote.nameTag.material.dispose();
-      if (remote.nameTag?.texture) remote.nameTag.texture.dispose();
-      if (remote.skinTexture && remote.skinTexture !== game.skinTexture) remote.skinTexture.dispose();
-      game.remotePlayers.delete(peerId);
-    }
-
-    function updateRemotePlayerState(id, state) {
-      if (!id || id === game.selfPeerId) return;
-      if (!state || ![state.x, state.y, state.z, state.yaw, state.pitch].every(isFiniteNumber)) return;
-
-      const remote = game.remotePlayers.get(id) || createRemotePlayer(id, state.name, state.skin);
-      if (!remote) return;
-
-      if (typeof state.name === "string" && state.name !== remote.name) {
-        remote.name = state.name || "Player";
-        remote.metadata.name = remote.name;
-        setPlayerNameTagText(remote.nameTag, remote.name);
-      }
-      if (typeof state.skin === "string" && state.skin && state.skin !== remote.skin) {
-        remote.skin = state.skin;
-        remote.metadata.skin = state.skin;
-      }
-
-      if (state.snap || !remote.hasState) {
-        remote.current.x = state.x;
-        remote.current.y = state.y;
-        remote.current.z = state.z;
-        remote.current.yaw = state.yaw;
-        remote.current.pitch = state.pitch;
-        remote.hasState = true;
-      }
-
-      remote.target.x = state.x;
-      remote.target.y = state.y;
-      remote.target.z = state.z;
-      remote.target.yaw = state.yaw;
-      remote.target.pitch = state.pitch;
-      remote.isMoving = !!state.moving;
-      remote.isCrouching = !!state.crouching;
-      remote.punchAnim = isFiniteNumber(state.punchAnim) ? state.punchAnim : 0;
-      remote.placeAnim = isFiniteNumber(state.placeAnim) ? state.placeAnim : 0;
-
-      const nextHeld = isFiniteNumber(state.heldBlock) ? state.heldBlock : remote.heldBlock;
-      if (nextHeld !== remote.heldBlock || !remote.heldMesh) {
-        remote.heldBlock = nextHeld;
-        attachRemoteHeldBlock(remote);
-      }
-    }
-
-    function clearRemotePlayers() {
-      for (const peerId of Array.from(game.remotePlayers.keys())) removeRemotePlayer(peerId);
-      game.remotePlayers.clear();
-    }
-
-    function sendLocalPlayerState(nowMs) {
-      if (STATE.mode !== "MP") return;
-      if (!game.socket || game.socket.readyState !== WebSocket.OPEN) return;
-      if (nowMs - game.lastStateSentAt < 67) return;
-      game.lastStateSentAt = nowMs;
-      game.socket.send(JSON.stringify({
-        type: "PLAYER_STATE",
-        x: game.player.pos.x,
-        y: game.player.pos.y,
-        z: game.player.pos.z,
-        yaw: game.player.yaw,
-        pitch: game.player.pitch,
-        moving: !!game.player._moving,
-        crouching: !!game.player.crouchToggled,
-        punchAnim: game.player.punchAnim,
-        placeAnim: game.player.placeAnim,
-        heldBlock: game.selectedBlock
-      }));
-    }
-
     function connectServer() {
       const endpoint = game.multiplayerEndpoint || buildDefaultEndpoint();
       if (!endpoint) {
-        document.getElementById("disconnect-msg").textContent = "No realtime server URL configured. Add a wss:// server first.";
-        return;
+          document.getElementById("disconnect-msg").textContent = "No realtime server URL configured.";
+          return;
       }
+      
       game.selfPeerId = null;
       clearRemotePlayers();
       game.pendingRemoteBlocks.clear();
       game.requestedChunkStates.clear();
       game.lastStateSentAt = 0;
+      
       game.socket = new WebSocket(endpoint);
       game.socket.onopen = () => {
         addChat(`Connected to ${endpoint}`);
-        game.socket.send(JSON.stringify({ type: "JOIN", name: SETTINGS.nickname, skin: game.mySkin, room: game.roomId }));
+        game.socket.send(JSON.stringify({ 
+           type: "JOIN", 
+           name: SETTINGS.nickname, 
+           skin: game.mySkin,
+           room: game.roomId
+        }));
       };
       game.socket.onmessage = (e) => {
         const msg = JSON.parse(e.data);
         if (msg.type === "CHAT") addChat(`[${msg.name}]: ${msg.text}`);
         if (msg.type === "BLOCK") applyOrQueueRemoteBlock(msg.x, msg.y, msg.z, msg.id);
+        
         if (msg.type === "SELF") game.selfPeerId = msg.id || null;
+        
         if (msg.type === "PLAYER_JOIN") {
-          createRemotePlayer(msg.id, msg.name, msg.skin);
-          updateRemotePlayerState(msg.id, { ...msg, snap: true });
-          if (msg.name) addChat(`${msg.name} joined the room.`);
+           createRemotePlayer(msg.id, msg.name, msg.skin);
+           updateRemotePlayerState(msg.id, { ...msg, snap: true });
+           if(msg.name) addChat(`${msg.name} joined the room.`);
         }
+        
         if (msg.type === "ROOM_SNAPSHOT" && Array.isArray(msg.peers)) {
-          for (const peerInfo of msg.peers) {
-            createRemotePlayer(peerInfo.id, peerInfo.name, peerInfo.skin);
-            updateRemotePlayerState(peerInfo.id, { ...peerInfo, snap: true });
-          }
+           for (const peerInfo of msg.peers) {
+              createRemotePlayer(peerInfo.id, peerInfo.name, peerInfo.skin);
+              updateRemotePlayerState(peerInfo.id, { ...peerInfo, snap: true });
+           }
         }
+        
         if (msg.type === "PLAYER_STATE") updateRemotePlayerState(msg.id, msg);
+        
         if (msg.type === "CHUNK_DATA" && Array.isArray(msg.blocks)) {
-          for (const b of msg.blocks) applyOrQueueRemoteBlock(b.x, b.y, b.z, b.id);
+             for(const b of msg.blocks) applyOrQueueRemoteBlock(b.x, b.y, b.z, b.id);
         }
+        
         if (msg.type === "PLAYER_LEAVE") removeRemotePlayer(msg.id);
       };
-      game.socket.onerror = () => { document.getElementById("disconnect-msg").textContent = "Could not connect. Verify your wss:// realtime server is running and public."; };
-      game.socket.onclose = () => {
-        addChat("Disconnected.");
-        document.getElementById("disconnect-msg").textContent = "Disconnected from server.";
-        clearRemotePlayers();
-        game.pendingRemoteBlocks.clear();
-        game.requestedChunkStates.clear();
-        game.selfPeerId = null;
+      game.socket.onerror = () => { document.getElementById("disconnect-msg").textContent = "Could not connect. Verify server URL."; };
+      game.socket.onclose = () => { 
+          addChat("Disconnected."); 
+          document.getElementById("disconnect-msg").textContent = "Disconnected.";
+          clearRemotePlayers();
+          game.pendingRemoteBlocks.clear();
+          game.requestedChunkStates.clear();
+          game.selfPeerId = null;
       };
     }
 
@@ -4309,7 +4836,9 @@
       input.style.display = "none";
       input.blur();
       game.renderer.domElement.requestPointerLock();
-      if (game.socket) game.socket.send(JSON.stringify({ type: "CHAT", text }));
+      if (game.socket && game.socket.readyState === WebSocket.OPEN) {
+          game.socket.send(JSON.stringify({ type: "CHAT", text }));
+      }
       else addChat("You: " + text);
     }
 
