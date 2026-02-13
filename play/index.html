@@ -3,291 +3,323 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>VoxelVerse</title>
+  <title>Voxel Sandbox</title>
   <!-- Supabase JS Library -->
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
-  
+
   <style>
-    body { margin: 0; overflow: hidden; background: #000; font-family: 'Minecraft', 'Courier New', monospace; user-select: none; }
+    /* --- GLOBAL & FONTS --- */
+    @font-face {
+      font-family: 'Minecraft';
+      src: url('https://cdn.jsdelivr.net/gh/South-Paw/typeface-minecraft@master/fonts/minecraft.woff') format('woff');
+    }
+    body { margin: 0; overflow: hidden; background: #111; font-family: 'Minecraft', 'Courier New', monospace; user-select: none; }
+    
     #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
-    .screen { position: absolute; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: auto; }
+    .screen { position: absolute; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: auto; }
     .hidden { display: none !important; }
+
+    /* --- COMMON UI STYLES (THEME) --- */
+    .menu-bg {
+      background-color: #1a1a1a;
+      background-image: 
+        linear-gradient(45deg, #141414 25%, transparent 25%), 
+        linear-gradient(-45deg, #141414 25%, transparent 25%), 
+        linear-gradient(45deg, transparent 75%, #141414 75%), 
+        linear-gradient(-45deg, transparent 75%, #141414 75%);
+      background-size: 40px 40px;
+      background-position: 0 0, 0 20px, 20px -20px, -20px 0px;
+      box-shadow: inset 0 0 150px #000;
+    }
+
+    .voxel-panel {
+        background: rgba(30, 30, 30, 0.95);
+        border: 2px solid #555;
+        border-bottom: 4px solid #333;
+        padding: 25px;
+        border-radius: 4px;
+        box-shadow: 0 15px 40px rgba(0,0,0,0.8);
+        color: white;
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+        min-width: 320px;
+        backdrop-filter: blur(5px);
+    }
+    
+    .voxel-panel h1, .voxel-panel h2 {
+        margin: 0 0 10px 0;
+        text-align: center;
+        text-shadow: 2px 2px 0 #000;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        border-bottom: 2px solid #444;
+        padding-bottom: 10px;
+    }
+
+    .voxel-input {
+        width: 100%; 
+        padding: 12px; 
+        background: #111; 
+        border: 2px solid #555;
+        color: white; 
+        font-family: 'Minecraft', monospace; 
+        font-size: 16px;
+        box-sizing: border-box;
+        box-shadow: inset 4px 4px 0 rgba(0,0,0,0.3);
+        outline: none;
+        transition: border-color 0.2s;
+    }
+    .voxel-input:focus { border-color: #fff; background: #000; }
+    .voxel-input::placeholder { color: #666; }
+
+    .modal-overlay {
+        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.85);
+        backdrop-filter: blur(4px);
+        z-index: 6000;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+    }
+
+    /* --- MINECRAFT BUTTONS --- */
+    .minecraft-btn {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 44px;
+        font-family: 'Minecraft', sans-serif;
+        font-size: 16px;
+        color: white;
+        text-shadow: 2px 2px 0 #000;
+        border: none;
+        cursor: pointer;
+        padding: 0 15px;
+        text-decoration: none;
+        box-shadow: inset 0 -4px 0 rgba(0,0,0,0.4), 0 4px 0 rgba(0,0,0,0.5);
+        transition: transform 0.1s, box-shadow 0.1s;
+        image-rendering: pixelated;
+        box-sizing: border-box;
+    }
+    .minecraft-btn:active { transform: translateY(4px); box-shadow: inset 0 2px 0 rgba(0,0,0,0.4), 0 0 0 rgba(0,0,0,0); }
+    .minecraft-btn:disabled { filter: grayscale(1); cursor: not-allowed; opacity: 0.7; }
+    
+    .btn-green { background: #388e3c; border: 2px solid #1b5e20; border-top-color: #66bb6a; border-left-color: #66bb6a; }
+    .btn-green:hover { background: #4caf50; }
+    .btn-blue { background: #1976d2; border: 2px solid #0d47a1; border-top-color: #42a5f5; border-left-color: #42a5f5; }
+    .btn-blue:hover { background: #2196f3; }
+    .btn-gold { background: #fbc02d; border: 2px solid #f57f17; border-top-color: #fff176; border-left-color: #fff176; color: #4e342e; text-shadow: none; }
+    .btn-gold:hover { background: #fdd835; }
+    .btn-grey { background: #616161; border: 2px solid #212121; border-top-color: #9e9e9e; border-left-color: #9e9e9e; }
+    .btn-grey:hover { background: #757575; }
+    .btn-purple { background: #7b1fa2; border: 2px solid #4a148c; border-top-color: #ba68c8; border-left-color: #ba68c8; }
+    .btn-purple:hover { background: #8e24aa; }
+    .btn-red { background: #c62828; border: 2px solid #8e0000; border-top-color: #ef5350; border-left-color: #ef5350; }
+    .btn-red:hover { background: #d32f2f; }
+    
+    .btn-sm { height: 32px; font-size: 12px; }
+    .btn-icon { margin-right: 10px; font-size: 18px; filter: drop-shadow(1px 1px 0 #000); }
 
     /* --- NOTIFICATION POPUP --- */
     #notification-popup {
       display: none;
-      position: fixed;
-      top: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: rgba(200, 0, 0, 0.9);
-      color: white;
-      padding: 10px 20px;
-      border-radius: 5px;
-      z-index: 10000;
-      font-weight: bold;
-      border: 1px solid #ff5555;
-      box-shadow: 0 4px 10px rgba(0,0,0,0.5);
-      text-align: center;
+      position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+      background: rgba(20, 20, 20, 0.95);
+      color: white; padding: 12px 24px; border-radius: 8px; z-index: 10000;
+      font-weight: bold; border: 1px solid #444; box-shadow: 0 8px 20px rgba(0,0,0,0.6);
+      text-align: center; animation: popIn 0.3s ease-out;
     }
+    @keyframes popIn { from { transform: translate(-50%, -20px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
 
     /* --- STARTUP SCREEN --- */
     #startup-screen {
-      position: absolute;
-      top: 0; left: 0; width: 100%; height: 100%;
-      background: #800000;
-      z-index: 5000;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: opacity 0.8s ease-out;
-      pointer-events: all;
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background: #800000; z-index: 5000;
+      display: flex; align-items: center; justify-content: center;
+      transition: opacity 0.8s ease-out; pointer-events: all;
     }
-    #startup-video {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
+    #startup-video { width: 100%; height: 100%; object-fit: cover; }
 
-    /* --- MAIN MENU STYLES --- */
-    #main-menu {
-      background: #800000; /* Red Background */
-      display: flex;
-      flex-direction: row;
-      align-items: center;
-      justify-content: center;
+    /* --- MAIN MENU --- */
+    .main-menu-wrapper {
+        display: flex; flex-direction: column; align-items: center;
+        width: 100%; max-width: 1000px; z-index: 10; position: relative;
     }
+    .logo-section { margin-bottom: 30px; text-align: center; animation: floatLogo 4s ease-in-out infinite; }
+    .logo-img { width: 500px; max-width: 90vw; filter: drop-shadow(0 8px 0px rgba(0,0,0,0.3)); }
+    @keyframes floatLogo { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
 
-    .menu-layout {
-      display: flex;
-      flex-direction: row;
-      align-items: center;
-      justify-content: center;
-      gap: 60px; /* Space between buttons and skin */
-      width: 90%;
-      max-width: 1100px;
+    .content-row { display: flex; flex-direction: row; gap: 40px; align-items: flex-start; justify-content: center; width: 100%; }
+    .menu-actions { display: flex; flex-direction: column; gap: 12px; width: 320px; }
+
+    /* MP Panel inside Menu */
+    .mp-panel {
+        background: rgba(0,0,0,0.4); border: 2px solid #555; padding: 15px; margin-top: 10px; border-radius: 4px;
+        color: white; display: flex; flex-direction: column; gap: 10px;
     }
+    .mp-panel label { font-size: 12px; color: #ccc; margin-bottom: -5px; display: block;}
 
-    .menu-left {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      flex: 1;
+    .character-preview-panel {
+        width: 260px; height: 380px; background: rgba(0, 0, 0, 0.3); border: 4px solid #333; border-radius: 4px;
+        position: relative; display: flex; flex-direction: column; align-items: center;
+        background-image: radial-gradient(circle, #333 0%, #111 100%);
+        box-shadow: 0 10px 20px rgba(0,0,0,0.5);
     }
+    #main-menu-skin-container { width: 100%; flex: 1; position: relative; }
+    .preview-label { width: 100%; text-align: center; background: #222; color: #888; padding: 8px 0; font-size: 12px; border-top: 2px solid #333; }
 
-    .menu-right {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      width: 250px;
+    .user-card {
+        position: absolute; top: 20px; right: 20px; background: rgba(0,0,0,0.8); padding: 8px 16px;
+        border-radius: 20px; display: flex; align-items: center; gap: 10px;
+        border: 1px solid rgba(255,255,255,0.1); z-index: 50;
     }
-
-    .logo-img {
-      width: 550px;
-      max-width: 100%;
-      margin-bottom: 5px; /* Reduced gap */
-      filter: drop-shadow(0 4px 15px rgba(0,0,0,0.5));
-      animation: floatLogo 3s ease-in-out infinite;
+    .user-label { font-size: 10px; color: #aaa; text-transform: uppercase; }
+    .user-name { color: #fbc02d; font-weight: bold; font-size: 14px; text-shadow: 1px 1px 0 #000; }
+    .btn-mini { 
+        background: #c62828; border: none; padding: 4px 10px; color: white; font-size: 10px; cursor: pointer;
+        border-radius: 4px; font-family: inherit; border-bottom: 2px solid #8e0000;
     }
+    .btn-mini:active { transform: translateY(2px); border-bottom: none; }
+    .footer-version { position: absolute; bottom: 10px; left: 15px; color: rgba(255,255,255,0.2); font-size: 12px; }
 
-    @keyframes floatLogo {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-10px); }
+    /* Responsive */
+    @media (max-width: 768px) {
+        .content-row { flex-direction: column-reverse; align-items: center; }
+        .menu-actions { width: 90%; max-width: 320px; }
+        .character-preview-panel { display: none; }
+        .logo-img { width: 80%; }
+        #skin-menu { flex-direction: column; }
+        #skin-editor-tools { width: 100%; height: auto; max-height: 40vh; overflow-y: auto; border-right: none; border-bottom: 2px solid #555; }
+        #skin-editor-viewport { width: 100%; flex: 1; }
     }
 
-    /* Button Styles */
-    button { background: #727272; border: 2px solid #000; border-top-color: #aaa; border-left-color: #aaa; color: #fff; padding: 10px 20px; font-size: 1.2rem; cursor: pointer; text-shadow: 1px 1px #000; font-family: inherit; }
-    button:hover { background: #8b8b8b; }
-    button:active { border-top-color: #000; border-left-color: #000; border-bottom-color: #aaa; border-right-color: #aaa; background: #555; }
-    button:disabled { background: #444; color: #888; cursor: not-allowed; }
-
-    .button-row {
-      display: flex;
-      flex-direction: row;
-      gap: 10px;
-      margin: 5px 0;
-      width: 100%;
-      justify-content: center;
-    }
-
-    .btn-half {
-      width: 145px; /* Fits two in ~300px space */
-      padding: 10px 0;
-    }
-
-    .btn-full {
-      width: 300px;
-      margin: 5px 0;
-    }
-
-    /* Input Group */
-    .input-group { display: flex; flex-direction: column; margin: 10px; color: white; width: 300px; }
-    input[type="text"], input[type="number"], input[type="password"], input[type="email"] { padding: 10px; font-family: inherit; margin-top: 5px; background: #333; border: 1px solid #aaa; color: white; }
-
-    /* Skin Editor Styles */
-    #skin-menu {
-      display: flex;
-      flex-direction: row;
-      justify-content: space-between;
-      align-items: stretch;
-      padding: 0;
-      background: #222;
-    }
+    /* --- SKIN EDITOR STYLES --- */
+    #skin-menu { display: flex; flex-direction: row; justify-content: space-between; align-items: stretch; padding: 0; }
 
     #skin-editor-tools {
-      width: 250px;
-      background: rgba(0,0,0,0.9);
-      padding: 20px;
-      display: flex;
-      flex-direction: column;
-      gap: 15px;
-      z-index: 10;
-      border-right: 2px solid #555;
+      width: 320px; background: rgba(20,20,20,0.9); border-right: 2px solid #555; padding: 20px;
+      display: flex; flex-direction: column; gap: 20px; z-index: 10;
+      backdrop-filter: blur(5px); box-shadow: 10px 0 30px rgba(0,0,0,0.5);
     }
+    #skin-editor-tools h2 { margin: 0 0 10px 0; color: #fff; border-bottom: 2px solid #555; padding-bottom: 15px; text-align: center; text-transform: uppercase; letter-spacing: 1px; font-size: 24px; text-shadow: 2px 2px 0 #000; }
+
+    .editor-section { display: flex; flex-direction: column; gap: 8px; background: rgba(255,255,255,0.03); padding: 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05); }
+    .editor-section label { color: #aaa; font-size: 12px; text-transform: uppercase; font-weight: bold; letter-spacing: 0.5px; }
+
+    .tools-row { display: flex; gap: 10px; align-items: center; }
+    #skin-color-picker { width: 48px; height: 48px; border: 2px solid #888; cursor: pointer; padding: 0; background: none; border-radius: 4px; }
+
+    .palette-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; }
+    .color-btn { width: 100%; aspect-ratio: 1; border: 2px solid #333; cursor: pointer; transition: transform 0.1s, border-color 0.1s; border-radius: 2px; }
+    .color-btn:hover { border-color: #fff; transform: scale(1.1); z-index: 1; }
+    .color-btn.active { border-color: #fff; box-shadow: 0 0 0 2px #2196f3; z-index: 2; }
+    
+    .tool-btn {
+        width: 48px; height: 48px; border: 2px solid #555; background: #333; color: #fff;
+        display: flex; align-items: center; justify-content: center; font-size: 20px;
+        cursor: pointer; border-radius: 4px; transition: all 0.1s;
+    }
+    .tool-btn:hover { background: #444; border-color: #888; }
+    .tool-btn.active { background: #2196f3; border-color: #64b5f6; border-bottom: 4px solid #0d47a1; transform: translateY(-2px); }
+
+    #eraser-tool { background-image: linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%); background-size: 10px 10px; background-color: #fff; }
+    #eyedropper-tool { background: #444; color: white; }
+
+    .part-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+    .part-toggle-btn {
+        font-family: inherit; font-size: 10px; padding: 8px; background: #333; border: 2px solid #555; color: #888; cursor: pointer;
+        text-align: center; text-transform: uppercase; border-radius: 4px; transition: all 0.1s;
+    }
+    .part-toggle-btn:hover { background: #444; color: #bbb; }
+    .part-toggle-btn.active { background: #2e7d32; border-color: #66bb6a; color: #fff; box-shadow: 0 0 5px rgba(46, 125, 50, 0.5); }
+
+    .editor-actions { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
+    .action-row { display: flex; gap: 8px; }
 
     #skin-editor-viewport {
-      flex: 1;
-      position: relative;
-      background: radial-gradient(circle, #444, #1a1a1a);
-      cursor: crosshair;
-      overflow: hidden;
-      min-width: 300px;
-      min-height: 300px;
+      flex: 1; position: relative; background: radial-gradient(circle at center, #2a2a2a, #111);
+      cursor: crosshair; overflow: hidden; box-shadow: inset 10px 0 20px rgba(0,0,0,0.5);
     }
-
-    .palette-grid { display: flex; flex-wrap: wrap; gap: 5px; }
-    .color-btn { width: 32px; height: 32px; border: 2px solid #000; cursor: pointer; transition: transform 0.1s; display: flex; align-items: center; justify-content: center; font-size: 18px; }
-    .color-btn:hover { border-color: #fff; }
-    .color-btn.active { border-color: #fff; box-shadow: 0 0 6px #fff; transform: scale(1.1); }
-    #eraser-tool {
-      background-image: linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%);
-      background-size: 10px 10px;
-      background-color: #fff;
-    }
-    #eyedropper-tool {
-      background-color: #444;
-      color: white;
-    }
-
-    /* Part Toggles */
-    .part-toggle-btn {
-      flex: 1 1 45%;
-      font-size: 11px;
-      padding: 5px;
-      background: #444;
-      border: 1px solid #777;
-      cursor: pointer;
-      color: #aaa;
-    }
-    .part-toggle-btn.active {
-      background: #2E7D32;
-      color: #fff;
-      border-color: #fff;
-    }
-
     .editor-controls-help {
-      position: absolute;
-      bottom: 10px;
-      right: 15px;
-      color: rgba(255,255,255,0.4);
-      font-size: 12px;
-      text-align: right;
-      pointer-events: none;
-      line-height: 1.5;
+      position: absolute; bottom: 20px; right: 20px; color: rgba(255,255,255,0.5); font-size: 12px;
+      text-align: right; pointer-events: none; line-height: 1.6; background: rgba(0,0,0,0.4); padding: 10px; border-radius: 4px;
     }
-    
-    #skin-canvas { display: none; } /* Hidden 2D canvas */
+    #skin-canvas { display: none; }
 
-    /* Main Menu Preview Container */
-    #main-menu-skin-container {
-      width: 200px;
-      height: 300px;
-      margin-bottom: 10px;
-    }
-
-    /* HUD */
+    /* IN-GAME HUD */
     #underwater-overlay {
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-      opacity: 0;
-      transition: opacity 120ms linear;
-      background: radial-gradient(circle at 50% 40%, rgba(0,120,160,0.4), rgba(0,60,110,0.6));
-      mix-blend-mode: hard-light;
+      position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 120ms linear;
+      background: radial-gradient(circle at 50% 40%, rgba(0,120,160,0.4), rgba(0,60,110,0.6)); mix-blend-mode: hard-light;
     }
-
-    #crosshair { position: absolute; top: 50%; left: 50%; width: 20px; height: 20px; transform: translate(-50%, -50%); pointer-events: none; }
-    #crosshair::before, #crosshair::after { content: ''; position: absolute; background: rgba(255,255,255,0.8); }
+    #crosshair { position: absolute; top: 50%; left: 50%; width: 20px; height: 20px; transform: translate(-50%, -50%); pointer-events: none; opacity: 0.8; }
+    #crosshair::before, #crosshair::after { content: ''; position: absolute; background: rgba(255,255,255,0.9); box-shadow: 0 0 2px rgba(0,0,0,0.5); }
     #crosshair::before { top: 9px; left: 0; width: 20px; height: 2px; }
     #crosshair::after { top: 0; left: 9px; width: 2px; height: 20px; }
 
-    #hotbar { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); display: flex; background: rgba(0,0,0,0.5); padding: 5px; border: 2px solid #fff; pointer-events: auto; }
-    .slot { width: 40px; height: 40px; border: 2px solid #555; margin: 0 2px; background: #222; display: flex; align-items: center; justify-content: center; position: relative; }
-    .slot.selected { border-color: #fff; background: #444; }
-    .slot-num { position: absolute; top: 2px; left: 2px; color: #fff; font-size: 10px; text-shadow: 1px 1px 0 #000; }
+    #hotbar { 
+        position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); 
+        display: flex; gap: 6px; background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px);
+        padding: 8px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.15); pointer-events: auto; 
+    }
+    .slot { 
+        width: 48px; height: 48px; border: 2px solid transparent; background-color: rgba(0,0,0,0.3); border-radius: 6px;
+        position: relative; transition: transform 0.1s, border-color 0.1s; background-size: 70%; background-position: center;
+        background-repeat: no-repeat; image-rendering: pixelated; cursor: pointer;
+    }
+    .slot.selected { border-color: #fff; background-color: rgba(255,255,255,0.1); transform: scale(1.1); box-shadow: 0 0 10px rgba(255,255,255,0.2); }
+    .slot-num { position: absolute; top: 2px; left: 4px; color: rgba(255,255,255,0.8); font-size: 10px; text-shadow: 1px 1px 0 #000; font-family: inherit; }
 
-    #debug-overlay { position: absolute; top: 0; left: 0; color: #fff; font-size: 12px; padding: 10px; text-shadow: 1px 1px 0 #000; pointer-events: none; line-height: 1.5; }
+    #debug-overlay { 
+        position: absolute; top: 10px; left: 10px; color: rgba(255,255,255,0.9); font-size: 12px; 
+        background: rgba(0,0,0,0.4); padding: 8px 12px; border-radius: 4px; text-shadow: 1px 1px 0 #000; 
+        pointer-events: none; line-height: 1.5; 
+    }
 
-    #chat-container { position: absolute; bottom: 80px; left: 10px; width: 400px; height: 200px; display: flex; flex-direction: column; pointer-events: none; }
-    #chat-history { flex: 1; overflow-y: hidden; display: flex; flex-direction: column; justify-content: flex-end; color: white; text-shadow: 1px 1px 0 #000; font-size: 14px; margin-bottom: 5px; }
-    #chat-input { pointer-events: auto; background: rgba(0,0,0,0.5); border: 1px solid #aaa; color: white; padding: 5px; font-family: inherit; display: none; }
-    .chat-msg { background: rgba(0,0,0,0.3); padding: 2px 5px; margin-top: 2px; border-radius: 2px; width: fit-content; }
+    #chat-container { 
+        position: absolute; bottom: 90px; left: 20px; width: 400px; height: 200px; display: flex; flex-direction: column; 
+        pointer-events: none; mask-image: linear-gradient(to bottom, transparent, black 20%);
+    }
+    #chat-history { 
+        flex: 1; overflow-y: hidden; display: flex; flex-direction: column; justify-content: flex-end; 
+        color: white; text-shadow: 1px 1px 0 #000; font-size: 14px; margin-bottom: 8px; 
+    }
+    #chat-input { 
+        pointer-events: auto; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.3); 
+        border-radius: 4px; color: white; padding: 8px; font-family: inherit; display: none; 
+    }
+    .chat-msg { background: rgba(0,0,0,0.4); padding: 4px 8px; margin-top: 4px; border-radius: 4px; width: fit-content; backdrop-filter: blur(2px); }
 
     #hud-player-preview {
-      position: absolute;
-      right: 12px;
-      bottom: 90px;
-      width: 150px;
-      height: 220px;
-      border: 2px solid rgba(255,255,255,0.45);
-      background: rgba(0,0,0,0.2);
-      pointer-events: none;
-      display: none;
+      position: absolute; right: 20px; bottom: 90px; width: 140px; height: 200px; border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3); backdrop-filter: blur(2px); pointer-events: none; display: none;
     }
 
-
-    #disconnect-msg { color: red; margin-top: 10px; }
-
-    /* --- AUTH & CLOUD MODALS --- */
-    #auth-modal, #cloud-skin-modal {
-      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-      background: rgba(0,0,0,0.95);
-      z-index: 6000;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      color: white;
+    /* --- PAUSE MENU --- */
+    #pause-menu {
+        background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(8px); z-index: 2000;
     }
-    
-    .auth-container {
-        background: #333; border: 2px solid #aaa; padding: 30px; width: 350px;
-        display: flex; flex-direction: column; gap: 15px;
+    #pause-menu h1 {
+        font-size: 48px; color: white; text-shadow: 4px 4px 0 #000; margin-bottom: 40px; letter-spacing: 2px;
     }
+    .pause-btn-group { display: flex; flex-direction: column; gap: 15px; width: 300px; }
 
+    #disconnect-msg { color: #ff5555; margin-top: 10px; font-size: 12px; }
+
+    /* --- CLOUD SKIN GRID --- */
     .skin-grid {
         display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
-        max-height: 400px; overflow-y: auto; padding: 10px; background: #222; border: 1px solid #555; width: 500px;
+        max-height: 400px; overflow-y: auto; padding: 10px; background: rgba(0,0,0,0.3);
+        border: 2px solid #333; border-radius: 4px; width: 500px;
     }
-    
     .skin-item {
-        border: 2px solid #555; background: #111; padding: 5px; cursor: pointer;
-        display: flex; flex-direction: column; align-items: center;
+        border: 2px solid #555; background: rgba(0,0,0,0.5); padding: 5px; cursor: pointer;
+        display: flex; flex-direction: column; align-items: center; border-radius: 4px;
+        transition: border-color 0.2s, background 0.2s;
     }
-    .skin-item:hover { border-color: #fff; }
+    .skin-item:hover { border-color: #fff; background: rgba(255,255,255,0.1); }
     .skin-item img { width: 64px; height: 64px; image-rendering: pixelated; background: #555; }
-    .skin-item span { margin-top: 5px; font-size: 10px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; width: 100%; text-align: center; }
-
-    #user-info-display {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      background: rgba(0,0,0,0.6);
-      padding: 5px 10px;
-      color: #fff;
-      font-size: 14px;
-      border: 1px solid #777;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
+    .skin-item span { margin-top: 5px; font-size: 10px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; width: 100%; text-align: center; color: #ddd; }
   </style>
 
   <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"></script>
@@ -322,157 +354,180 @@
     <div id="hotbar"></div>
   </div>
 
+  <!-- PAUSE MENU -->
+  <div id="pause-menu" class="screen hidden">
+      <h1>GAME PAUSED</h1>
+      <div class="pause-btn-group">
+          <button id="btn-pause-resume" class="minecraft-btn btn-green">Resume Game</button>
+          <button id="btn-pause-options" class="minecraft-btn btn-grey" disabled>Options (WIP)</button>
+          <button id="btn-pause-quit" class="minecraft-btn btn-red">Quit to Title</button>
+      </div>
+  </div>
+
   <!-- Auth Modal -->
-  <div id="auth-modal" class="hidden">
-    <div class="auth-container">
-        <h2 style="margin:0; text-align:center; border-bottom:1px solid #555; padding-bottom:10px;">Voxel Account</h2>
-        <div id="auth-error" style="color:#ff5555; font-size:12px; display:none;"></div>
+  <div id="auth-modal" class="modal-overlay hidden">
+    <div class="voxel-panel" style="width: 350px;">
+        <h2>Voxel Account</h2>
+        <div id="auth-error" style="color:#ff5555; font-size:12px; display:none; background:rgba(255,0,0,0.1); padding:5px; border:1px solid #ff5555; border-radius:4px;"></div>
         
-        <label>Email</label>
-        <input type="email" id="auth-email" placeholder="email@example.com">
+        <div style="display:flex; flex-direction:column; gap:5px;">
+            <label style="font-size:12px; color:#aaa; text-transform:uppercase;">Email</label>
+            <input type="email" id="auth-email" class="voxel-input" placeholder="email@example.com">
+        </div>
         
-        <label>Password</label>
-        <input type="password" id="auth-password" placeholder="Password">
+        <div style="display:flex; flex-direction:column; gap:5px;">
+            <label style="font-size:12px; color:#aaa; text-transform:uppercase;">Password</label>
+            <input type="password" id="auth-password" class="voxel-input" placeholder="Password">
+        </div>
         
-        <div id="signup-fields" class="hidden">
-            <label>Username</label>
-            <input type="text" id="auth-username" placeholder="PlayerName">
+        <div id="signup-fields" class="hidden" style="display:flex; flex-direction:column; gap:5px;">
+            <label style="font-size:12px; color:#aaa; text-transform:uppercase;">Username</label>
+            <input type="text" id="auth-username" class="voxel-input" placeholder="PlayerName">
         </div>
 
-        <button id="btn-login-submit" style="background:#2E7D32;">Login</button>
-        <button id="btn-signup-submit" style="background:#1565C0;">Create Account</button>
-        <button id="btn-auth-close" style="background:#444;">Cancel</button>
+        <button id="btn-login-submit" class="minecraft-btn btn-green">Login</button>
+        <button id="btn-signup-submit" class="minecraft-btn btn-blue" style="display:none;">Create Account</button>
         
-        <p style="font-size:10px; color:#777; text-align:center; margin:0;">
-            Toggle between Login/Signup using the buttons.
-        </p>
+        <button id="btn-auth-toggle" style="background:none; border:none; color:#aaa; font-size:12px; text-decoration:underline; cursor:pointer; padding:5px;">Switch to Sign Up</button>
+        <button id="btn-auth-close" class="minecraft-btn btn-grey btn-sm">Cancel</button>
     </div>
   </div>
 
   <!-- Cloud Skin Modal -->
-  <div id="cloud-skin-modal" class="hidden">
-      <h2 style="margin-bottom:10px;">My Skin Library</h2>
-      <div id="skin-library-list" class="skin-grid">
-          <!-- Populated by JS -->
-          <p style="color:#aaa; grid-column:span 4; text-align:center;">Loading skins...</p>
-      </div>
-      <div style="display:flex; gap:10px; margin-top:20px;">
-          <button id="btn-cloud-load-selected" disabled>Load Selected</button>
-          <button id="btn-cloud-delete" style="background:#c62828;" disabled>Delete</button>
-          <button id="btn-cloud-close" style="background:#444;">Close</button>
+  <div id="cloud-skin-modal" class="modal-overlay hidden">
+      <div class="voxel-panel" style="width: 550px;">
+          <h2>My Skin Library</h2>
+          <div id="skin-library-list" class="skin-grid">
+              <p style="color:#aaa; grid-column:span 4; text-align:center; padding:20px;">Loading skins...</p>
+          </div>
+          <div style="display:flex; gap:10px; margin-top:10px;">
+              <button id="btn-cloud-load-selected" class="minecraft-btn btn-green" disabled>Load Selected</button>
+              <button id="btn-cloud-delete" class="minecraft-btn btn-red" disabled>Delete</button>
+              <button id="btn-cloud-close" class="minecraft-btn btn-grey">Close</button>
+          </div>
       </div>
   </div>
 
-  <div id="main-menu" class="screen">
-    <!-- User Info Display in Corner -->
-    <div id="user-info-display" class="hidden">
-        <span id="display-username">Guest</span>
-        <button id="btn-logout" style="padding:2px 8px; font-size:10px; height:auto;">Logout</button>
+  <!-- MAIN MENU -->
+  <div id="main-menu" class="screen menu-bg">
+    <!-- User Info Top Right -->
+    <div id="user-info-display" class="hidden user-card">
+        <span class="user-label">Logged in as:</span>
+        <span id="display-username" class="user-name">Guest</span>
+        <button id="btn-logout" class="btn-mini">Log Out</button>
     </div>
 
-    <div class="menu-layout">
-      <!-- LEFT COLUMN: Logo & Game Buttons -->
-      <div class="menu-left">
-        <img src="https://raw.githubusercontent.com/bellasaunders25/VoxelVerse-Assets/refs/heads/main/ChatGPT%20Image%20Feb%205%2C%202026%2C%2008_27_54%20PM.png" class="logo-img" alt="Voxel Verse" />
-        
-        <!-- Inline SP/MP Buttons -->
-        <div class="button-row">
-          <button id="btn-sp" class="btn-half">Singleplayer</button>
-          <button id="btn-mp" class="btn-half">Multiplayer</button>
+    <div class="main-menu-wrapper">
+        <div class="logo-section">
+             <img src="https://raw.githubusercontent.com/bellasaunders25/VoxelVerse-Assets/refs/heads/main/ChatGPT%20Image%20Feb%205%2C%202026%2C%2008_27_54%20PM.png" class="logo-img" alt="Voxel Verse" />
+        </div>
+
+        <div class="content-row">
+            <!-- Left: Menu Actions -->
+            <div class="menu-actions">
+                <button id="btn-sp" class="minecraft-btn btn-green">
+                    <span class="btn-icon">▶</span> Singleplayer
+                </button>
+                <button id="btn-mp" class="minecraft-btn btn-blue">
+                    <span class="btn-icon">⚔</span> Multiplayer
+                </button>
+                
+                <div style="height: 10px;"></div>
+
+                <button id="btn-skin" class="minecraft-btn btn-purple">
+                    <span class="btn-icon">👕</span> Customize Skin
+                </button>
+                <button id="btn-settings" class="minecraft-btn btn-grey">
+                    <span class="btn-icon">⚙</span> Settings
+                </button>
+                <button id="btn-login-menu" class="minecraft-btn btn-gold">
+                    <span class="btn-icon">🔑</span> Login / Account
+                </button>
+
+                <!-- Hidden MP Options Panel -->
+                <div id="mp-options" class="hidden mp-panel">
+                    <label>Server Address</label>
+                    <input type="text" id="server-url" value="localhost:8080" class="voxel-input" placeholder="ws://..." />
+                    <label>Username</label>
+                    <input type="text" id="username" value="Player" class="voxel-input" />
+                    <button id="btn-join" class="minecraft-btn btn-green" style="margin-top:10px;">Join Server</button>
+                    <div id="disconnect-msg"></div>
+                </div>
+            </div>
+
+            <!-- Right: Character Preview -->
+            <div class="character-preview-panel">
+                <div id="main-menu-skin-container"></div>
+                <div class="preview-label">CURRENT SKIN</div>
+            </div>
         </div>
         
-        <button id="btn-login-menu" class="btn-full" style="background:#1565C0;">Login / Sign Up</button>
-        <button id="btn-settings" class="btn-full">Settings</button>
+        <div class="footer-version">v0.4.5 Beta</div>
+    </div>
+  </div>
+
+  <!-- SETTINGS MENU -->
+  <div id="settings-menu" class="screen menu-bg hidden">
+    <div class="voxel-panel" style="width: 400px;">
+        <h1>Settings</h1>
         
-        <!-- Hidden MP Options -->
-        <div id="mp-options" class="hidden input-group">
-            <div id="mp-endpoint-wrap" class="hidden">
-              <label>Realtime Server (wss://...)</label>
-              <input type="text" id="mp-endpoint" placeholder="wss://your-realtime-server.example.com" />
-            </div>
-            <label>Join Code</label>
-            <input type="text" id="join-code" placeholder="Paste join code" />
-            <label>Username</label>
-            <input type="text" id="username" value="Player" />
-            <div class="button-row" style="margin-top:10px;">
-              <button id="btn-host" class="btn-half">Host Room</button>
-              <button id="btn-join" class="btn-half">Join Room</button>
-            </div>
-            <div id="disconnect-msg"></div>
+        <div style="display:flex; flex-direction:column; gap:5px;">
+            <label style="font-size:12px; color:#aaa; text-transform:uppercase;">Render Distance (Chunks)</label>
+            <input type="number" id="render-dist" value="6" min="2" max="16" class="voxel-input" />
         </div>
-      </div>
-
-      <!-- RIGHT COLUMN: Skin Preview & Button -->
-      <div class="menu-right">
-        <div id="main-menu-skin-container"></div>
-        <button id="btn-skin" class="btn-full" style="width: 200px;">Skin / Character</button>
-      </div>
+        
+        <div style="display:flex; flex-direction:column; gap:5px;">
+            <label style="font-size:12px; color:#aaa; text-transform:uppercase;">Mouse Sensitivity</label>
+            <input type="number" id="mouse-sens" value="0.002" step="0.001" class="voxel-input" />
+        </div>
+        
+        <button id="btn-settings-back" class="minecraft-btn btn-grey" style="margin-top:20px;">Back to Menu</button>
     </div>
   </div>
 
-  <div id="settings-menu" class="screen hidden">
-    <h1>Settings</h1>
-    <div class="input-group">
-      <label>Render Distance (Chunks)</label>
-      <input type="number" id="render-dist" value="6" min="2" max="16" />
-    </div>
-    <div class="input-group">
-      <label>Mouse Sensitivity</label>
-      <input type="number" id="mouse-sens" value="0.002" step="0.001" />
-    </div>
-    <button id="btn-settings-back">Back</button>
-  </div>
-
-  <div id="pause-menu" class="screen hidden">
-    <h1>Paused</h1>
-    <div class="input-group" id="pause-room-wrap" style="display:none;">
-      <label>Room Code</label>
-      <input type="text" id="pause-room-code" readonly />
-    </div>
-    <button id="btn-resume" class="btn-full" style="margin-bottom:10px;">Resume</button>
-    <button id="btn-exit" class="btn-full">Exit to Menu</button>
-  </div>
-
-  <div id="skin-menu" class="screen hidden">
+  <!-- SKIN EDITOR -->
+  <div id="skin-menu" class="screen menu-bg hidden">
     <!-- Left Sidebar: Tools -->
     <div id="skin-editor-tools">
-      <h2 style="margin-top:0; color:#fff; border-bottom:1px solid #555; padding-bottom:10px;">Skin Editor</h2>
+      <h2>Skin Editor</h2>
       
-      <div>
-        <label style="color:#aaa; font-size:14px;">Tools</label>
-        <div style="display:flex; gap:10px; margin-top:5px; align-items:center;">
-          <input type="color" id="skin-color-picker" value="#333333" style="width:40px; height:40px; border:2px solid #fff; cursor:pointer; padding:0;">
-          <div id="eraser-tool" class="color-btn" title="Eraser (Transparent)"></div>
-          <div id="eyedropper-tool" class="color-btn" title="Eyedropper (Pick Color)">&#128167;</div>
+      <div class="editor-section">
+        <label>Drawing Tools</label>
+        <div class="tools-row">
+          <input type="color" id="skin-color-picker" value="#333333" title="Current Color">
+          <div id="eraser-tool" class="tool-btn" title="Eraser (Transparent)">⌫</div>
+          <div id="eyedropper-tool" class="tool-btn" title="Eyedropper (Pick Color)">💧</div>
         </div>
       </div>
 
-      <div>
-        <label style="color:#aaa; font-size:14px;">Palette</label>
-        <div id="skin-palette" class="palette-grid" style="margin-top:5px;"></div>
+      <div class="editor-section">
+        <label>Palette</label>
+        <div id="skin-palette" class="palette-grid"></div>
       </div>
 
-      <div>
-        <label style="color:#aaa; font-size:14px;">Visible Parts</label>
-        <div id="part-toggles" style="display:flex; flex-wrap:wrap; gap:5px; margin-top:5px;">
+      <div class="editor-section">
+        <label>Visible Parts</label>
+        <div id="part-toggles" class="part-grid">
            <!-- JS will populate checkboxes -->
         </div>
       </div>
 
-      <div style="margin-top:auto;">
-        <button id="btn-toggle-grid" style="width:100%; font-size: 14px; padding: 6px; margin-bottom: 5px; background:#444;">Toggle Grid</button>
-        <button id="btn-toggle-overlay" style="width:100%; font-size: 14px; padding: 6px; margin-bottom: 5px; background:#444;">Toggle Overlays</button>
+      <div class="editor-actions">
+        <div class="action-row">
+            <button id="btn-toggle-grid" class="minecraft-btn btn-grey btn-sm">Grid</button>
+            <button id="btn-toggle-overlay" class="minecraft-btn btn-grey btn-sm">Overlay</button>
+        </div>
         
-        <div style="display:flex; gap:5px; margin-bottom:5px;">
-            <button id="btn-import-skin" style="flex:1; font-size: 12px; padding:6px; background:#1976D2;">Import</button>
-            <button id="btn-export-skin" style="flex:1; font-size: 12px; padding:6px; background:#388E3C;">Save File</button>
+        <div class="action-row">
+            <button id="btn-import-skin" class="minecraft-btn btn-blue btn-sm">Import</button>
+            <button id="btn-export-skin" class="minecraft-btn btn-green btn-sm">Export</button>
         </div>
 
-        <button id="btn-cloud-lib" style="width:100%; margin-bottom: 5px; font-size: 14px; background:#FF9800; display:none;">☁ Cloud Library</button>
-        <button id="btn-save-cloud" style="width:100%; margin-bottom: 5px; font-size: 14px; background:#009688; display:none;">☁ Save to Cloud</button>
+        <button id="btn-cloud-lib" class="minecraft-btn btn-gold btn-sm" style="display:none;">Cloud Library</button>
+        <button id="btn-save-cloud" class="minecraft-btn btn-gold btn-sm" style="display:none;">Save to Cloud</button>
 
-        <button id="btn-reset-skin" style="width:100%; margin-bottom: 5px; font-size: 14px; background:#d32f2f;">Reset Skin</button>
-        <button id="btn-skin-back" style="width:100%; background:#555;">Back</button>
+        <button id="btn-reset-skin" class="minecraft-btn btn-red btn-sm">Reset</button>
+        <button id="btn-skin-back" class="minecraft-btn btn-grey btn-sm">Exit Editor</button>
       </div>
     </div>
 
@@ -480,9 +535,9 @@
     <div id="skin-editor-viewport">
        <!-- 3D Canvas injected here -->
        <div class="editor-controls-help">
-         <strong>Left Click:</strong> Paint / Pick<br>
-         <strong>Right Click + Drag:</strong> Rotate<br>
-         <strong>Space + Right Click:</strong> Pan<br>
+         <strong>Left Click:</strong> Paint<br>
+         <strong>Right Drag:</strong> Rotate<br>
+         <strong>Space + Drag:</strong> Pan<br>
          <strong>Scroll:</strong> Zoom
        </div>
     </div>
@@ -533,7 +588,6 @@
                 currentUser = null;
                 userProfile = null;
                 updateAuthUI(false);
-                cachedSkins = null; // Clear cache on logout
                 showNotification("Logged out.");
             }
         });
@@ -563,15 +617,15 @@
         const saveCloudBtn = document.getElementById('btn-save-cloud');
 
         if (isLoggedIn) {
-            loginBtn.classList.add('hidden');
+            if(loginBtn) loginBtn.classList.add('hidden');
             userInfo.classList.remove('hidden');
-            cloudLibBtn.style.display = 'block';
-            saveCloudBtn.style.display = 'block';
+            if(cloudLibBtn) cloudLibBtn.style.display = 'block';
+            if(saveCloudBtn) saveCloudBtn.style.display = 'block';
         } else {
-            loginBtn.classList.remove('hidden');
+            if(loginBtn) loginBtn.classList.remove('hidden');
             userInfo.classList.add('hidden');
-            cloudLibBtn.style.display = 'none';
-            saveCloudBtn.style.display = 'none';
+            if(cloudLibBtn) cloudLibBtn.style.display = 'none';
+            if(saveCloudBtn) saveCloudBtn.style.display = 'none';
         }
     }
 
@@ -658,33 +712,22 @@
                 console.log("Upload Success, URL:", publicUrl);
 
                 // 4. Save Metadata (Name + URL) to Database
-                // Using .select() to get back the new row ID for caching
-                const { data: insertedData, error: dbError } = await supabase
+                const { error: dbError } = await supabase
                     .from('skins')
                     .insert({ 
                         user_id: currentUser.id, 
                         name: name, 
                         texture_data: publicUrl // Store the URL instead of huge base64 string
-                    })
-                    .select()
-                    .single();
+                    });
 
                 if (dbError) {
                     console.error("Database Insert Error:", dbError);
                     showNotification("DB Error: " + dbError.message);
                 } else {
                     showNotification("Skin saved to Cloud Bucket!");
-                    
-                    // Update Cache immediately
-                    if (cachedSkins) {
-                        cachedSkins.unshift(insertedData); // Add to top
-                    }
-                    
-                    // Refresh lib if it's open
+                    // Refresh lib if it's open (optional)
                     if(!document.getElementById('cloud-skin-modal').classList.contains('hidden')) {
-                        // If we have cache, render from cache, otherwise trigger load
-                        if (cachedSkins) renderSkinList(cachedSkins);
-                        else loadCloudSkins();
+                        loadCloudSkins();
                     }
                 }
             } catch (err) {
@@ -694,72 +737,29 @@
         }, 'image/png');
     }
 
-    let cachedSkins = null; // Cache variable to store loaded skins
-    let isCloudLoading = false; 
-
-    function renderSkinList(skins) {
+    async function loadCloudSkins() {
+        if (!currentUser) return;
         const list = document.getElementById('skin-library-list');
+        list.innerHTML = '<p style="color:#aaa;">Loading...</p>';
+
+        const { data, error } = await supabase
+            .from('skins')
+            .select('*')
+            .eq('user_id', currentUser.id)
+            .order('created_at', { ascending: false });
+
         list.innerHTML = '';
+        if (error) { list.innerText = "Error loading skins"; return; }
+        if (!data || data.length === 0) { list.innerText = "No saved skins found."; return; }
 
-        if (!skins || skins.length === 0) { 
-            list.innerHTML = '<p style="color:#aaa; grid-column: 1 / -1; text-align: center; padding: 20px;">No skins saved yet.</p>'; 
-            return; 
-        }
-
-        skins.forEach(skin => {
+        data.forEach(skin => {
             const div = document.createElement('div');
             div.className = 'skin-item';
-            // Use a container for the image to handle aspect ratios neatly
-            div.innerHTML = `
-                <div style="width:100%; aspect-ratio:1; background:#333; display:flex; align-items:center; justify-content:center; overflow:hidden;">
-                    <img src="${skin.texture_data}" crossorigin="anonymous" style="width:100%; height:100%; object-fit:contain; image-rendering:pixelated;" loading="lazy">
-                </div>
-                <span>${skin.name}</span>
-            `;
+            // texture_data is now a URL, so img src works perfectly
+            div.innerHTML = `<img src="${skin.texture_data}" crossorigin="anonymous"><span>${skin.name}</span>`;
             div.onclick = () => selectCloudSkin(div, skin);
             list.appendChild(div);
         });
-    }
-
-    async function loadCloudSkins() {
-        if (!currentUser) return;
-        
-        // CACHE HIT: Render immediately if we already loaded skins this session
-        if (cachedSkins !== null) {
-            renderSkinList(cachedSkins);
-            return; 
-        }
-
-        if (isCloudLoading) return; // Debounce
-        
-        const list = document.getElementById('skin-library-list');
-        // Ensure loading message spans all columns
-        list.innerHTML = '<p style="color:#aaa; grid-column: 1 / -1; text-align: center; padding: 20px;">Loading library...</p>';
-        isCloudLoading = true;
-
-        try {
-            const { data, error } = await supabase
-                .from('skins')
-                .select('id, name, texture_data, created_at')
-                .eq('user_id', currentUser.id)
-                .order('created_at', { ascending: false })
-                .limit(60); // Limit to prevent massive fetches if history is long
-
-            if (error) { 
-                console.error("Supabase Error:", error);
-                list.innerHTML = `<p style="color:#ff5555; grid-column: 1 / -1; text-align: center;">Error loading skins: ${error.message}</p>`;
-                return; 
-            }
-            
-            cachedSkins = data || []; // Store in cache
-            renderSkinList(cachedSkins); // Render from cache
-
-        } catch (err) {
-            console.error("Unexpected load error:", err);
-            list.innerHTML = '<p style="color:#ff5555; grid-column: 1 / -1; text-align: center;">Connection error.</p>';
-        } finally {
-            isCloudLoading = false;
-        }
     }
 
     let selectedSkinData = null;
@@ -784,38 +784,12 @@
             
         if(error) showNotification("Error deleting: " + error.message);
         else {
-            // Update Cache locally
-            if (cachedSkins) {
-                cachedSkins = cachedSkins.filter(s => s.id !== selectedSkinData.id);
-                renderSkinList(cachedSkins);
-            }
-            
             selectedSkinData = null;
             document.getElementById('btn-cloud-load-selected').disabled = true;
             document.getElementById('btn-cloud-delete').disabled = true;
+            loadCloudSkins(); // Refresh
         }
     }
-    
-    // The load selected button logic needs a small tweak for Cross-Origin if using buckets
-    // But since it's drawing to canvas, we need to handle CORS on the Image object
-    document.getElementById("btn-cloud-load-selected").onclick = () => {
-          if(!selectedSkinData) return;
-          const img = new Image();
-          img.crossOrigin = "Anonymous"; // Crucial for loading from Bucket URL to Canvas
-          img.onload = () => {
-              game.skinCtx.clearRect(0, 0, 64, 64);
-              game.skinCtx.drawImage(img, 0, 0);
-              game.skinTexture.needsUpdate = true;
-              game.mySkin = game.skinCanvas.toDataURL();
-              document.getElementById('cloud-skin-modal').classList.add('hidden');
-              showNotification(`Loaded: ${selectedSkinData.name}`);
-          };
-          img.onerror = () => {
-              showNotification("Error loading image from bucket.");
-          };
-          img.src = selectedSkinData.texture_data;
-    };
-
 
     // --- CONSTANTS ---
     const CHUNK_SIZE = 16;
@@ -826,9 +800,37 @@
     const STEP_HEIGHT_PLAYER = 0.6;
     const STEP_HEIGHT_MOB = 0.6;
     const PLAYER_MODEL_GROUND_OFFSET = 0.575; // model feet alignment from mesh pivot to ground
+    const DEFAULT_SKIN_URL = "https://qvebydmxycyhdgiyoldm.supabase.co/storage/v1/object/public/skins/5017f037-f0c0-4558-a571-a34ae46cfd13/1770579890910_Jack.png";
 
     const BLOCKS = { AIR: 0, DIRT: 1, GRASS: 2, STONE: 3, WOOD: 4, LEAVES: 5, BEDROCK: 6, SAND: 7, WATER: 8, BRICK: 9 };
+    // These colors are only used for fallbacks/logic if textures fail
     const BLOCK_COLORS = [0x000000, 0x5d4037, 0x388e3c, 0x757575, 0x5d4037, 0x2e7d32, 0x212121, 0xfbc02d, 0x1976d2, 0x8d6e63];
+
+    // Texture Definitions
+    const TEXTURE_SRC = {
+        grass_top: "https://i.postimg.cc/d0rwydd4/Grass_Top.png",
+        grass_side: "https://i.postimg.cc/26YmF67m/Grass_Side.png",
+        dirt: "https://i.postimg.cc/KzbFrzDX/Dirt.png",
+        stone: "https://i.postimg.cc/ZKsbtJ4v/Stone.png",
+        log_side: "https://i.postimg.cc/8zqTcwFc/Log_Side.png",
+        log_top: "https://i.postimg.cc/Jz9R0Kys/Log_Top.png",
+        leaves: "https://i.postimg.cc/T3ZT1Qy5/Leaves.png",
+        bedrock: "https://i.postimg.cc/764DM6n4/Bedrock.png",
+        sand: "https://i.postimg.cc/rwvqsgdK/Sand.png",
+        water: "https://i.postimg.cc/J7q7xbFT/Water.png"
+    };
+
+    // Hotbar Icons
+    const BLOCK_ICONS = {
+        [BLOCKS.DIRT]: TEXTURE_SRC.dirt,
+        [BLOCKS.GRASS]: TEXTURE_SRC.grass_side,
+        [BLOCKS.STONE]: TEXTURE_SRC.stone,
+        [BLOCKS.WOOD]: TEXTURE_SRC.log_side,
+        [BLOCKS.LEAVES]: TEXTURE_SRC.leaves,
+        [BLOCKS.BRICK]: TEXTURE_SRC.stone, // Fallback
+        [BLOCKS.SAND]: TEXTURE_SRC.sand,
+        [BLOCKS.WATER]: TEXTURE_SRC.water
+    };
 
     let SETTINGS = { renderDistance: 6, sensitivity: 0.002, nickname: "Player" };
     let STATE = { mode: "MENU", isRunning: false, isPaused: false };
@@ -864,8 +866,8 @@
         "https://assets.mcasset.cloud/1.21.11/assets/minecraft/sounds/liquid/splash2.ogg"
       ],
       water_loop: "https://assets.mcasset.cloud/1.21.11/assets/minecraft/sounds/liquid/water.ogg",
-      ui_click: "/play/resources/sounds/Button_click_sound.mp3",
-      ui_hover: "/play/resources/sounds/Button_Hover_sound.mp3",
+      ui_click: "https://github.com/bellasaunders25/VoxelVerse-Assets/raw/refs/heads/main/Button_click_sound_f-%232-1758959535901.mp3",
+      ui_hover: "https://github.com/bellasaunders25/VoxelVerse-Assets/raw/refs/heads/main/Button_Hover_sound_f-%231-1758959463352.mp3",
       music: "https://github.com/bellasaunders25/VoxelVerse-Assets/raw/refs/heads/main/Pixel%20Reflections.mp3",
 
       mob: {
@@ -1135,15 +1137,6 @@
       scene: null, camera: null, renderer: null,
       world: {},
       socket: null,
-      multiplayerEndpoint: "",
-      roomCode: "",
-      roomId: "",
-      selfPeerId: null,
-      remotePlayers: new Map(),
-      pendingRemoteBlocks: new Map(),
-      requestedChunkStates: new Set(),
-      lastStateSentAt: 0,
-      loopFrameId: null,
 
       player: {
         pos: new THREE.Vector3(0, 80, 0),
@@ -1458,8 +1451,9 @@
           };
 
           const addSolidQuad = (x, y, z, nx, ny, nz, id) => {
+            // Updated TEX_MAP for new atlas layout
             const TEX_MAP = {
-              1: [2,2,2], 2: [0,1,2], 3: [3,3,3], 4: [4,4,5], 5: [6,6,6],
+              1: [2,2,2], 2: [0,2,1], 3: [3,3,3], 4: [5,5,4], 5: [6,6,6],
               6: [7,7,7], 7: [8,8,8], 8: [9,9,9], 9: [10,10,10]
             };
             let faces = TEX_MAP[id] || [11,11,11];
@@ -1587,9 +1581,6 @@
           meshChunk(x + 1, z);
           meshChunk(x, z - 1);
           meshChunk(x, z + 1);
-          // Apply pending MP blocks
-          applyPendingRemoteBlocksForChunk(x, z);
-          requestChunkState(x, z);
           return;
         }
 
@@ -1670,44 +1661,22 @@
 
     // --- TEXTURES / MATERIALS ---
     function generateTextures() {
+      // 1. Create the Texture Atlas Canvas
       const atlas = document.createElement("canvas");
       atlas.width = 64; atlas.height = 64;
       const ctx = atlas.getContext("2d");
+      
+      // 2. Create Water Canvas (for separate water texture)
+      const waterCanvas = document.createElement("canvas");
+      waterCanvas.width = 16; waterCanvas.height = 16;
+      const wctx = waterCanvas.getContext("2d");
 
-      const drawRect = (x, y, color) => {
-        ctx.fillStyle = color;
-        ctx.fillRect(x * 16, y * 16, 16, 16);
-        for (let i = 0; i < 10; i++) {
-          ctx.fillStyle = "rgba(0,0,0,0.1)";
-          ctx.fillRect(x * 16 + Math.random() * 16, y * 16 + Math.random() * 16, 2, 2);
-        }
-      };
-
-      drawRect(0, 0, "#4CAF50");
-      drawRect(1, 0, "#795548");
-      drawRect(2, 0, "#795548");
-      ctx.fillStyle = "#4CAF50"; ctx.fillRect(32, 0, 16, 4);
-
-      drawRect(3, 0, "#9E9E9E");
-      drawRect(0, 1, "#5D4037");
-      drawRect(1, 1, "#8D6E63");
-      drawRect(2, 1, "#2E7D32");
-      drawRect(3, 1, "#212121");
-      drawRect(0, 2, "#FBC02D");
-      drawRect(1, 2, "#2196F3");
-      drawRect(2, 2, "#D84315");
-
+      // 3. Setup Three.js Textures
       const tex = new THREE.CanvasTexture(atlas);
       tex.magFilter = THREE.NearestFilter;
       tex.minFilter = THREE.NearestFilter;
       tex.colorSpace = THREE.SRGBColorSpace;
       game.textureAtlas = tex;
-
-      const waterCanvas = document.createElement("canvas");
-      waterCanvas.width = 16; waterCanvas.height = 16;
-      const wctx = waterCanvas.getContext("2d");
-      wctx.imageSmoothingEnabled = false;
-      wctx.drawImage(atlas, 16 * 1, 16 * 2, 16, 16, 0, 0, 16, 16);
 
       const waterTex = new THREE.CanvasTexture(waterCanvas);
       waterTex.magFilter = THREE.NearestFilter;
@@ -1718,12 +1687,71 @@
       waterTex.colorSpace = THREE.SRGBColorSpace;
       game.waterTexture = waterTex;
 
+      // 4. Draw Default Colors (Placeholders to prevent invisible blocks while loading)
+      ctx.fillStyle = "#795548"; ctx.fillRect(0,0,64,64); // Brown base
+      ctx.fillStyle = "#4CAF50"; ctx.fillRect(0,0,16,16); // Grass Top
+      ctx.fillStyle = "#9E9E9E"; ctx.fillRect(48,0,16,16); // Stone
+      ctx.fillStyle = "#2196F3"; ctx.fillRect(16,32,16,16); // Water placeholder
+      wctx.fillStyle = "#2196F3"; wctx.fillRect(0,0,16,16); // Water Tex placeholder
+
+      // 5. Define Image Sources & Positions
+      const images = [
+        { src: "https://i.postimg.cc/d0rwydd4/Grass_Top.png", x: 0, y: 0 },
+        { src: "https://i.postimg.cc/26YmF67m/Grass_Side.png", x: 1, y: 0 },
+        { src: "https://i.postimg.cc/KzbFrzDX/Dirt.png", x: 2, y: 0 },
+        { src: "https://i.postimg.cc/ZKsbtJ4v/Stone.png", x: 3, y: 0 },
+        { src: "https://i.postimg.cc/8zqTcwFc/Log_Side.png", x: 0, y: 1 },
+        { src: "https://i.postimg.cc/Jz9R0Kys/Log_Top.png", x: 1, y: 1 },
+        { src: "https://i.postimg.cc/T3ZT1Qy5/Leaves.png", x: 2, y: 1, alpha: 0.8 }, 
+        { src: "https://i.postimg.cc/764DM6n4/Bedrock.png", x: 3, y: 1 },
+        { src: "https://i.postimg.cc/rwvqsgdK/Sand.png", x: 0, y: 2 },
+        { src: "https://i.postimg.cc/J7q7xbFT/Water.png", x: 1, y: 2, isWater: true },
+        // Fallback for Brick at 2,2 (Index 10) - Using Stone or red tint
+      ];
+
+      // Draw a brick fallback
+      ctx.fillStyle = "#D84315"; ctx.fillRect(32,32,16,16);
+
+      // 6. Load and Draw Images
+      images.forEach(imgDef => {
+          const img = new Image();
+          img.crossOrigin = "Anonymous";
+          img.onload = () => {
+              if (imgDef.alpha) {
+                  ctx.globalAlpha = imgDef.alpha;
+                  ctx.clearRect(imgDef.x * 16, imgDef.y * 16, 16, 16);
+              }
+              ctx.drawImage(img, imgDef.x * 16, imgDef.y * 16, 16, 16);
+              if (imgDef.alpha) ctx.globalAlpha = 1.0;
+              
+              game.textureAtlas.needsUpdate = true;
+
+              if (imgDef.isWater) {
+                  wctx.clearRect(0,0,16,16);
+                  wctx.drawImage(img, 0, 0, 16, 16);
+                  game.waterTexture.needsUpdate = true;
+              }
+          };
+          img.src = imgDef.src;
+      });
+
+      // 7. Setup Hotbar UI
       const hotbar = document.getElementById("hotbar");
+      hotbar.innerHTML = '';
       [BLOCKS.DIRT, BLOCKS.GRASS, BLOCKS.STONE, BLOCKS.WOOD, BLOCKS.LEAVES, BLOCKS.BRICK, BLOCKS.SAND, BLOCKS.WATER].forEach((b, i) => {
         const div = document.createElement("div");
         div.className = `slot ${i === 0 ? "selected" : ""}`;
         div.dataset.id = b;
-        div.innerHTML = `<div style="width:20px;height:20px;background-color:#${BLOCK_COLORS[b].toString(16)}"></div><span class="slot-num">${i + 1}</span>`;
+        
+        // Use the mapped icon if available, otherwise fallback color
+        if (BLOCK_ICONS[b]) {
+            div.style.backgroundImage = `url('${BLOCK_ICONS[b]}')`;
+        } else {
+            const colorHex = BLOCK_COLORS[b].toString(16);
+            div.style.backgroundColor = `#${colorHex}`;
+        }
+        
+        div.innerHTML = `<span class="slot-num">${i + 1}</span>`;
         div.onclick = () => selectSlot(i);
         hotbar.appendChild(div);
       });
@@ -1737,8 +1765,8 @@
       refreshHeldBlockVisuals();
     }
 
-    function createHeldBlockMesh(scale = 1, blockId = game.selectedBlock) {
-      const color = BLOCK_COLORS[blockId] ?? 0xffffff;
+    function createHeldBlockMesh(scale = 1) {
+      const color = BLOCK_COLORS[game.selectedBlock] ?? 0xffffff;
       const mat = new THREE.MeshLambertMaterial({ color });
       return new THREE.Mesh(new THREE.BoxGeometry(0.24 * scale, 0.24 * scale, 0.24 * scale), mat);
     }
@@ -1754,18 +1782,6 @@
       held.rotation.set(rot.x, rot.y, rot.z);
       rightArm.add(held);
       game[refKey] = held;
-    }
-
-    function attachRemoteHeldBlock(remote) {
-      if (!remote?.mesh) return;
-      if (remote.heldMesh?.parent) remote.heldMesh.parent.remove(remote.heldMesh);
-      const rightArm = remote.mesh.getObjectByName('RightArm');
-      if (!rightArm) return;
-      const held = createHeldBlockMesh(1, remote.heldBlock);
-      held.position.set(0.08, -0.38, 0.12);
-      held.rotation.set(0.15, 0.6, 0.1);
-      rightArm.add(held);
-      remote.heldMesh = held;
     }
 
     function refreshHeldBlockVisuals() {
@@ -2278,7 +2294,7 @@
     }
 
     // --- SKIN PREVIEW (player) ---
-    function buildPlayerModel(skinTexture, { includeGrid = false } = {}) {
+    function buildPlayerModel(skinTexture) {
       const group = new THREE.Group();
       
       // FIX: Add alphaTest to handle transparent pixels in the skin texture (overlay layer gaps)
@@ -2430,66 +2446,12 @@
          const llG = addGrid(-0.13, -0.2, 0, 0.25, 0.75, 0.25, 16, 48); llG.name = 'LeftLegGrid';
       }
       
-      // Add Grid Helper only if specifically requested (for editor viewport)
-      if (includeGrid) {
-         const gridHelper = new THREE.GridHelper(10, 10, 0x444444, 0x222222);
-         gridHelper.position.y = -1;
-         group.add(gridHelper);
-      }
+      // Add Grid Helper to ensure scene visibility
+      const gridHelper = new THREE.GridHelper(10, 10, 0x444444, 0x222222);
+      gridHelper.position.y = -1;
+      group.add(gridHelper);
 
       return group;
-    }
-
-    function createPlayerNameTag(name) {
-      const canvas = document.createElement("canvas");
-      canvas.width = 256;
-      canvas.height = 64;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return null;
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
-      ctx.fillRect(0, 8, canvas.width, 48);
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
-      ctx.lineWidth = 3;
-      ctx.strokeRect(1.5, 9.5, canvas.width - 3, 45);
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 28px 'Courier New', monospace";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(name || "Player", canvas.width / 2, canvas.height / 2 + 1);
-
-      const texture = new THREE.CanvasTexture(canvas);
-      texture.colorSpace = THREE.SRGBColorSpace;
-      texture.needsUpdate = true;
-
-      const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false });
-      const sprite = new THREE.Sprite(material);
-      sprite.position.set(0, 2.2, 0); // 1.8 + 0.4
-      sprite.scale.set(1.7, 0.45, 1);
-      sprite.renderOrder = 4;
-
-      return { sprite, texture, material };
-    }
-
-    function setPlayerNameTagText(nameTag, name) {
-      if (!nameTag?.texture?.image) return;
-      const canvas = nameTag.texture.image;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
-      ctx.fillRect(0, 8, canvas.width, 48);
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
-      ctx.lineWidth = 3;
-      ctx.strokeRect(1.5, 9.5, canvas.width - 3, 45);
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 28px 'Courier New', monospace";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(name || "Player", canvas.width / 2, canvas.height / 2 + 1);
-      nameTag.texture.needsUpdate = true;
     }
 
     function createGridTexture() {
@@ -2518,22 +2480,45 @@
       return tex;
     }
 
+    // --- SAVE SKIN TO LOCAL STORAGE ---
+    function saveSkinLocal() {
+        if (game.skinCanvas) {
+            localStorage.setItem('voxelVerseSkin', game.skinCanvas.toDataURL());
+        }
+    }
+
     function resetSkinCanvas() {
-      const canvas = game.skinCanvas;
-      const ctx = game.skinCtx;
-      ctx.clearRect(0,0,64,64);
-      
       const img = new Image();
       img.crossOrigin = "Anonymous";
       img.onload = () => {
-          ctx.drawImage(img, 0, 0);
+          game.skinCtx.clearRect(0,0,64,64);
+          game.skinCtx.drawImage(img, 0, 0);
           if (game.skinTexture) game.skinTexture.needsUpdate = true;
-          game.mySkin = canvas.toDataURL();
+          game.mySkin = game.skinCanvas.toDataURL();
+          saveSkinLocal();
       };
+      // Fallback if image fails (procedural)
       img.onerror = () => {
-         console.error("Failed to load default skin");
-      }
-      img.src = "https://qvebydmxycyhdgiyoldm.supabase.co/storage/v1/object/public/skins/5017f037-f0c0-4558-a571-a34ae46cfd13/1770570823144_Default_Skin.png";
+          const ctx = game.skinCtx;
+          ctx.clearRect(0,0,64,64);
+          const skin = "#f0bca0";
+          const shirt = "#00aaaa";
+          const pants = "#4444aa";
+          ctx.fillStyle = skin; ctx.fillRect(0,0, 32,16); 
+          ctx.fillStyle = "#fff"; ctx.fillRect(10,10,2,2); ctx.fillRect(18,10,2,2); 
+          ctx.fillStyle = "#4a2e1d"; ctx.fillRect(11,10,1,1); ctx.fillRect(19,10,1,1); 
+          ctx.fillStyle = "#633"; ctx.fillRect(12,13,6,1); 
+          ctx.fillStyle = shirt; ctx.fillRect(16, 16, 24, 16);
+          ctx.fillStyle = skin; ctx.fillRect(40, 16, 16, 16); 
+          ctx.fillStyle = skin; ctx.fillRect(32, 48, 16, 16); 
+          ctx.fillStyle = pants; ctx.fillRect(0, 16, 16, 16); 
+          ctx.fillStyle = pants; ctx.fillRect(16, 48, 16, 16); 
+
+          if (game.skinTexture) game.skinTexture.needsUpdate = true;
+          game.mySkin = ctx.canvas.toDataURL(); 
+          saveSkinLocal();
+      };
+      img.src = DEFAULT_SKIN_URL;
     }
 
     function showNotification(msg) {
@@ -2555,7 +2540,21 @@
       // Initialize Grid Texture
       game.gridTexture = createGridTexture();
       
-      resetSkinCanvas();
+      // CHECK FOR SAVED SKIN
+      const savedSkin = localStorage.getItem('voxelVerseSkin');
+      if (savedSkin) {
+          const img = new Image();
+          img.onload = () => {
+              game.skinCtx.clearRect(0,0,64,64);
+              game.skinCtx.drawImage(img, 0, 0);
+              game.skinTexture.needsUpdate = true;
+              game.mySkin = savedSkin;
+          };
+          img.src = savedSkin;
+      } else {
+          resetSkinCanvas();
+      }
+      
       game.skinTexture.needsUpdate = true; // Ensure initial update
 
       game.skinScene = new THREE.Scene();
@@ -2574,7 +2573,7 @@
       dir.position.set(2, 2, 5);
       game.skinScene.add(dir);
 
-      game.skinMesh = buildPlayerModel(game.skinTexture, { includeGrid: true });
+      game.skinMesh = buildPlayerModel(game.skinTexture);
       game.skinScene.add(game.skinMesh);
 
       const colorPicker = document.getElementById("skin-color-picker");
@@ -2615,6 +2614,7 @@
 
       function updateActiveTool(activeEl) {
         document.querySelectorAll('.color-btn').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.tool-btn').forEach(el => el.classList.remove('active'));
         if (activeEl) activeEl.classList.add('active');
       }
 
@@ -2695,6 +2695,7 @@
                   game.skinCtx.drawImage(img, 0, 0);
                   game.skinTexture.needsUpdate = true;
                   game.mySkin = game.skinCanvas.toDataURL();
+                  saveSkinLocal(); // Save on import
               };
               img.onerror = () => showNotification("Error loading image.");
               img.src = URL.createObjectURL(file);
@@ -2720,6 +2721,7 @@
               game.skinCtx.drawImage(img, 0, 0);
               game.skinTexture.needsUpdate = true;
               game.mySkin = game.skinCanvas.toDataURL();
+              saveSkinLocal();
               document.getElementById('cloud-skin-modal').classList.add('hidden');
               showNotification(`Loaded: ${selectedSkinData.name}`);
           };
@@ -2780,6 +2782,7 @@
                       }
                       game.skinTexture.needsUpdate = true;
                       game.mySkin = game.skinCanvas.toDataURL();
+                      saveSkinLocal(); // Save on paint
                   }
                }
             }
@@ -2958,289 +2961,34 @@
         }
     });
 
-    // --- MP / CHAT HELPER FUNCTIONS ---
-    function isFiniteNumber(v) {
-      return typeof v === "number" && Number.isFinite(v);
-    }
-
-    function lerpYaw(current, target, t) {
-      const twoPi = Math.PI * 2;
-      let delta = (target - current) % twoPi;
-      if (delta > Math.PI) delta -= twoPi;
-      if (delta < -Math.PI) delta += twoPi;
-      return current + delta * t;
-    }
-
-    function createSkinTextureFromDataUrl(dataUrl) {
-      if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:image")) return null;
-      const img = new Image();
-      img.src = dataUrl;
-      const tex = new THREE.Texture(img);
-      tex.magFilter = THREE.NearestFilter;
-      tex.minFilter = THREE.NearestFilter;
-      tex.colorSpace = THREE.SRGBColorSpace;
-      img.onload = () => { tex.needsUpdate = true; };
-      return tex;
-    }
-
-    function generateRoomId() {
-      return Math.random().toString(36).slice(2, 8).toUpperCase();
-    }
-
-    function buildDefaultEndpoint() {
-      const saved = localStorage.getItem("vv-mp-endpoint");
-      if (saved) return saved;
-
-      const isLocal = ["localhost", "127.0.0.1"].includes(location.hostname);
-      if (isLocal) {
-        const proto = location.protocol === "https:" ? "wss" : "ws";
-        return `${proto}://${location.host}`;
-      }
-      return "wss://voxelverse.fly.dev"; // Default public server if none provided
-    }
-
-    function buildJoinCode(endpoint, roomId) {
-      return btoa(JSON.stringify({ e: endpoint, r: roomId }));
-    }
-
-    function parseJoinCode(code) {
-      try {
-        const payload = JSON.parse(atob((code || "").trim()));
-        if (!payload || !payload.e || !payload.r) return null;
-        return { endpoint: String(payload.e), roomId: String(payload.r) };
-      } catch {
-        return null;
-      }
-    }
-
-    function setPauseRoomCode() {
-      const wrap = document.getElementById("pause-room-wrap");
-      const input = document.getElementById("pause-room-code");
-      if (!wrap || !input) return;
-      if (STATE.mode === "MP" && game.roomCode) {
-        wrap.style.display = "block";
-        input.value = game.roomCode;
-      } else {
-        wrap.style.display = "none";
-        input.value = "";
-      }
+    // --- PAUSE MENU LOGIC ---
+    function openPauseMenu() {
+        if (!STATE.isRunning) return;
+        STATE.isPaused = true;
+        document.getElementById("pause-menu").classList.remove("hidden");
+        document.exitPointerLock();
     }
 
     function resumeGame() {
-      if (!STATE.isRunning) return;
-      STATE.isPaused = false;
-      document.getElementById("pause-menu").classList.add("hidden");
-      if (game.renderer?.domElement) game.renderer.domElement.requestPointerLock();
+        STATE.isPaused = false;
+        document.getElementById("pause-menu").classList.add("hidden");
+        game.renderer.domElement.requestPointerLock();
     }
 
-    function openPauseMenu() {
-      if (!STATE.isRunning || STATE.mode === "MENU") return;
-      STATE.isPaused = true;
-      setPauseRoomCode();
-      document.getElementById("pause-menu").classList.remove("hidden");
-      document.exitPointerLock();
-    }
-
-    function exitToMenu() {
-      STATE.isPaused = false;
-      STATE.isRunning = false;
-      STATE.mode = "MENU";
-      document.getElementById("pause-menu").classList.add("hidden");
-      document.getElementById("ui-layer").classList.add("hidden");
-      document.getElementById("main-menu").classList.remove("hidden");
-      
-      // Close socket
-      if (game.socket) {
-        try { game.socket.close(); } catch {}
-        game.socket = null;
-      }
-      
-      // Clear game state
-      clearRemotePlayers();
-      game.pendingRemoteBlocks.clear();
-      game.requestedChunkStates.clear();
-      game.selfPeerId = null;
-      
-      if (game.loopFrameId !== null) {
-        cancelAnimationFrame(game.loopFrameId);
-        game.loopFrameId = null;
-      }
-      
-      if (game.renderer?.domElement) {
-        game.renderer.domElement.remove();
-      }
-    }
-
-    // --- REMOTE PLAYER MANAGEMENT ---
-    function createRemotePlayer(id, name, skinDataUrl) {
-      if (!id || id === game.selfPeerId) return null;
-      if (game.remotePlayers.has(id)) return game.remotePlayers.get(id);
-
-      const skinTexture = createSkinTextureFromDataUrl(skinDataUrl) || game.skinTexture;
-      // Note: We don't include grid for in-game models
-      const group = buildPlayerModel(skinTexture, { includeGrid: false });
-      
-      const nameTag = createPlayerNameTag(name || "Player");
-      if (nameTag?.sprite) group.add(nameTag.sprite);
-      
-      game.scene.add(group);
-
-      const remote = {
-        id,
-        name: name || "Player",
-        skin: skinDataUrl || "",
-        metadata: {
-          id,
-          name: name || "Player",
-          skin: skinDataUrl || ""
-        },
-        group,
-        mesh: group,
-        nameTag,
-        skinTexture,
-        current: { x: 0, y: 80, z: 0, yaw: 0, pitch: 0 },
-        target: { x: 0, y: 80, z: 0, yaw: 0, pitch: 0 },
-        isMoving: false,
-        isCrouching: false,
-        punchAnim: 0,
-        placeAnim: 0,
-        heldBlock: BLOCKS.DIRT,
-        heldMesh: null,
-        hasState: false
-      };
-      
-      game.remotePlayers.set(id, remote);
-      return remote;
-    }
-
-    function removeRemotePlayer(peerId) {
-      const remote = game.remotePlayers.get(peerId);
-      if (!remote) return;
-      
-      game.scene.remove(remote.group || remote.mesh);
-      
-      if (remote.heldMesh?.parent) remote.heldMesh.parent.remove(remote.heldMesh);
-      if (remote.nameTag?.material) remote.nameTag.material.dispose();
-      if (remote.nameTag?.texture) remote.nameTag.texture.dispose();
-      
-      // Only dispose if it's a unique texture created for this player
-      if (remote.skinTexture && remote.skinTexture !== game.skinTexture) {
-         remote.skinTexture.dispose();
-      }
-      
-      game.remotePlayers.delete(peerId);
-    }
-
-    function updateRemotePlayerState(id, state) {
-      if (!id || id === game.selfPeerId) return;
-      if (!state || ![state.x, state.y, state.z, state.yaw, state.pitch].every(isFiniteNumber)) return;
-
-      const remote = game.remotePlayers.get(id) || createRemotePlayer(id, state.name, state.skin);
-      if (!remote) return;
-
-      if (typeof state.name === "string" && state.name !== remote.name) {
-        remote.name = state.name || "Player";
-        remote.metadata.name = remote.name;
-        setPlayerNameTagText(remote.nameTag, remote.name);
-      }
-      if (typeof state.skin === "string" && state.skin && state.skin !== remote.skin) {
-        remote.skin = state.skin;
-        remote.metadata.skin = state.skin;
-        // Optionally update texture here if needed, but usually skin doesn't change mid-session
-      }
-
-      if (state.snap || !remote.hasState) {
-        remote.current.x = state.x;
-        remote.current.y = state.y;
-        remote.current.z = state.z;
-        remote.current.yaw = state.yaw;
-        remote.current.pitch = state.pitch;
-        remote.hasState = true;
-      }
-
-      remote.target.x = state.x;
-      remote.target.y = state.y;
-      remote.target.z = state.z;
-      remote.target.yaw = state.yaw;
-      remote.target.pitch = state.pitch;
-      remote.isMoving = !!state.moving;
-      remote.isCrouching = !!state.crouching;
-      remote.punchAnim = isFiniteNumber(state.punchAnim) ? state.punchAnim : 0;
-      remote.placeAnim = isFiniteNumber(state.placeAnim) ? state.placeAnim : 0;
-
-      const nextHeld = isFiniteNumber(state.heldBlock) ? state.heldBlock : remote.heldBlock;
-      if (nextHeld !== remote.heldBlock || !remote.heldMesh) {
-        remote.heldBlock = nextHeld;
-        attachRemoteHeldBlock(remote);
-      }
-    }
-
-    function clearRemotePlayers() {
-      for (const peerId of Array.from(game.remotePlayers.keys())) removeRemotePlayer(peerId);
-      game.remotePlayers.clear();
-    }
-
-    function sendLocalPlayerState(nowMs) {
-      if (STATE.mode !== "MP") return;
-      if (!game.socket || game.socket.readyState !== WebSocket.OPEN) return;
-      if (nowMs - game.lastStateSentAt < 67) return; // ~15 ticks per second cap
-      
-      game.lastStateSentAt = nowMs;
-      game.socket.send(JSON.stringify({
-        type: "PLAYER_STATE",
-        x: game.player.pos.x,
-        y: game.player.pos.y,
-        z: game.player.pos.z,
-        yaw: game.player.yaw,
-        pitch: game.player.pitch,
-        moving: !!game.player._moving,
-        crouching: !!game.player.crouchToggled,
-        punchAnim: game.player.punchAnim,
-        placeAnim: game.player.placeAnim,
-        heldBlock: game.selectedBlock
-      }));
-    }
-
-    // --- BLOCK SYNC HELPERS ---
-    function chunkCoordsForBlock(x, z) {
-      return { cx: Math.floor(x / CHUNK_SIZE), cz: Math.floor(z / CHUNK_SIZE) };
-    }
-
-    function queuePendingRemoteBlock(x, y, z, id) {
-      const { cx, cz } = chunkCoordsForBlock(x, z);
-      const cKey = chunkKey(cx, cz);
-      if (!game.pendingRemoteBlocks.has(cKey)) game.pendingRemoteBlocks.set(cKey, new Map());
-      game.pendingRemoteBlocks.get(cKey).set(`${x},${y},${z}`, { x, y, z, id });
-    }
-
-    function applyOrQueueRemoteBlock(x, y, z, id) {
-      const loc = getLocal(x, y, z);
-      if (!loc) {
-        queuePendingRemoteBlock(x, y, z, id);
-        return;
-      }
-      setBlock(x, y, z, id, { fromUser: false });
-    }
-
-    function applyPendingRemoteBlocksForChunk(cx, cz) {
-      const cKey = chunkKey(cx, cz);
-      const pending = game.pendingRemoteBlocks.get(cKey);
-      if (!pending || pending.size === 0) return;
-      for (const patch of pending.values()) {
-        const loc = getLocal(patch.x, patch.y, patch.z);
-        if (!loc) continue;
-        setBlock(patch.x, patch.y, patch.z, patch.id, { fromUser: false });
-      }
-      game.pendingRemoteBlocks.delete(cKey);
-    }
-
-    function requestChunkState(cx, cz) {
-      if (STATE.mode !== "MP") return;
-      if (!game.socket || game.socket.readyState !== WebSocket.OPEN) return;
-      const cKey = chunkKey(cx, cz);
-      if (game.requestedChunkStates.has(cKey)) return;
-      game.requestedChunkStates.add(cKey);
-      game.socket.send(JSON.stringify({ type: "CHUNK_REQUEST", cx, cz }));
+    function quitToTitle() {
+        STATE.isRunning = false;
+        STATE.isPaused = false;
+        document.getElementById("pause-menu").classList.add("hidden");
+        document.getElementById("ui-layer").classList.add("hidden");
+        document.getElementById("main-menu").classList.remove("hidden");
+        if (game.socket) { game.socket.close(); game.socket = null; }
+        
+        // Clean up scene partially (optional but good practice)
+        game.mobs.clear(); // Clear mob map logic
+        game.world = {};   // Clear world data
+        // Ideally we'd remove renderer but we reuse it or re-create it in startGame
+        document.body.removeChild(game.renderer.domElement);
+        game.renderer = null; 
     }
 
     // --- START GAME ---
@@ -3255,7 +3003,6 @@
       STATE.mode = mode;
       STATE.isRunning = true;
       STATE.isPaused = false;
-      document.getElementById("pause-menu").classList.add("hidden");
 
       game.scene = new THREE.Scene();
       game.scene.background = new THREE.Color(0x87CEEB);
@@ -3319,32 +3066,31 @@
 
       if (game.worldPlayerMesh) game.scene.remove(game.worldPlayerMesh);
       game.worldPlayerMesh = buildPlayerModel(game.skinTexture);
+      game.worldPlayerMesh.traverse((obj) => {
+        if (obj.type === "GridHelper") obj.visible = false;
+      });
       game.scene.add(game.worldPlayerMesh);
 
       ensureHudPlayerPreview();
       refreshHeldBlockVisuals();
 
       if (mode === "MP") connectServer();
-      
-      // Start loop
-      if (game.loopFrameId !== null) {
-        cancelAnimationFrame(game.loopFrameId);
-        game.loopFrameId = null;
-      }
-      game.lastTime = performance.now();
-      game.loopFrameId = requestAnimationFrame(loop);
+      requestAnimationFrame(loop);
     }
 
     // --- INPUT ---
     const keys = { w: 0, a: 0, s: 0, d: 0, space: 0, shift: 0 };
     function onKeyDown(e) {
-      // Pause toggle
-      if (e.code === "Escape" && STATE.isRunning) {
-        if (STATE.isPaused) resumeGame();
-        else openPauseMenu();
-        return;
+      // Pause Toggle
+      if (e.code === "Escape") {
+          if (STATE.isRunning) {
+              if (STATE.isPaused) resumeGame();
+              else openPauseMenu();
+          }
+          return;
       }
-      if (STATE.isPaused) return;
+
+      if (STATE.isPaused) return; // Block input when paused
 
       if (e.code === "KeyW") keys.w = 1;
       if (e.code === "KeyA") keys.a = 1;
@@ -3389,6 +3135,8 @@
       game.mouseX = e.clientX; // Update global mouseX for menu hover effect
       
       if (document.pointerLockElement !== game.renderer?.domElement) return;
+      if (STATE.isPaused) return;
+
       game.player.yaw -= e.movementX * SETTINGS.sensitivity;
       game.player.pitch -= e.movementY * SETTINGS.sensitivity;
       game.player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, game.player.pitch));
@@ -4214,24 +3962,6 @@
         game.worldPlayerMesh.rotation.y = game.player.yaw + Math.PI;
       }
 
-      // --- MULTIPLAYER INTERPOLATION ---
-      for (const remote of game.remotePlayers.values()) {
-        const lerpT = 1 - Math.exp(-dt * 12);
-        remote.current.x = THREE.MathUtils.lerp(remote.current.x, remote.target.x, lerpT);
-        remote.current.y = THREE.MathUtils.lerp(remote.current.y, remote.target.y, lerpT);
-        remote.current.z = THREE.MathUtils.lerp(remote.current.z, remote.target.z, lerpT);
-        remote.current.yaw = lerpYaw(remote.current.yaw, remote.target.yaw, lerpT);
-        remote.current.pitch = THREE.MathUtils.lerp(remote.current.pitch, remote.target.pitch, lerpT);
-
-        remote.mesh.position.set(remote.current.x, remote.current.y + PLAYER_MODEL_GROUND_OFFSET, remote.current.z);
-        remote.mesh.rotation.y = remote.current.yaw + Math.PI;
-
-        if (remote.nameTag?.sprite && game.camera) {
-          remote.nameTag.sprite.lookAt(game.camera.position);
-        }
-      }
-      sendLocalPlayerState(performance.now());
-
       const res = raycastBlock();
       if (res.hit) {
         game.blockSelectMesh.visible = true;
@@ -4357,9 +4087,6 @@
         pose.lLegX = -walkSwing;
         pose.rLegX = walkSwing;
       }
-      
-      // Local player head pitch influence
-      pose.headX = THREE.MathUtils.clamp(game.player.pitch * 0.6, -0.5, 0.5);
 
       if (isCrouching && onGround && !inWater) {
         pose.headX += 0.12;
@@ -4399,52 +4126,6 @@
       applyPosture(game.hudSkinMesh);
       applyPosture(game.skinMesh);
       applyPosture(game.worldPlayerMesh);
-      
-      // --- ANIMATE REMOTE PLAYERS ---
-      for (const remote of game.remotePlayers.values()) {
-        const remotePose = {
-          lArmX: 0,
-          rArmX: 0,
-          lLegX: 0,
-          rLegX: 0,
-          headX: THREE.MathUtils.clamp(remote.current.pitch * 0.6, -0.5, 0.5),
-          bodyX: 0
-        };
-
-        const movingSpeedSq =
-          (remote.target.x - remote.current.x) * (remote.target.x - remote.current.x) +
-          (remote.target.z - remote.current.z) * (remote.target.z - remote.current.z);
-        const remoteMoving = remote.isMoving || movingSpeedSq > 0.0008;
-        const remoteWalk = Math.sin(game.timeSec * (remote.isCrouching ? 7 : 10)) * (remote.isCrouching ? 0.28 : 0.6);
-
-        if (remoteMoving) {
-          remotePose.lArmX = remoteWalk;
-          remotePose.rArmX = -remoteWalk;
-          remotePose.lLegX = -remoteWalk;
-          remotePose.rLegX = remoteWalk;
-        }
-
-        if (remote.isCrouching) {
-          remotePose.headX += 0.12;
-          remotePose.lArmX += 0.18;
-          remotePose.rArmX += 0.18;
-          remotePose.bodyX = 0.1;
-        }
-
-        const remotePunch = THREE.MathUtils.clamp(remote.punchAnim || 0, 0, 1);
-        const remotePlace = THREE.MathUtils.clamp(remote.placeAnim || 0, 0, 1);
-        if (remotePunch > 0) {
-          const punchWave = Math.sin((1 - remotePunch) * Math.PI);
-          remotePose.rArmX += 1.15 * punchWave;
-        }
-        if (remotePlace > 0) {
-          const placeWave = Math.sin((1 - remotePlace) * Math.PI);
-          remotePose.rArmX += 0.65 * placeWave;
-        }
-
-        applyAnimationToModel(remote.mesh, remotePose);
-        remote.mesh.rotation.x += (remotePose.bodyX - remote.mesh.rotation.x) * 0.25;
-      }
     }
 
     function raycastBlock() {
@@ -4479,7 +4160,7 @@
     }
 
     function onMouseDown(e) {
-      if (STATE.isPaused) return;
+      if (STATE.isPaused) return; // Block clicks when paused
       if (document.pointerLockElement !== game.renderer.domElement) return;
 
       if (e.button === 0) {
@@ -4541,25 +4222,23 @@
 
     // --- LOOP ---
     function loop(timeMs) {
-      if (!STATE.isRunning) {
-         game.loopFrameId = null;
-         return;
-      }
-      game.loopFrameId = requestAnimationFrame(loop);
+      if (!STATE.isRunning) return; // Stop loop if state changed
+      requestAnimationFrame(loop);
 
       const dt = Math.min((timeMs - game.lastTime) / 1000, 0.1);
       game.lastTime = timeMs;
+      
+      // If paused, just render, skip updates
+      if (STATE.isPaused) {
+          game.renderer.render(game.scene, game.camera);
+          renderHudPlayerPreview(); // Keep HUD rendering so it doesn't freeze weirdly
+          return; 
+      }
+
       game.timeSec += dt;
 
       game.player.punchAnim = Math.max(0, game.player.punchAnim - dt * 6.5);
       game.player.placeAnim = Math.max(0, game.player.placeAnim - dt * 8.0);
-      
-      if (STATE.isPaused) {
-         // Still render if paused so screen isn't black, but stop physics
-         game.renderer.render(game.scene, game.camera);
-         renderHudPlayerPreview();
-         return;
-      }
 
       updatePhysics(dt);
       updatePlayerAnimation(dt);
@@ -4631,7 +4310,6 @@
           if (c.mesh) { game.scene.remove(c.mesh); c.mesh.geometry.dispose(); }
           if (c.waterMesh) { game.scene.remove(c.waterMesh); c.waterMesh.geometry.dispose(); }
           delete game.world[k];
-          game.requestedChunkStates.delete(k);
         }
       }
     }
@@ -4640,52 +4318,11 @@
     function setupUI() {
       document.getElementById("btn-sp").onclick = () => startGame("SP");
       document.getElementById("btn-mp").onclick = () => { document.getElementById("mp-options").classList.remove("hidden"); };
-      
-      const endpointInput = document.getElementById("mp-endpoint");
-      endpointInput.value = buildDefaultEndpoint();
-      endpointInput.addEventListener("change", () => {
-         const endpoint = endpointInput.value.trim();
-         if (endpoint) localStorage.setItem("vv-mp-endpoint", endpoint);
-      });
-
-      document.getElementById("btn-host").onclick = () => {
-        // If not logged in, use input value, else use profile name
-        if (!currentUser) SETTINGS.nickname = document.getElementById("username").value || "Player";
-        
-        const endpoint = endpointInput.value.trim();
-        if (!endpoint) {
-             document.getElementById("disconnect-msg").textContent = "Set a realtime server URL. Vercel hosting needs a separate WebSocket server (wss://...).";
-             return;
-        }
-        localStorage.setItem("vv-mp-endpoint", endpoint);
-        game.multiplayerEndpoint = endpoint;
-        game.roomId = generateRoomId();
-        game.roomCode = buildJoinCode(game.multiplayerEndpoint, game.roomId);
-        document.getElementById("join-code").value = game.roomCode;
-        document.getElementById("disconnect-msg").textContent = "";
-        startGame("MP");
-      };
-      
       document.getElementById("btn-join").onclick = () => {
-        if (!currentUser) SETTINGS.nickname = document.getElementById("username").value || "Player";
-        
-        const parsed = parseJoinCode(document.getElementById("join-code").value);
-        if (!parsed) {
-             document.getElementById("disconnect-msg").textContent = "Invalid join code.";
-             return;
-        }
-        
-        localStorage.setItem("vv-mp-endpoint", parsed.endpoint);
-        endpointInput.value = parsed.endpoint;
-        game.multiplayerEndpoint = parsed.endpoint;
-        game.roomId = parsed.roomId;
-        game.roomCode = document.getElementById("join-code").value.trim();
-        document.getElementById("disconnect-msg").textContent = "";
+        // If not logged in, use input value, else use profile name
+        if (!currentUser) SETTINGS.nickname = document.getElementById("username").value;
         startGame("MP");
       };
-
-      document.getElementById("btn-resume").onclick = resumeGame;
-      document.getElementById("btn-exit").onclick = exitToMenu;
 
       document.getElementById("btn-skin").onclick = () => {
         document.getElementById("main-menu").classList.add("hidden");
@@ -4716,6 +4353,21 @@
         }
       };
 
+      // PAUSE MENU LISTENERS
+      document.getElementById("btn-pause-resume").onclick = resumeGame;
+      document.getElementById("btn-pause-quit").onclick = quitToTitle;
+
+      // SETTINGS MENU LISTENERS
+      document.getElementById("btn-settings").onclick = () => {
+          document.getElementById("main-menu").classList.add("hidden");
+          document.getElementById("settings-menu").classList.remove("hidden");
+      };
+      document.getElementById("btn-settings-back").onclick = () => {
+          document.getElementById("settings-menu").classList.add("hidden");
+          document.getElementById("main-menu").classList.remove("hidden");
+          if (game.skinRenderer) resizeSkinPreview();
+      };
+
       // AUTH UI EVENTS
       document.getElementById("btn-login-menu").onclick = () => {
           document.getElementById('auth-modal').classList.remove('hidden');
@@ -4726,13 +4378,9 @@
       
       // Toggle Login/Signup view logic (simple toggle)
       let isSignupMode = false;
-      const toggleBtn = document.createElement('button');
+      const toggleBtn = document.getElementById('btn-auth-toggle');
       toggleBtn.innerText = "Switch to Sign Up";
-      toggleBtn.style.background = "transparent";
-      toggleBtn.style.border = "none";
-      toggleBtn.style.color = "#aaa";
-      toggleBtn.style.fontSize = "12px";
-      toggleBtn.style.textDecoration = "underline";
+      
       toggleBtn.onclick = () => {
           isSignupMode = !isSignupMode;
           const signupFields = document.getElementById('signup-fields');
@@ -4751,11 +4399,6 @@
               toggleBtn.innerText = "Switch to Sign Up";
           }
       };
-      // Append toggle button to auth container
-      document.querySelector('.auth-container').insertBefore(toggleBtn, document.getElementById('btn-auth-close'));
-      
-      // Initially hide signup button
-      document.getElementById('btn-signup-submit').style.display = 'none';
 
       document.getElementById("btn-login-submit").onclick = handleLogin;
       document.getElementById("btn-signup-submit").onclick = handleSignup;
@@ -4763,69 +4406,32 @@
       document.getElementById("btn-logout").onclick = async () => {
           await supabase.auth.signOut();
       };
+      
+      // CLOUD MODAL EVENTS
+      document.getElementById("btn-cloud-lib").onclick = () => {
+          document.getElementById('cloud-skin-modal').classList.remove('hidden');
+          loadCloudSkins();
+      };
+      document.getElementById("btn-cloud-close").onclick = () => {
+          document.getElementById('cloud-skin-modal').classList.add('hidden');
+      };
+      document.getElementById("btn-cloud-delete").onclick = deleteSelectedSkin;
     }
 
     // --- MP / CHAT ---
     function connectServer() {
-      const endpoint = game.multiplayerEndpoint || buildDefaultEndpoint();
-      if (!endpoint) {
-          document.getElementById("disconnect-msg").textContent = "No realtime server URL configured.";
-          return;
-      }
-      
-      game.selfPeerId = null;
-      clearRemotePlayers();
-      game.pendingRemoteBlocks.clear();
-      game.requestedChunkStates.clear();
-      game.lastStateSentAt = 0;
-      
-      game.socket = new WebSocket(endpoint);
+      const url = document.getElementById("server-url").value;
+      game.socket = new WebSocket(`ws://${url}`);
       game.socket.onopen = () => {
-        addChat(`Connected to ${endpoint}`);
-        game.socket.send(JSON.stringify({ 
-           type: "JOIN", 
-           name: SETTINGS.nickname, 
-           skin: game.mySkin,
-           room: game.roomId
-        }));
+        addChat("Connected!");
+        game.socket.send(JSON.stringify({ type: "JOIN", name: SETTINGS.nickname, skin: game.mySkin }));
       };
       game.socket.onmessage = (e) => {
         const msg = JSON.parse(e.data);
         if (msg.type === "CHAT") addChat(`[${msg.name}]: ${msg.text}`);
-        if (msg.type === "BLOCK") applyOrQueueRemoteBlock(msg.x, msg.y, msg.z, msg.id);
-        
-        if (msg.type === "SELF") game.selfPeerId = msg.id || null;
-        
-        if (msg.type === "PLAYER_JOIN") {
-           createRemotePlayer(msg.id, msg.name, msg.skin);
-           updateRemotePlayerState(msg.id, { ...msg, snap: true });
-           if(msg.name) addChat(`${msg.name} joined the room.`);
-        }
-        
-        if (msg.type === "ROOM_SNAPSHOT" && Array.isArray(msg.peers)) {
-           for (const peerInfo of msg.peers) {
-              createRemotePlayer(peerInfo.id, peerInfo.name, peerInfo.skin);
-              updateRemotePlayerState(peerInfo.id, { ...peerInfo, snap: true });
-           }
-        }
-        
-        if (msg.type === "PLAYER_STATE") updateRemotePlayerState(msg.id, msg);
-        
-        if (msg.type === "CHUNK_DATA" && Array.isArray(msg.blocks)) {
-             for(const b of msg.blocks) applyOrQueueRemoteBlock(b.x, b.y, b.z, b.id);
-        }
-        
-        if (msg.type === "PLAYER_LEAVE") removeRemotePlayer(msg.id);
+        if (msg.type === "BLOCK") setBlock(msg.x, msg.y, msg.z, msg.id);
       };
-      game.socket.onerror = () => { document.getElementById("disconnect-msg").textContent = "Could not connect. Verify server URL."; };
-      game.socket.onclose = () => { 
-          addChat("Disconnected."); 
-          document.getElementById("disconnect-msg").textContent = "Disconnected.";
-          clearRemotePlayers();
-          game.pendingRemoteBlocks.clear();
-          game.requestedChunkStates.clear();
-          game.selfPeerId = null;
-      };
+      game.socket.onclose = () => { addChat("Disconnected."); };
     }
 
     function sendChat() {
@@ -4836,9 +4442,7 @@
       input.style.display = "none";
       input.blur();
       game.renderer.domElement.requestPointerLock();
-      if (game.socket && game.socket.readyState === WebSocket.OPEN) {
-          game.socket.send(JSON.stringify({ type: "CHAT", text }));
-      }
+      if (game.socket) game.socket.send(JSON.stringify({ type: "CHAT", text }));
       else addChat("You: " + text);
     }
 
