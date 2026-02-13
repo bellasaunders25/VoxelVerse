@@ -1,233 +1,736 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-	<meta charset="UTF-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>VoxelVerse</title>
-	<link rel="preconnect" href="https://fonts.googleapis.com">
-	<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Rubik:wght@400;700&display=swap" rel="stylesheet">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>VoxelVerse | Build Beyond Limits</title>
+    <meta name="description" content="A next-generation voxel sandbox game. Build, explore, and survive with friends in VoxelVerse.">
+    
+    <!-- PWA / Mobile Settings -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0a0a0a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="VoxelVerse">
+    
+    <!-- Icons -->
+    <link rel="icon" type="image/png" href="https://i.postimg.cc/bNFXwDQL/vv_icon.png">
+    <link rel="apple-touch-icon" href="https://i.postimg.cc/c45qLgQX/vv_logo.png">
 
-	<style>
-		/* --- RESET & BASE STYLES --- */
-		* {
-			margin: 0;
-			padding: 0;
-			box-sizing: border-box;
-		}
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Press+Start+2P&display=swap" rel="stylesheet">
 
-		html,
-		body {
-			scroll-behavior: smooth;
-			font-family: 'Rubik', sans-serif;
-			background-color: #111;
-			color: #f2f2f2;
-		}
+    <style>
+        /* --- VARIABLES & RESET --- */
+        :root {
+            --primary: #00E676;       /* Neon Green */
+            --primary-dark: #00B248;
+            --accent: #651FFF;        /* Deep Purple */
+            --bg-dark: #0a0a0a;       /* Deepest Black */
+            --bg-card: #141414;       /* Card Background */
+            --text-main: #ffffff;
+            --text-muted: #a3a3a3;
+            --glass: rgba(20, 20, 20, 0.85);
+            --border: rgba(255, 255, 255, 0.08);
+            --glow: 0 0 20px rgba(0, 230, 118, 0.3);
+        }
 
-		/* --- HEADER SECTION --- */
-		header {
-			height: 100vh;
-			display: flex;
-			flex-direction: column;
-			justify-content: center;
-			align-items: center;
-			text-align: center;
-			position: relative;
-			background: url('https://i.postimg.cc/fRZ0v85Z/loadingscreen.png') center/cover no-repeat;
-			-webkit-user-drag: none;
-			-khtml-user-drag: none;
-			-moz-user-drag: none;
-			-o-user-drag: none;
-			user-drag: none;
-		}
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
-		/* Logo styling */
-		.logo {
-			max-width: 350px;
-			width: 90%;
-			height: auto;
-			margin-bottom: 1rem;
-			filter: drop-shadow(2px 2px 5px #000);
-			pointer-events: none;
-		}
+        html { scroll-behavior: smooth; }
 
-		header h1 {
-			font-family: 'Press Start 2P', cursive;
-			font-size: 2.8rem;
-			text-shadow: 2px 2px #000;
-			margin-bottom: 1rem;
-		}
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            overflow-x: hidden;
+            line-height: 1.6;
+            -webkit-tap-highlight-color: transparent;
+        }
 
-		header p {
-			font-size: 1.25rem;
-			max-width: 700px;
-			margin: 0 auto;
-			background: rgba(0, 0, 0, 0.5);
-			padding: 1rem;
-			border-radius: 10px;
-		}
+        /* --- NAVIGATION --- */
+        nav {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            padding: 1rem 5%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--glass);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            z-index: 1000;
+            border-bottom: 1px solid var(--border);
+        }
 
-		/* --- NAVIGATION --- */
-		nav {
-			background: #222;
-			position: sticky;
-			top: 0;
-			z-index: 10;
-			display: flex;
-			justify-content: center;
-			gap: 2rem;
-			padding: 1rem 0;
-		}
+        .nav-logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-family: 'Press Start 2P', cursive;
+            font-size: 0.9rem;
+            color: var(--primary);
+            text-decoration: none;
+            letter-spacing: -1px;
+            z-index: 1002;
+        }
+        
+        .nav-logo img {
+            height: 36px;
+            width: auto;
+            filter: drop-shadow(0 0 5px var(--primary-dark));
+        }
 
-		nav a {
-			color: #f2f2f2;
-			text-decoration: none;
-			font-weight: bold;
-			padding: 0.5rem;
-			transition: all 0.2s;
-		}
+        /* Desktop Nav Links */
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+            align-items: center;
+        }
 
-		nav a:hover {
-			color: #4CAF50;
-		}
+        .nav-links a {
+            color: var(--text-main);
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 0.95rem;
+            transition: color 0.3s ease;
+            position: relative;
+        }
 
-		/* --- SECTION STYLES --- */
-		section {
-			min-height: 100vh;
-			padding: 4rem 2rem;
-			display: flex;
-			flex-direction: column;
-			justify-content: center;
-			align-items: center;
-			text-align: center;
-		}
+        .nav-links a:not(.nav-cta)::after {
+            content: '';
+            position: absolute;
+            width: 0;
+            height: 2px;
+            bottom: -4px;
+            left: 0;
+            background-color: var(--primary);
+            transition: width 0.3s;
+        }
 
-		section h2 {
-			font-size: 2.5rem;
-			margin-bottom: 1rem;
-			color: #4CAF50;
-		}
+        .nav-links a:not(.nav-cta):hover::after {
+            width: 100%;
+        }
 
-		section p {
-			max-width: 800px;
-			font-size: 1.2rem;
-			line-height: 1.5;
-		}
+        .nav-links a:hover {
+            color: var(--primary);
+        }
 
-		.feature-section {
-			background: #1a1a1a;
-		}
+        .nav-cta {
+            background: var(--primary);
+            color: #000 !important;
+            padding: 0.6rem 1.5rem;
+            border-radius: 8px;
+            font-weight: 800;
+            text-decoration: none;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
 
-		.download-section {
-			background: #2a2a2a;
-		}
+        .nav-cta:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--glow);
+            background: #fff;
+        }
 
-		.community-section {
-			background: #1f1f1f;
-		}
+        /* Mobile Hamburger */
+        .hamburger {
+            display: none;
+            cursor: pointer;
+            z-index: 1002;
+            background: none;
+            border: none;
+        }
 
-		/* --- BUTTON STYLES --- */
-		.btn {
-			margin-top: 2rem;
-			background: #4CAF50;
-			color: white;
-			padding: 1rem 2rem;
-			border: none;
-			font-size: 1.1rem;
-			border-radius: 5px;
-			cursor: pointer;
-			transition: background 0.3s;
-			text-decoration: none;
-		}
+        .hamburger span {
+            display: block;
+            width: 25px;
+            height: 3px;
+            background-color: var(--text-main);
+            margin: 5px 0;
+            transition: 0.3s;
+            border-radius: 2px;
+        }
 
-		.btn:hover {
-			background: #3e8e41;
-		}
+        /* --- HERO SECTION --- */
+        .hero {
+            position: relative;
+            height: 100vh;
+            min-height: 600px; /* Ensure height on landscape mobile */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 0 1.5rem;
+            overflow: hidden;
+            margin-top: -60px; /* Offset nav height */
+            padding-top: 60px;
+        }
 
-		/* --- FOOTER --- */
-		footer {
-			background: #111;
-			text-align: center;
-			padding: 2rem;
-			font-size: 0.9rem;
-			color: #aaa;
-		}
+        /* Parallax Background */
+        .hero-bg {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: url('https://i.postimg.cc/fRZ0v85Z/loadingscreen.png') center/cover no-repeat;
+            opacity: 0.35;
+            z-index: -1;
+            transform: scale(1.1);
+        }
+        
+        .hero-overlay {
+            position: absolute;
+            bottom: 0; left: 0; width: 100%; height: 70%;
+            background: linear-gradient(to top, var(--bg-dark) 10%, transparent);
+            z-index: -1;
+        }
 
-		/* --- MEDIA QUERIES --- */
-		@media (max-width: 768px) {
-			header h1 {
-				font-size: 2rem;
-			}
-			section h2 {
-				font-size: 2rem;
-			}
-			nav {
-				flex-direction: column;
-				gap: 1rem;
-			}
-		}
+        .hero-content {
+            z-index: 1;
+            max-width: 900px;
+            width: 100%;
+            animation: fadeIn 1s ease-out;
+        }
 
-		@keyframes rainbowGradient {
-			0% {
-				background-position: 0% 50%;
-			}
-			50% {
-				background-position: 100% 50%;
-			}
-			100% {
-				background-position: 0% 50%;
-			}
-		}
+        /* Main Build Your World Logo */
+        .hero-logo {
+            max-width: 600px;
+            width: 90%;
+            height: auto;
+            margin-bottom: 1rem;
+            filter: drop-shadow(0 10px 30px rgba(0,0,0,0.8));
+            animation: float 4s ease-in-out infinite;
+        }
 
-		#BETA-PREVIEW {
-			font-weight: bold;
-			text-transform: uppercase;
-			background: linear-gradient(270deg, red, orange, yellow, green, blue, indigo, violet, red);
-			background-size: 1500% 1500%;
-			-webkit-background-clip: text;
-			-webkit-text-fill-color: transparent;
-			animation: rainbowGradient 6s ease infinite;
-			text-shadow: 0 0 10px rgba(255, 255, 255, 0.1);
-			transition: transform 0.2s ease;
-			display: inline-block;
-		}
+        .hero h1 {
+            font-size: 3.5rem;
+            line-height: 1.1;
+            margin-bottom: 1.5rem;
+            font-weight: 800;
+            display: block; /* Made visible again */
+            text-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+        
+        .hero h1 span {
+            color: var(--primary);
+            text-shadow: 0 0 30px rgba(0, 230, 118, 0.4);
+        }
+        
+        .hero p {
+            font-size: 1.3rem;
+            color: #e0e0e0;
+            margin-bottom: 2.5rem;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+            font-weight: 500;
+        }
 
-		#BETA-PREVIEW:hover {
-			transform: scale(1.1);
-		}
-	</style>
+        .hero-buttons {
+            display: flex;
+            gap: 1.5rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: #000;
+            padding: 1rem 2.5rem;
+            border-radius: 12px;
+            font-weight: 800;
+            font-size: 1.1rem;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            transition: all 0.3s ease;
+            border: 2px solid var(--primary);
+            box-shadow: 0 4px 15px rgba(0, 230, 118, 0.4);
+        }
+
+        .btn-primary:hover {
+            background: transparent;
+            color: var(--primary);
+            box-shadow: 0 0 25px rgba(0, 230, 118, 0.6);
+            transform: scale(1.02);
+        }
+
+        .btn-secondary {
+            background: rgba(255,255,255,0.05);
+            color: #fff;
+            padding: 1rem 2.5rem;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 1.1rem;
+            text-decoration: none;
+            border: 2px solid rgba(255,255,255,0.1);
+            backdrop-filter: blur(5px);
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .btn-secondary:hover {
+            border-color: #fff;
+            background: rgba(255,255,255,0.15);
+            transform: scale(1.02);
+        }
+
+        /* --- FEATURES SECTION --- */
+        .features {
+            padding: 6rem 5%;
+            background: var(--bg-dark);
+            position: relative;
+        }
+
+        .section-header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        .section-header h2 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            color: #fff;
+        }
+
+        .section-header p {
+            color: var(--text-muted);
+            max-width: 600px;
+            margin: 0 auto;
+            font-size: 1.1rem;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .feature-card {
+            background: var(--bg-card);
+            padding: 2rem;
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            transition: transform 0.3s ease, border-color 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .feature-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; width: 4px; height: 100%;
+            background: var(--primary);
+            transform: scaleY(0);
+            transform-origin: bottom;
+            transition: transform 0.3s ease;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-5px);
+            border-color: rgba(255,255,255,0.2);
+        }
+
+        .feature-card:hover::before {
+            transform: scaleY(1);
+        }
+
+        .feature-icon {
+            font-size: 2.2rem;
+            margin-bottom: 1rem;
+            display: inline-block;
+        }
+
+        .feature-card h3 {
+            font-size: 1.4rem;
+            margin-bottom: 0.5rem;
+            font-weight: 700;
+            color: #fff;
+        }
+
+        .feature-card p {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+
+        /* --- SHOWCASE SECTION --- */
+        .showcase {
+            padding: 4rem 5%;
+            background: #0f0f0f;
+            border-top: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .video-container {
+            position: relative;
+            width: 100%;
+            max-width: 900px;
+            margin: 0 auto 3rem;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+            border: 1px solid var(--border);
+            aspect-ratio: 16/9;
+        }
+
+        .video-container iframe {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            border: none;
+        }
+
+        /* --- COMMUNITY GRID --- */
+        .community-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .community-vid {
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            aspect-ratio: 16/9;
+            position: relative;
+            cursor: pointer;
+        }
+        
+        .community-vid video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0.8;
+            transition: opacity 0.3s, transform 0.3s;
+        }
+        
+        .community-vid:hover video {
+            opacity: 1;
+            transform: scale(1.05);
+        }
+
+        /* --- INSTALL BANNER (Mobile) --- */
+        #install-banner {
+            display: none; /* Hidden by default, shown by JS */
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 90%;
+            max-width: 400px;
+            background: rgba(30, 30, 30, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 15px;
+            border-radius: 12px;
+            border: 1px solid var(--primary);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            z-index: 2000;
+            flex-direction: row;
+            align-items: center;
+            justify-content: space-between;
+            animation: slideUp 0.5s ease-out;
+        }
+
+        #install-banner img {
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+        }
+
+        .install-text {
+            flex: 1;
+            margin: 0 15px;
+            font-size: 0.9rem;
+            color: #fff;
+        }
+        
+        .install-text strong { display: block; color: var(--primary); }
+
+        #install-btn {
+            background: var(--primary);
+            color: #000;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        /* --- FOOTER --- */
+        footer {
+            background: #050505;
+            padding: 3rem 5%;
+            text-align: center;
+        }
+
+        .footer-logo {
+            font-family: 'Press Start 2P', cursive;
+            color: var(--primary);
+            font-size: 1rem;
+            margin-bottom: 1.5rem;
+            display: block;
+        }
+
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+
+        .footer-links a {
+            color: var(--text-muted);
+            text-decoration: none;
+            transition: color 0.2s;
+            font-size: 0.9rem;
+        }
+
+        .footer-links a:hover { color: #fff; }
+
+        .copyright { color: #444; font-size: 0.8rem; }
+
+        /* --- ANIMATIONS --- */
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes slideUp {
+            from { transform: translate(-50%, 100%); opacity: 0; }
+            to { transform: translate(-50%, 0); opacity: 1; }
+        }
+
+        /* --- MEDIA QUERIES --- */
+        @media (max-width: 768px) {
+            nav { padding: 1rem; }
+            
+            .hamburger { display: block; }
+            
+            .nav-links {
+                position: fixed;
+                top: 0; right: -100%;
+                height: 100vh;
+                width: 70%;
+                background: #111;
+                flex-direction: column;
+                justify-content: center;
+                gap: 2rem;
+                transition: 0.3s ease-in-out;
+                box-shadow: -5px 0 15px rgba(0,0,0,0.5);
+                z-index: 1001;
+            }
+
+            .nav-links.active { right: 0; }
+            
+            .nav-logo { z-index: 1003; }
+
+            .hero { padding-top: 80px; height: auto; min-height: 90vh; }
+            .hero-logo { width: 100%; max-width: 350px; }
+            .hero h1 { font-size: 2.2rem; }
+            .hero p { font-size: 1.1rem; padding: 0 1rem; }
+            
+            .hero-buttons {
+                flex-direction: column;
+                width: 100%;
+                padding: 0 1rem;
+            }
+            
+            .btn-primary, .btn-secondary {
+                width: 100%;
+                padding: 1rem;
+            }
+
+            .features { padding: 4rem 1.5rem; }
+            .section-header h2 { font-size: 2rem; }
+            
+            .feature-grid { grid-template-columns: 1fr; }
+            
+            .showcase { padding: 3rem 1.5rem; }
+        }
+    </style>
 </head>
-
 <body>
-<!-- HEADER SECTION WITH LOGO --><header><img src="https://raw.githubusercontent.com/bellasaunders25/VoxelVerse-Assets/refs/heads/main/ChatGPT%20Image%20Feb%205%2C%202026%2C%2008_27_54%20PM.png" alt="VoxelVerse Logo" class="logo" draggable="false" />
-<p>Build, explore, survive, and create in a blocky sandbox world filled with endless possibilities.</p>
-</header><!-- NAVIGATION --><nav><a href="#features">Features</a> <a href="#download">Download</a> <a href="#community">Community</a> <a id="BETA-PREVIEW" href="/play">Beta Preview</a></nav><!-- FEATURES SECTION -->
-<section id="features" class="feature-section">
-<h2>🌍 Explore &amp; Build</h2>
-<p>From vast mountain ranges to deep underground caves, VoxelVerse lets you reshape the world around you. Mine resources, build shelters, or go wild with creative mode – the world is your sandbox.</p>
-</section>
-<!-- DOWNLOAD SECTION -->
-<section id="download" class="download-section">
-<h2>⬇️ Download Now</h2>
-<p>Ready to dive in? Download the latest version for Windows, macOS, or Linux. Mobile version coming soon!</p>
-<a href="#SOON" style="pointer: not-allowed; pointer-events: none !important;" class="btn">Get the Game</a></section>
-<section id="trailer" style="background: #141414; padding: 4rem 2rem; color: #fff; text-align: center;">
-<h2 style="font-size: 2.5rem; margin-bottom: 1rem;">🎬 Trailer &amp; Gameplay</h2>
-<p style="max-width: 700px; margin: 0 auto 2rem; font-size: 1.1rem;">Dive into the adventure! Here's a sneak peek at what VoxelVerse has to offer — from stunning terrain to intense survival gameplay.</p>
-<div style="width: 100%; max-width: 960px; height: 500px; /* 👈 adjust this to control the rectangle height */    margin: 0 auto; overflow: hidden; border-radius: 12px; box-shadow: 0 0 20px rgba(0,0,0,0.4);"><iframe style="width: 100%; height: 100%; border: none;" src="https://www.youtube.com/embed/EngW7tLk6R8?si=bhE88I2hyWj6m7yv" title="VoxelVerse Trailer" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen="allowfullscreen" referrerpolicy="strict-origin-when-cross-origin">
-    </iframe></div>
-</section>
-<!-- GAMEPLAY CLIPS GRID -->
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 30px; max-width: 1200px; margin: 0 auto; padding: 1rem;">
-<div style="position: relative; padding-top: 56.25%; overflow: hidden; border-radius: 10px; background: #000;"><video style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 10px;" src="https://sample-videos.com/video321/mp4/720/big_buck_bunny_720p_1mb.mp4" controls="controls"></video></div>
-<div style="position: relative; padding-top: 56.25%; overflow: hidden; border-radius: 10px; background: #000;"><video style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 10px;" src="https://sample-videos.com/video321/mp4/720/big_buck_bunny_720p_1mb.mp4" controls="controls"></video></div>
-<div style="position: relative; padding-top: 56.25%; overflow: hidden; border-radius: 10px; background: #000;"><video style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 10px;" src="https://sample-videos.com/video321/mp4/720/big_buck_bunny_720p_1mb.mp4" controls="controls"></video></div>
-</div>
-<!-- COMMUNITY SECTION -->
-<section id="community" class="community-section">
-<h2>💬 Join the Community</h2>
-<p>Connect with fellow players, share your builds, and be part of the growing VoxelVerse family. Follow us on Discord and Twitter to stay updated!</p>
-<a href="https://discord.gg" class="btn">Join Discord</a></section>
-<!-- FOOTER --><footer>© 2025 VoxelVerse • A Bella Saunders Creation</footer>
+
+    <!-- NAV -->
+    <nav>
+        <a href="#" class="nav-logo">
+            <img src="https://i.postimg.cc/bNFXwDQL/vv_icon.png" alt="Logo">
+            VoxelVerse
+        </a>
+        
+        <!-- Hamburger Menu Button -->
+        <button class="hamburger" aria-label="Menu" onclick="toggleMenu()">
+            <span></span>
+            <span></span>
+            <span></span>
+        </button>
+
+        <div class="nav-links" id="nav-links">
+            <a href="#features" onclick="toggleMenu()">Features</a>
+            <a href="#showcase" onclick="toggleMenu()">Gameplay</a>
+            <a href="#community" onclick="toggleMenu()">Community</a>
+            <a href="/play" class="nav-cta" onclick="toggleMenu()">PLAY NOW</a>
+        </div>
+    </nav>
+
+    <!-- HERO -->
+    <section class="hero">
+        <div class="hero-bg"></div>
+        <div class="hero-overlay"></div>
+        
+        <div class="hero-content">
+            <!-- Big Hero Logo -->
+            <img src="https://raw.githubusercontent.com/bellasaunders25/VoxelVerse-Assets/refs/heads/main/ChatGPT%20Image%20Feb%205%2C%202026%2C%2008_27_54%20PM.png" alt="VoxelVerse: Build Your World" class="hero-logo">
+            
+            <!-- Restored H1 -->
+            <h1>Build Your World.<br><span>Create Your Legend.</span></h1>
+
+            <p>The ultimate browser-based voxel sandbox. Infinite worlds, real-time multiplayer, and creative freedom in your pocket.</p>
+            
+            <div class="hero-buttons">
+                <a href="/play" class="btn-primary">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                    Play Now
+                </a>
+                <a href="#features" class="btn-secondary">Learn More</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- FEATURES -->
+    <section id="features" class="features">
+        <div class="section-header">
+            <h2>Craft. Build. Survive.</h2>
+            <p>Experience the freedom of a fully procedural infinite world optimized for all devices.</p>
+        </div>
+
+        <div class="feature-grid">
+            <div class="feature-card">
+                <span class="feature-icon">☁️</span>
+                <h3>Cloud Saves</h3>
+                <p>Seamlessly save your worlds to the cloud. Start on your phone, continue on your desktop.</p>
+            </div>
+            <div class="feature-card">
+                <span class="feature-icon">📱</span>
+                <h3>Mobile Ready</h3>
+                <p>Fully optimized touch controls and a responsive interface designed for gaming on the go.</p>
+            </div>
+            <div class="feature-card">
+                <span class="feature-icon">👥</span>
+                <h3>Multiplayer</h3>
+                <p>Join friends instantly via simple room codes. Build together in real-time with custom skins.</p>
+            </div>
+            <div class="feature-card">
+                <span class="feature-icon">🎨</span>
+                <h3>Skin Editor</h3>
+                <p>Customize your avatar with our 3D editor or generate unique skins using our integrated AI tools.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- SHOWCASE -->
+    <section id="showcase" class="showcase">
+        <div class="section-header">
+            <h2>Gameplay Gallery</h2>
+        </div>
+        
+        <div class="video-container">
+            <iframe src="https://www.youtube.com/embed/EngW7tLk6R8?si=bhE88I2hyWj6m7yv&autoplay=0&controls=1&rel=0" title="VoxelVerse Trailer" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+        </div>
+
+        <div class="community-grid">
+            <div class="community-vid">
+                <video src="https://sample-videos.com/video321/mp4/720/big_buck_bunny_720p_1mb.mp4" loop muted playsinline onmouseover="this.play()" onmouseout="this.pause()"></video>
+            </div>
+            <div class="community-vid">
+                <video src="https://sample-videos.com/video321/mp4/720/big_buck_bunny_720p_1mb.mp4" loop muted playsinline onmouseover="this.play()" onmouseout="this.pause()"></video>
+            </div>
+            <div class="community-vid">
+                <video src="https://sample-videos.com/video321/mp4/720/big_buck_bunny_720p_1mb.mp4" loop muted playsinline onmouseover="this.play()" onmouseout="this.pause()"></video>
+            </div>
+        </div>
+    </section>
+
+    <!-- PWA Install Banner -->
+    <div id="install-banner">
+        <img src="https://i.postimg.cc/c45qLgQX/vv_logo.png" alt="Icon">
+        <div class="install-text">
+            <strong>Install VoxelVerse</strong>
+            Add to Home Screen for the best experience.
+        </div>
+        <button id="install-btn">Install</button>
+    </div>
+
+    <!-- FOOTER -->
+    <footer id="community">
+        <span class="footer-logo">VOXELVERSE</span>
+        <div class="footer-links">
+            <a href="#">Discord</a>
+            <a href="#">Twitter</a>
+            <a href="#">Wiki</a>
+            <a href="#">Privacy</a>
+        </div>
+        <p class="copyright">© 2025 VoxelVerse Studios. All rights reserved.</p>
+    </footer>
+
+    <!-- Service Worker Registration & Scripts -->
+    <script>
+        // Toggle Mobile Menu
+        function toggleMenu() {
+            const nav = document.getElementById('nav-links');
+            nav.classList.toggle('active');
+        }
+
+        // PWA Installer Logic
+        let deferredPrompt;
+        const installBanner = document.getElementById('install-banner');
+        const installBtn = document.getElementById('install-btn');
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            installBanner.style.display = 'flex';
+        });
+
+        installBtn.addEventListener('click', async () => {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                if (outcome === 'accepted') {
+                    console.log('User accepted the install prompt');
+                }
+                deferredPrompt = null;
+                installBanner.style.display = 'none';
+            }
+        });
+
+        // Register Service Worker
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                    .then(reg => console.log('SW registered!', reg))
+                    .catch(err => console.log('SW registration failed', err));
+            });
+        }
+    </script>
 </body>
 </html>
