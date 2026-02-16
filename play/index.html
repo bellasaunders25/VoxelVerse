@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>VoxelVerse - Play</title>
+  <title>Voxel Sandbox</title>
   <!-- Supabase JS Library -->
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 
@@ -1611,8 +1611,6 @@
             geo.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
             const mesh = new THREE.Mesh(geo, game.materials.solid);
             mesh.position.set(x * CHUNK_SIZE, 0, z * CHUNK_SIZE);
-            mesh.castShadow = true;
-            mesh.receiveShadow = true;
             game.scene.add(mesh);
             chunk.mesh = mesh;
           }
@@ -1625,7 +1623,6 @@
             const wMesh = new THREE.Mesh(wGeo, game.materials.water);
             wMesh.position.set(x * CHUNK_SIZE, 0, z * CHUNK_SIZE);
             wMesh.renderOrder = 1;
-            wMesh.receiveShadow = true;
             game.scene.add(wMesh);
             chunk.waterMesh = wMesh;
           }
@@ -1778,7 +1775,7 @@
 
     function createHeldBlockMesh(scale = 1) {
       const color = BLOCK_COLORS[game.selectedBlock] ?? 0xffffff;
-      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.9 });
+      const mat = new THREE.MeshLambertMaterial({ color });
       return new THREE.Mesh(new THREE.BoxGeometry(0.24 * scale, 0.24 * scale, 0.24 * scale), mat);
     }
 
@@ -1791,7 +1788,6 @@
       const held = createHeldBlockMesh(scale);
       held.position.set(pos.x, pos.y, pos.z);
       held.rotation.set(rot.x, rot.y, rot.z);
-      held.castShadow = true;
       rightArm.add(held);
       game[refKey] = held;
     }
@@ -2031,17 +2027,11 @@
       const bodyCenterY = (dims.leg[1]) + (bodyH / 2) - (dims.leg[1] * 0.2); // slight overlap
       body.position.set(0, bodyCenterY, 0);
       g.add(body);
-      
-      // Allow cast shadow for mobs
-      body.castShadow = true;
-      body.receiveShadow = true;
 
       // HEAD
       const head = new THREE.Mesh(new THREE.BoxGeometry(...dims.head), mats.head);
       head.position.set(0, dims.headY + 0.1, dims.headZ - 0.2);
       g.add(head);
-      head.castShadow = true;
-      head.receiveShadow = true;
 
       // LEGS
       const legGeo = new THREE.BoxGeometry(...dims.leg);
@@ -2062,8 +2052,6 @@
         leg.position.set(x, y, z);
         g.add(leg);
         legs.push(leg);
-        leg.castShadow = true;
-        leg.receiveShadow = true;
       }
 
       // Metadata for animation and cleanup
@@ -2314,7 +2302,7 @@
     }
 
     // --- SKIN PREVIEW (player) ---
-    function buildPlayerModel(skinTexture, { includeGrid = false } = {}) {
+    function buildPlayerModel(skinTexture) {
       const group = new THREE.Group();
       
       // FIX: Add alphaTest to handle transparent pixels in the skin texture (overlay layer gaps)
@@ -2370,8 +2358,6 @@
         } else {
            mesh.renderOrder = 0;
            mesh.userData.isBody = true;
-           mesh.castShadow = true; // Player casts shadows
-           mesh.receiveShadow = true;
         }
         return mesh;
       }
@@ -2468,12 +2454,10 @@
          const llG = addGrid(-0.13, -0.2, 0, 0.25, 0.75, 0.25, 16, 48); llG.name = 'LeftLegGrid';
       }
       
-      // Add Grid Helper only if specifically requested (for editor viewport)
-      if (includeGrid) {
-         const gridHelper = new THREE.GridHelper(10, 10, 0x444444, 0x222222);
-         gridHelper.position.y = -1;
-         group.add(gridHelper);
-      }
+      // Add Grid Helper to ensure scene visibility
+      const gridHelper = new THREE.GridHelper(10, 10, 0x444444, 0x222222);
+      gridHelper.position.y = -1;
+      group.add(gridHelper);
 
       return group;
     }
@@ -2617,7 +2601,7 @@
       dir.position.set(2, 2, 5);
       game.skinScene.add(dir);
 
-      game.skinMesh = buildPlayerModel(game.skinTexture, { includeGrid: true });
+      game.skinMesh = buildPlayerModel(game.skinTexture);
       game.skinScene.add(game.skinMesh);
 
       const colorPicker = document.getElementById("skin-color-picker");
@@ -3063,36 +3047,25 @@
       game.scene.add(new THREE.AmbientLight(0xffffff, 0.8));
       const d = new THREE.DirectionalLight(0xffffff, 0.5);
       d.position.set(50, 100, 50);
-      d.castShadow = true;
-      d.shadow.camera.left = -50;
-      d.shadow.camera.right = 50;
-      d.shadow.camera.top = 50;
-      d.shadow.camera.bottom = -50;
-      d.shadow.mapSize.width = 2048;
-      d.shadow.mapSize.height = 2048;
       game.scene.add(d);
 
       game.particleGroup = new THREE.Group();
       game.scene.add(game.particleGroup);
 
       game.materials = {
-        solid: new THREE.MeshStandardMaterial({
+        solid: new THREE.MeshLambertMaterial({
           map: game.textureAtlas,
           transparent: true,
           alphaTest: 0.1,
-          side: THREE.FrontSide,
-          roughness: 0.9,
-          metalness: 0.1
+          side: THREE.FrontSide
         }),
-        water: new THREE.MeshStandardMaterial({
+        water: new THREE.MeshLambertMaterial({
           map: game.waterTexture || game.textureAtlas,
           transparent: true,
           opacity: 0.58,
           depthWrite: false,
           alphaTest: 0.0,
-          side: THREE.FrontSide,
-          roughness: 0.1,
-          metalness: 0.1
+          side: THREE.FrontSide
         })
       };
 
@@ -3128,17 +3101,13 @@
 
       ensureHudPlayerPreview();
       refreshHeldBlockVisuals();
-      
-      // SHADOWS ON
-      game.renderer.shadowMap.enabled = true;
-      game.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
       if (mode === "MP") connectServer();
       requestAnimationFrame(loop);
     }
 
     // --- INPUT ---
-    const keys = { w: 0, a: 0, s: 0, d: 0, space: 0, shift: 0 };
+    const keys = { w: 0, a: 0, s: 0, d: 0, space: 0, shift: 0, q: 0 };
     function onKeyDown(e) {
       // Pause Toggle
       if (e.code === "Escape") {
@@ -3155,6 +3124,7 @@
       if (e.code === "KeyA") keys.a = 1;
       if (e.code === "KeyS") keys.s = 1;
       if (e.code === "KeyD") keys.d = 1;
+      if (e.code === "KeyQ") keys.q = 1; // Track Q hold
       if (e.code === "Space") {
           keys.space = 1;
           if (!e.repeat) {
@@ -3185,7 +3155,7 @@
       }
       if (e.code === "Enter" && document.activeElement === document.getElementById("chat-input")) sendChat();
 
-      if (e.code === "KeyQ" && !e.repeat && STATE.isRunning) {
+      if (e.code === "F5" && !e.repeat && STATE.isRunning) {
         const inMainMenu = !document.getElementById("main-menu").classList.contains("hidden");
         const inSkinEditor = !document.getElementById("skin-menu").classList.contains("hidden");
         if (!inMainMenu && !inSkinEditor && game.camera) {
@@ -3200,6 +3170,7 @@
       if (e.code === "KeyA") keys.a = 0;
       if (e.code === "KeyS") keys.s = 0;
       if (e.code === "KeyD") keys.d = 0;
+      if (e.code === "KeyQ") keys.q = 0; // Untrack Q
       if (e.code === "Space") keys.space = 0;
       if (e.code === "ShiftLeft") keys.shift = 0;
     }
@@ -3875,7 +3846,7 @@
       // Physics Loop
       if (game.player.isFlying) {
         // FLIGHT PHYSICS
-        let flySpeed = isSprinting ? 20 : 12;
+        let flySpeed = (keys.shift) ? 24 : 12; // Increased sprint speed slightly for feel
         move.normalize().multiplyScalar(flySpeed);
         
         // Horizontal
@@ -3885,7 +3856,7 @@
         // Vertical
         let targetVY = 0;
         if (keys.space) targetVY = flySpeed;
-        if (keys.shift) targetVY = -flySpeed;
+        if (keys.q) targetVY = -flySpeed; // Q goes down
         v.y += (targetVY - v.y) * 10 * dt;
 
       } else if (inWater) {
@@ -4049,24 +4020,6 @@
         game.worldPlayerMesh.rotation.y = game.player.yaw + Math.PI;
       }
 
-      // --- MULTIPLAYER INTERPOLATION ---
-      for (const remote of game.remotePlayers.values()) {
-        const lerpT = 1 - Math.exp(-dt * 12);
-        remote.current.x = THREE.MathUtils.lerp(remote.current.x, remote.target.x, lerpT);
-        remote.current.y = THREE.MathUtils.lerp(remote.current.y, remote.target.y, lerpT);
-        remote.current.z = THREE.MathUtils.lerp(remote.current.z, remote.target.z, lerpT);
-        remote.current.yaw = lerpYaw(remote.current.yaw, remote.target.yaw, lerpT);
-        remote.current.pitch = THREE.MathUtils.lerp(remote.current.pitch, remote.target.pitch, lerpT);
-
-        remote.mesh.position.set(remote.current.x, remote.current.y + PLAYER_MODEL_GROUND_OFFSET, remote.current.z);
-        remote.mesh.rotation.y = remote.current.yaw + Math.PI;
-
-        if (remote.nameTag?.sprite && game.camera) {
-          remote.nameTag.sprite.lookAt(game.camera.position);
-        }
-      }
-      sendLocalPlayerState(performance.now());
-
       const res = raycastBlock();
       if (res.hit) {
         game.blockSelectMesh.visible = true;
@@ -4192,9 +4145,6 @@
         pose.lLegX = -walkSwing;
         pose.rLegX = walkSwing;
       }
-      
-      // Local player head pitch influence
-      pose.headX = THREE.MathUtils.clamp(game.player.pitch * 0.6, -0.5, 0.5);
 
       if (isCrouching && onGround && !inWater) {
         pose.headX += 0.12;
@@ -4234,52 +4184,6 @@
       applyPosture(game.hudSkinMesh);
       applyPosture(game.skinMesh);
       applyPosture(game.worldPlayerMesh);
-      
-      // --- ANIMATE REMOTE PLAYERS ---
-      for (const remote of game.remotePlayers.values()) {
-        const remotePose = {
-          lArmX: 0,
-          rArmX: 0,
-          lLegX: 0,
-          rLegX: 0,
-          headX: THREE.MathUtils.clamp(remote.current.pitch * 0.6, -0.5, 0.5),
-          bodyX: 0
-        };
-
-        const movingSpeedSq =
-          (remote.target.x - remote.current.x) * (remote.target.x - remote.current.x) +
-          (remote.target.z - remote.current.z) * (remote.target.z - remote.current.z);
-        const remoteMoving = remote.isMoving || movingSpeedSq > 0.0008;
-        const remoteWalk = Math.sin(game.timeSec * (remote.isCrouching ? 7 : 10)) * (remote.isCrouching ? 0.28 : 0.6);
-
-        if (remoteMoving) {
-          remotePose.lArmX = remoteWalk;
-          remotePose.rArmX = -remoteWalk;
-          remotePose.lLegX = -remoteWalk;
-          remotePose.rLegX = remoteWalk;
-        }
-
-        if (remote.isCrouching) {
-          remotePose.headX += 0.12;
-          remotePose.lArmX += 0.18;
-          remotePose.rArmX += 0.18;
-          remotePose.bodyX = 0.1;
-        }
-
-        const remotePunch = THREE.MathUtils.clamp(remote.punchAnim || 0, 0, 1);
-        const remotePlace = THREE.MathUtils.clamp(remote.placeAnim || 0, 0, 1);
-        if (remotePunch > 0) {
-          const punchWave = Math.sin((1 - remotePunch) * Math.PI);
-          remotePose.rArmX += 1.15 * punchWave;
-        }
-        if (remotePlace > 0) {
-          const placeWave = Math.sin((1 - remotePlace) * Math.PI);
-          remotePose.rArmX += 0.65 * placeWave;
-        }
-
-        applyAnimationToModel(remote.mesh, remotePose);
-        remote.mesh.rotation.x += (remotePose.bodyX - remote.mesh.rotation.x) * 0.25;
-      }
     }
 
     function raycastBlock() {
