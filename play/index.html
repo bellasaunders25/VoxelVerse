@@ -370,6 +370,18 @@
       </div>
   </div>
 
+  <!-- LOADING SCREEN -->
+  <div id="loading-screen" class="screen menu-bg hidden" style="z-index: 9999; pointer-events: auto;">
+      <div style="text-align: center;">
+          <h1 style="font-size: 48px; margin-bottom: 30px; text-shadow: 3px 3px 0 #000; color: #fbc02d;">Loading World...</h1>
+          <div style="width: 400px; height: 40px; background: rgba(0, 0, 0, 0.5); border: 3px solid #555; border-radius: 4px; overflow: hidden; position: relative; box-shadow: 0 4px 8px rgba(0,0,0,0.5);">
+              <div id="loading-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #388e3c 0%, #66bb6a 100%); transition: width 0.3s ease;"></div>
+          </div>
+          <p id="loading-text" style="margin-top: 20px; font-size: 18px; color: #fff; text-shadow: 2px 2px 0 #000;">Generating terrain...</p>
+          <p id="loading-chunks" style="margin-top: 10px; font-size: 14px; color: #ccc; text-shadow: 1px 1px 0 #000;">0 / 0 chunks</p>
+      </div>
+  </div>
+
   <!-- Auth Modal -->
   <div id="auth-modal" class="modal-overlay hidden">
     <div class="voxel-panel" style="width: 350px;">
@@ -485,6 +497,16 @@
         <div style="display:flex; flex-direction:column; gap:5px;">
             <label style="font-size:12px; color:#aaa; text-transform:uppercase;">Mouse Sensitivity</label>
             <input type="number" id="mouse-sens" value="0.002" step="0.001" class="voxel-input" />
+        </div>
+        
+        <div style="display:flex; flex-direction:column; gap:15px; margin-top:20px; padding-top:20px; border-top:2px solid #333;">
+            <label style="font-size:12px; color:#aaa; text-transform:uppercase;">World Management</label>
+            <button id="btn-reset-world" class="minecraft-btn btn-red">
+                <span class="btn-icon">🗑️</span>Reset World
+            </button>
+            <div style="font-size:10px; color:#666; text-align:center; margin-top:-10px;">
+                Current Seed: <span id="world-seed-display" style="color:#fbc02d;">Loading...</span>
+            </div>
         </div>
         
         <button id="btn-settings-back" class="minecraft-btn btn-grey" style="margin-top:20px;">Back to Menu</button>
@@ -1138,6 +1160,174 @@
       document.addEventListener("pointerdown", () => AUDIO.ensureUnlocked(), { once: true });
     }
 
+    // --- WORLD SAVE/LOAD SYSTEM ---
+    const WORLD_STORAGE_KEY = 'voxel_world_data';
+    const WORLD_SEED_KEY = 'voxel_world_seed';
+    
+    // Cache world data to avoid repeated JSON.parse calls
+    let cachedWorldData = null;
+    let worldDataDirty = false;
+    
+    function getWorldData() {
+      if (!cachedWorldData) {
+        try {
+          cachedWorldData = JSON.parse(localStorage.getItem(WORLD_STORAGE_KEY) || '{}');
+        } catch (e) {
+          console.warn('Failed to parse world data:', e);
+          cachedWorldData = {};
+        }
+      }
+      return cachedWorldData;
+    }
+    
+    function invalidateWorldDataCache() {
+      cachedWorldData = null;
+    }
+    
+    // Save queue system to prevent lag
+    const saveQueue = {
+      chunks: new Map(), // chunkKey -> voxels data
+      blocks: new Map(), // chunkKey -> { blockKey -> blockId }
+      saveTimer: null,
+      saveInterval: 2000, // Save every 2 seconds instead of immediately
+      
+      queueChunkSave(x, z, blocks) {
+        const key = `chunk_${x}_${z}`;
+        this.chunks.set(key, blocks);
+        this.scheduleSave();
+      },
+      
+      queueBlockSave(x, y, z, blockId) {
+        const cx = Math.floor(x / 16);
+        const cz = Math.floor(z / 16);
+        const chunkKey = `chunk_${cx}_${cz}`;
+        
+        if (!this.blocks.has(chunkKey)) {
+          this.blocks.set(chunkKey, new Map());
+        }
+        
+        const localX = ((x % 16) + 16) % 16;
+        const localZ = ((z % 16) + 16) % 16;
+        const blockKey = `${localX}_${y}_${localZ}`;
+        
+        this.blocks.get(chunkKey).set(blockKey, blockId);
+        this.scheduleSave();
+      },
+      
+      scheduleSave() {
+        if (this.saveTimer) return;
+        this.saveTimer = setTimeout(() => this.flush(), this.saveInterval);
+      },
+      
+      flush() {
+        this.saveTimer = null;
+        
+        try {
+          const worldData = getWorldData(); // Use cached version
+          
+          // Save queued chunks
+          for (const [key, blocks] of this.chunks) {
+            worldData[key] = Array.from(blocks);
+          }
+          
+          // Save queued block modifications
+          for (const [chunkKey, blockMap] of this.blocks) {
+            if (!worldData[chunkKey]) {
+              // Need to get chunk data from game world
+              const [cx, cz] = chunkKey.replace('chunk_', '').split('_').map(Number);
+              const gameChunk = game.world[`${cx},${cz}`];
+              if (gameChunk && gameChunk.data) {
+                worldData[chunkKey] = Array.from(gameChunk.data);
+              }
+            }
+            
+            if (worldData[chunkKey]) {
+              for (const [blockKey, blockId] of blockMap) {
+                const [lx, y, lz] = blockKey.split('_').map(Number);
+                const idx = lx + 16 * (y + 128 * lz);
+                worldData[chunkKey][idx] = blockId;
+              }
+            }
+          }
+          
+          localStorage.setItem(WORLD_STORAGE_KEY, JSON.stringify(worldData));
+          
+          // Clear queues
+          this.chunks.clear();
+          this.blocks.clear();
+          
+          // Don't invalidate cache - we just updated it
+        } catch (e) {
+          console.warn('Failed to save world data:', e);
+          invalidateWorldDataCache(); // Invalidate on error
+        }
+      },
+      
+      forceSave() {
+        if (this.saveTimer) {
+          clearTimeout(this.saveTimer);
+          this.saveTimer = null;
+        }
+        this.flush();
+      }
+    };
+    
+    function getWorldSeed() {
+      let seed = localStorage.getItem(WORLD_SEED_KEY);
+      if (!seed) {
+        // Generate a random seed between 0 and 1 billion
+        seed = Math.floor(Math.random() * 1000000000);
+        localStorage.setItem(WORLD_SEED_KEY, seed.toString());
+        console.log('Generated new world seed:', seed);
+      }
+      return parseInt(seed);
+    }
+    
+    function saveChunk(x, z, blocks) {
+      // Queue instead of immediate save
+      saveQueue.queueChunkSave(x, z, blocks);
+    }
+    
+    function loadChunk(x, z) {
+      try {
+        const key = `chunk_${x}_${z}`;
+        const worldData = getWorldData(); // Use cached version - MUCH faster!
+        const savedData = worldData[key];
+        if (savedData) {
+          return new Uint8Array(savedData);
+        }
+      } catch (e) {
+        console.warn('Failed to load chunk:', e);
+      }
+      return null;
+    }
+    
+    function saveBlockModification(x, y, z, blockId) {
+      // Queue instead of immediate save
+      saveQueue.queueBlockSave(x, y, z, blockId);
+    }
+    
+    function clearWorld() {
+      if (confirm('Are you sure you want to delete this world and start fresh? This cannot be undone!')) {
+        localStorage.removeItem(WORLD_STORAGE_KEY);
+        localStorage.removeItem(WORLD_SEED_KEY);
+        invalidateWorldDataCache();
+        location.reload();
+      }
+    }
+    
+    // Save when page is about to unload
+    window.addEventListener('beforeunload', () => {
+      saveQueue.forceSave();
+    });
+    
+    // Periodic save every 10 seconds as backup
+    setInterval(() => {
+      if (saveQueue.chunks.size > 0 || saveQueue.blocks.size > 0) {
+        saveQueue.forceSave();
+      }
+    }, 10000);
+
     // --- GAME STATE ---
     const game = {
       scene: null, camera: null, renderer: null,
@@ -1224,7 +1414,10 @@
       // --- MOBS ---
       mobs: new Map(),
       mobId: 1,
-      raycaster: new THREE.Raycaster()
+      raycaster: new THREE.Raycaster(),
+      
+      // --- WORLD SEED ---
+      worldSeed: getWorldSeed()
     };
 
     // --- WORKER CODE (Embedded) ---
@@ -1337,8 +1530,8 @@
               const wx = x * CHUNK_SIZE + lx;
               const wz = z * CHUNK_SIZE + lz;
 
-              // Pseudo-random tree placement
-              let thash = Math.sin(wx * 12.9898 + wz * 78.233) * 43758.5453;
+              // Pseudo-random tree placement (incorporating seed for unique worlds)
+              let thash = Math.sin(wx * 12.9898 + wz * 78.233 + seed * 0.0001) * 43758.5453;
               thash = thash - Math.floor(thash);
 
               if (thash > 0.985) {
@@ -1384,7 +1577,15 @@
             }
           }
 
-          self.postMessage({ type: 'GENERATED', x, z, voxels }, [voxels.buffer]);
+          self.postMessage({ type: 'GENERATED', x, z, voxels, freshlyGenerated: true }, [voxels.buffer]);
+          return;
+        }
+
+        if (type === 'LOAD_SAVED') {
+          // Simply return the saved chunk data
+          const { blocks } = e.data;
+          const voxels = new Uint8Array(blocks);
+          self.postMessage({ type: 'GENERATED', x, z, voxels, freshlyGenerated: false }, [voxels.buffer]);
           return;
         }
 
@@ -1575,9 +1776,12 @@
         const key = `${x},${z}`;
 
         if (type === "GENERATED") {
-          const { voxels } = e.data;
+          const { voxels, freshlyGenerated } = e.data;
           if (!game.world[key]) game.world[key] = {};
           game.world[key].data = voxels;
+          game.world[key].isDirty = freshlyGenerated; // Mark as dirty if newly generated
+          
+          // Don't save immediately - will save when chunk is unloaded or on timer
 
           const wl = new Uint8Array(voxels.length);
           wl.fill(255);
@@ -1596,7 +1800,6 @@
           const { positions, normals, uvs, waterPositions, waterNormals, waterUvs } = e.data;
           const hasSolid = positions && positions.length > 0;
           const hasWater = waterPositions && waterPositions.length > 0;
-          if (!hasSolid && !hasWater) return;
 
           if (!game.world[key]) game.world[key] = {};
           const chunk = game.world[key];
@@ -1625,6 +1828,12 @@
             wMesh.renderOrder = 1;
             game.scene.add(wMesh);
             chunk.waterMesh = wMesh;
+          }
+          
+          // Mark chunk as ready for loading screen (even if it's empty/air only)
+          if (!chunk.isReady) {
+            chunk.isReady = true;
+            loadingState.chunkReady();
           }
         }
       };
@@ -3004,6 +3213,22 @@
     }
 
     function quitToTitle() {
+        // Force save all pending changes before quitting
+        saveQueue.forceSave();
+        
+        // Also save all currently loaded chunks
+        for (const k in game.world) {
+          const [cx, cz] = k.split(",").map(Number);
+          const c = game.world[k];
+          if (c.isDirty && c.data) {
+            saveChunk(cx, cz, c.data);
+          }
+        }
+        saveQueue.forceSave(); // Flush the final saves
+        
+        // Invalidate cache to free memory
+        invalidateWorldDataCache();
+        
         STATE.isRunning = false;
         STATE.isPaused = false;
         document.getElementById("pause-menu").classList.add("hidden");
@@ -3022,9 +3247,15 @@
     // --- START GAME ---
     function startGame(mode) {
       AUDIO.ensureUnlocked();
+      
+      // Preload world data cache once at game start
+      getWorldData();
 
       document.getElementById("main-menu").classList.add("hidden");
-      document.getElementById("ui-layer").classList.remove("hidden");
+      
+      // Don't show UI layer yet - loading screen will be shown instead
+      // document.getElementById("ui-layer").classList.remove("hidden");
+      
       const hudPreview = document.getElementById("hud-player-preview");
       if (hudPreview) hudPreview.style.display = "block";
 
@@ -3074,6 +3305,7 @@
       document.addEventListener("mousedown", onMouseDown);
 
       game.renderer.domElement.onclick = () => {
+        if (loadingState.active) return; // Don't lock pointer during loading
         AUDIO.ensureUnlocked();
         game.renderer.domElement.requestPointerLock();
       };
@@ -3102,6 +3334,9 @@
       ensureHudPlayerPreview();
       refreshHeldBlockVisuals();
 
+      // Start loading screen
+      loadingState.start(SETTINGS.renderDistance);
+
       if (mode === "MP") connectServer();
       requestAnimationFrame(loop);
     }
@@ -3119,6 +3354,7 @@
       }
 
       if (STATE.isPaused) return; // Block input when paused
+      if (loadingState.active) return; // Block input while loading
 
       if (e.code === "KeyW") keys.w = 1;
       if (e.code === "KeyA") keys.a = 1;
@@ -3179,6 +3415,7 @@
       
       if (document.pointerLockElement !== game.renderer?.domElement) return;
       if (STATE.isPaused) return;
+      if (loadingState.active) return; // Block mouse during loading
 
       game.player.yaw -= e.movementX * SETTINGS.sensitivity;
       game.player.pitch -= e.movementY * SETTINGS.sensitivity;
@@ -4219,6 +4456,7 @@
 
     function onMouseDown(e) {
       if (STATE.isPaused) return; // Block clicks when paused
+      if (loadingState.active) return; // Block clicks while loading
       if (document.pointerLockElement !== game.renderer.domElement) return;
 
       if (e.button === 0) {
@@ -4264,6 +4502,10 @@
 
       loc.chunk.data[loc.idx] = id;
       loc.chunk.waterLevels[loc.idx] = (id === BLOCKS.WATER) ? 0 : 255;
+      
+      // Mark chunk as dirty and queue save
+      loc.chunk.isDirty = true;
+      saveBlockModification(Math.floor(x), Math.floor(y), Math.floor(z), id);
 
       meshChunk(loc.cx, loc.cz);
       meshChunk(loc.cx - 1, loc.cz);
@@ -4292,6 +4534,14 @@
           renderHudPlayerPreview(); // Keep HUD rendering so it doesn't freeze weirdly
           return; 
       }
+      
+      // If loading, only process chunks and render
+      if (loadingState.active) {
+          updateChunks();
+          processChunkQueue();
+          game.renderer.render(game.scene, game.camera);
+          return;
+      }
 
       game.timeSec += dt;
 
@@ -4301,6 +4551,7 @@
       updatePhysics(dt);
       updatePlayerAnimation(dt);
       updateChunks();
+      processChunkQueue(); // Process chunk generation queue
 
       // animated moving water
       if (game.waterTexture) {
@@ -4346,25 +4597,132 @@
       `;
     }
 
+    // Chunk generation throttle to prevent lag spikes
+    const chunkGenerationQueue = [];
+    let chunksGeneratedThisFrame = 0;
+    const MAX_CHUNKS_PER_FRAME = 2; // Only generate 2 chunks per frame max
+    
+    // Loading screen state
+    const loadingState = {
+      active: false,
+      chunksNeeded: 0,
+      chunksLoaded: 0,
+      
+      start(renderDistance) {
+        this.active = true;
+        this.chunksLoaded = 0;
+        // Calculate total chunks needed in view distance
+        const diameter = renderDistance * 2 + 1;
+        this.chunksNeeded = diameter * diameter;
+        
+        // Release pointer lock if active
+        if (document.pointerLockElement) {
+          document.exitPointerLock();
+        }
+        
+        document.getElementById("loading-screen").classList.remove("hidden");
+        this.updateProgress();
+      },
+      
+      chunkReady() {
+        if (!this.active) return;
+        this.chunksLoaded++;
+        this.updateProgress();
+        
+        if (this.chunksLoaded >= this.chunksNeeded) {
+          this.complete();
+        }
+      },
+      
+      updateProgress() {
+        const percent = (this.chunksLoaded / this.chunksNeeded) * 100;
+        document.getElementById("loading-progress-bar").style.width = percent + "%";
+        document.getElementById("loading-chunks").textContent = 
+          `${this.chunksLoaded} / ${this.chunksNeeded} chunks`;
+      },
+      
+      complete() {
+        this.active = false;
+        document.getElementById("loading-screen").classList.add("hidden");
+        document.getElementById("ui-layer").classList.remove("hidden");
+        console.log("Loading complete!");
+      }
+    };
+    
+    function processChunkQueue() {
+      chunksGeneratedThisFrame = 0;
+      // Generate more chunks per frame during loading
+      const maxChunks = loadingState.active ? 4 : MAX_CHUNKS_PER_FRAME;
+      
+      while (chunkGenerationQueue.length > 0 && chunksGeneratedThisFrame < maxChunks) {
+        const { x, z } = chunkGenerationQueue.shift();
+        const key = chunkKey(x, z);
+        
+        if (!game.world[key]) {
+          game.world[key] = {};
+          chunksGeneratedThisFrame++;
+          
+          // Try to load saved chunk first
+          const savedBlocks = loadChunk(x, z);
+          if (savedBlocks) {
+            // Use saved chunk data
+            game.worker.postMessage({ 
+              type: "LOAD_SAVED", 
+              x, 
+              z, 
+              blocks: savedBlocks 
+            });
+          } else {
+            // Generate new chunk with the world's seed
+            game.worker.postMessage({ 
+              type: "GENERATE", 
+              x, 
+              z, 
+              seed: game.worldSeed 
+            });
+          }
+        }
+      }
+    }
+    
     function updateChunks() {
       const px = Math.floor(game.player.pos.x / CHUNK_SIZE);
       const pz = Math.floor(game.player.pos.z / CHUNK_SIZE);
       const dist = SETTINGS.renderDistance;
 
+      // Queue chunks for generation (prioritize closer chunks)
+      const toGenerate = [];
       for (let x = px - dist; x <= px + dist; x++) {
         for (let z = pz - dist; z <= pz + dist; z++) {
           const key = chunkKey(x, z);
           if (!game.world[key]) {
-            game.world[key] = {};
-            game.worker.postMessage({ type: "GENERATE", x, z, seed: 12345 });
+            const distSq = (x - px) * (x - px) + (z - pz) * (z - pz);
+            toGenerate.push({ x, z, distSq });
           }
         }
       }
+      
+      // Sort by distance and add to queue
+      toGenerate.sort((a, b) => a.distSq - b.distSq);
+      for (const item of toGenerate) {
+        // Check if already in queue
+        const alreadyQueued = chunkGenerationQueue.some(q => q.x === item.x && q.z === item.z);
+        if (!alreadyQueued) {
+          chunkGenerationQueue.push(item);
+        }
+      }
 
+      // Unload distant chunks
       for (const k in game.world) {
         const [cx, cz] = k.split(",").map(Number);
         if (Math.abs(cx - px) > dist + 2 || Math.abs(cz - pz) > dist + 2) {
           const c = game.world[k];
+          
+          // Save chunk before unloading if it's dirty (modified)
+          if (c.isDirty && c.data) {
+            saveChunk(cx, cz, c.data);
+          }
+          
           if (c.mesh) { game.scene.remove(c.mesh); c.mesh.geometry.dispose(); }
           if (c.waterMesh) { game.scene.remove(c.waterMesh); c.waterMesh.geometry.dispose(); }
           delete game.world[k];
@@ -4421,11 +4779,16 @@
       document.getElementById("btn-settings").onclick = () => {
           document.getElementById("main-menu").classList.add("hidden");
           document.getElementById("settings-menu").classList.remove("hidden");
+          // Display the current world seed
+          document.getElementById("world-seed-display").textContent = game.worldSeed;
       };
       document.getElementById("btn-settings-back").onclick = () => {
           document.getElementById("settings-menu").classList.add("hidden");
           document.getElementById("main-menu").classList.remove("hidden");
           if (game.skinRenderer) setTimeout(() => resizeSkinPreview(), 50);
+      };
+      document.getElementById("btn-reset-world").onclick = () => {
+          clearWorld();
       };
 
       // AUTH UI EVENTS
