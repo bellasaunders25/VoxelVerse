@@ -287,7 +287,7 @@
     .slot-count { position: absolute; bottom: 2px; right: 3px; color:#fff; font-size:9px; font-family:'Minecraft',monospace; text-shadow:1px 1px 0 #000,-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000; pointer-events:none; line-height:1; }
 
     @media (pointer: coarse) and (orientation: landscape) {
-      #hotbar { bottom: 120px; gap: 4px; padding: 5px; }
+      #hotbar { position: fixed !important; bottom: 16px; left: 50%; transform: translateX(-50%); gap: 4px; padding: 5px; z-index: 1200; }
       .slot { width: 40px; height: 40px; }
       .slot-num { font-size: 8px; }
     }
@@ -404,7 +404,7 @@
        INVENTORY / CREATIVE OVERLAY
        ============================================= */
     #inventory-overlay {
-      position: absolute; inset: 0; z-index: 3000;
+      position: fixed; inset: 0; z-index: 3000;
       background: rgba(0,0,0,0.65); backdrop-filter: blur(3px);
       display: flex; align-items: center; justify-content: center;
       pointer-events: auto; padding: 8px;
@@ -495,14 +495,22 @@
       .inv-block-grid { max-height: min(170px, 22vh); }
     }
 
+    /* Mobile toggle rows in settings */
+    .mob-toggle-row {
+      display: flex; align-items: center; gap: 8px;
+      background: rgba(255,255,255,0.04); border: 1px solid #333;
+      padding: 8px 10px; border-radius: 4px; cursor: pointer;
+      font-size: 12px; color: #ccc; font-family: 'Minecraft', monospace;
+      user-select: none;
+    }
+    .mob-toggle-row input[type=checkbox] { accent-color: #fbc02d; width: 14px; height: 14px; cursor: pointer; }
+    .mob-toggle-row:hover { background: rgba(255,255,255,0.08); }
+
     /* =============================================
        MOBILE CONTROLS
        ============================================= */
     #mobile-controls {
       display: none; position: fixed; inset: 0; pointer-events: none; z-index: 1500;
-    }
-    @media (pointer: coarse) and (orientation: landscape) {
-      #mobile-controls { display: block; }
     }
 
     #joystick-zone {
@@ -523,8 +531,19 @@
       position: absolute; right: 0; top: 0; width: 56%; height: 100%; pointer-events: auto;
     }
 
+    /* Block break progress ring */
+    #break-progress-ring {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+      width: 64px; height: 64px; pointer-events: none; display: none; z-index: 1600;
+    }
+    #break-progress-ring svg { width: 64px; height: 64px; transform: rotate(-90deg); }
+    #break-progress-ring circle.track { fill: none; stroke: rgba(255,255,255,0.15); stroke-width: 5; }
+    #break-progress-ring circle.fill  { fill: none; stroke: rgba(255,100,50,0.9); stroke-width: 5;
+      stroke-dasharray: 163; stroke-dashoffset: 163; stroke-linecap: round;
+      transition: stroke-dashoffset 0.05s linear; }
+
     #mobile-action-btns {
-      position: absolute; right: 14px; bottom: 28px;
+      position: absolute; right: 14px; bottom: 70px;
       display: flex; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: auto;
     }
     #mobile-action-btns .mob-btn-row { display: flex; gap: 8px; }
@@ -539,10 +558,11 @@
     }
     .mob-btn .fa-solid, .mob-btn .fa-regular { font-size: 18px; }
     .mob-btn:active, .mob-btn.pressed { background: rgba(255,255,255,0.22); transform: scale(0.90); }
-    .mob-btn.big { width: 62px; height: 62px; }
-    .mob-btn.big .fa-solid { font-size: 22px; }
+    .mob-btn.big { width: 72px; height: 72px; border-radius: 16px; }
+    .mob-btn.big .fa-solid { font-size: 26px; }
 
-    #mobile-jump   { position: absolute; right: 14px; bottom: 200px; pointer-events: auto; }
+    /* Big jump button - bottom right corner */
+    #mobile-jump { position: absolute; right: 14px; bottom: 14px; pointer-events: auto; }
     #mobile-inv-btn   { position: absolute; top: 14px; right: 14px; pointer-events: auto; }
     #mobile-sprint-btn{ position: absolute; left: 158px; bottom: 64px; pointer-events: auto; }
   </style>
@@ -784,7 +804,7 @@
 
   <!-- SETTINGS MENU -->
   <div id="settings-menu" class="screen menu-bg hidden">
-    <div class="voxel-panel" style="width: 400px;">
+    <div class="voxel-panel" style="width: 420px;">
         <h1>Settings</h1>
         
         <div style="display:flex; flex-direction:column; gap:5px;">
@@ -796,14 +816,27 @@
             <label style="font-size:12px; color:#aaa; text-transform:uppercase;">Mouse Sensitivity</label>
             <input type="number" id="mouse-sens" value="0.002" step="0.001" class="voxel-input" />
         </div>
-        
-        <div style="display:flex; flex-direction:column; gap:15px; margin-top:20px; padding-top:20px; border-top:2px solid #333;">
-            <label style="font-size:12px; color:#aaa; text-transform:uppercase;">World Management</label>
-            <button id="btn-reset-world" class="minecraft-btn btn-red">
-                <i class="fa-solid fa-rotate-left btn-icon"></i> Reset World
-            </button>
-            <div style="font-size:10px; color:#666; text-align:center; margin-top:-10px;">
-                Current Seed: <span id="world-seed-display" style="color:#fbc02d;">Loading...</span>
+
+        <div style="display:flex; flex-direction:column; gap:5px;">
+            <label style="font-size:12px; color:#aaa; text-transform:uppercase;">Touch / Look Sensitivity</label>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <input type="range" id="touch-sens" min="1" max="20" value="4" step="1"
+                style="flex:1; accent-color:#fbc02d;" />
+              <span id="touch-sens-val" style="color:#fbc02d; font-size:12px; min-width:24px;">4</span>
+            </div>
+        </div>
+
+        <!-- Mobile UI Customization (only shown on touch devices) -->
+        <div id="mobile-ui-settings" style="display:none; flex-direction:column; gap:10px; margin-top:16px; padding-top:16px; border-top:2px solid #333;">
+            <label style="font-size:12px; color:#fbc02d; text-transform:uppercase; letter-spacing:1px;">Mobile UI Elements</label>
+            <div style="font-size:11px; color:#666; margin-top:-6px;">Toggle which controls are visible in-game.</div>
+            
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;" id="mobile-toggle-grid">
+              <label class="mob-toggle-row"><input type="checkbox" id="tog-joystick" checked> Joystick</label>
+              <label class="mob-toggle-row"><input type="checkbox" id="tog-jump" checked> Jump Button</label>
+              <label class="mob-toggle-row"><input type="checkbox" id="tog-sprint" checked> Sprint Button</label>
+              <label class="mob-toggle-row"><input type="checkbox" id="tog-inv-btn" checked> Inventory Button</label>
+              <label class="mob-toggle-row"><input type="checkbox" id="tog-hotbar" checked> Hotbar</label>
             </div>
         </div>
         
@@ -900,7 +933,7 @@
   <!-- Drag ghost element -->
   <div id="drag-ghost"></div>
 
-  <!-- MOBILE CONTROLS (shown only on touch devices) -->
+  <!-- MOBILE CONTROLS (shown only in-game on touch devices) -->
   <div id="mobile-controls">
     <!-- Left joystick -->
     <div id="joystick-zone">
@@ -908,31 +941,35 @@
       <div id="joystick-handle"></div>
     </div>
 
-    <!-- Look zone (right half) -->
+    <!-- Look zone (right half) — tap = place, hold = break -->
     <div id="look-zone"></div>
 
-    <!-- Jump button (above action buttons) -->
+    <!-- Block break progress ring (shown in center during hold-to-break) -->
+    <div id="break-progress-ring">
+      <svg viewBox="0 0 64 64">
+        <circle class="track" cx="32" cy="32" r="26"/>
+        <circle class="fill"  cx="32" cy="32" r="26" id="break-ring-fill"/>
+      </svg>
+    </div>
+
+    <!-- Action buttons: Inventory + Sprint -->
+    <div id="mobile-action-btns">
+      <div class="mob-btn-row">
+        <div class="mob-btn" id="btn-mob-sprint"><i class="fa-solid fa-person-running"></i></div>
+        <div class="mob-btn" id="btn-mob-inv"><i class="fa-solid fa-cubes"></i></div>
+      </div>
+    </div>
+
+    <!-- Big Jump button - bottom right corner -->
     <div id="mobile-jump">
       <div class="mob-btn big" id="btn-mob-jump"><i class="fa-solid fa-arrow-up"></i></div>
     </div>
 
-    <!-- Action buttons: Break + Place -->
-    <div id="mobile-action-btns">
-      <div class="mob-btn-row">
-        <div class="mob-btn" id="btn-mob-break"><i class="fa-solid fa-hammer"></i></div>
-        <div class="mob-btn" id="btn-mob-place"><i class="fa-solid fa-cube"></i></div>
-      </div>
-    </div>
+    <!-- Inventory toggle (top right) -->
+    <div id="mobile-inv-btn" style="display:none;"></div>
 
-    <!-- Inventory toggle -->
-    <div id="mobile-inv-btn">
-      <div class="mob-btn" id="btn-mob-inv"><i class="fa-solid fa-backpack"></i></div>
-    </div>
-
-    <!-- Sprint toggle -->
-    <div id="mobile-sprint-btn">
-      <div class="mob-btn" id="btn-mob-sprint"><i class="fa-solid fa-person-running"></i></div>
-    </div>
+    <!-- Sprint toggle (moved into action btns) -->
+    <div id="mobile-sprint-btn" style="display:none;"></div>
   </div>
 
   <script type="module">
@@ -1702,7 +1739,8 @@
     }
 
 
-    let SETTINGS = { renderDistance: 6, sensitivity: 0.002, nickname: "Player" };
+    let SETTINGS = { renderDistance: 6, sensitivity: 0.002, touchSensitivity: 4, nickname: "Player",
+      mobileUI: { joystick: true, jump: true, sprint: true, invBtn: true, hotbar: true } };
     let STATE = { mode: "MENU", isRunning: false, isPaused: false };
 
     // Mobile detection (declared early so all functions can use it)
@@ -4508,6 +4546,9 @@
         // Close inventory if open
         if (invOpen) { invOpen = false; document.getElementById('inventory-overlay').classList.add('hidden'); }
 
+        // Hide mobile controls when back at menu
+        hideMobileControls();
+
         // Remove game-specific event listeners
         document.removeEventListener("keydown", onKeyDown);
         document.removeEventListener("keyup", onKeyUp);
@@ -4647,7 +4688,10 @@
 
       // Setup mobile controls once renderer is ready
       if (isTouchDevice()) {
-        setTimeout(setupMobileControls, 150);
+        setTimeout(() => {
+          setupMobileControls();
+          showMobileControls();
+        }, 150);
       }
 
       // Start loading screen
@@ -5098,8 +5142,33 @@
       spawnParticlesAt(new THREE.Vector3(p.x, p.y, p.z), color, 18, 0.08, 0.55, 1.8, 0.35);
     }
 
+    // --- MOBILE UI VISIBILITY ---
+    function applyMobileUIVisibility() {
+      if (!isTouchDevice()) return;
+      const m = SETTINGS.mobileUI;
+      const show = (id, visible) => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = visible ? '' : 'none';
+      };
+      show('joystick-zone',     m.joystick);
+      show('mobile-jump',       m.jump);
+      show('btn-mob-sprint',    m.sprint);
+      show('btn-mob-inv',       m.invBtn);
+      document.getElementById('hotbar').style.opacity = m.hotbar ? '1' : '0';
+      document.getElementById('hotbar').style.pointerEvents = m.hotbar ? 'auto' : 'none';
+    }
+
+    function showMobileControls() {
+      if (!isTouchDevice()) return;
+      document.getElementById('mobile-controls').style.display = 'block';
+      applyMobileUIVisibility();
+    }
+
+    function hideMobileControls() {
+      document.getElementById('mobile-controls').style.display = 'none';
+    }
+
     // =====================================================================
-    // DROPPED ITEMS SYSTEM
     // =====================================================================
 
     function spawnDroppedItem(wx, wy, wz, blockId, count = 1, fromPlayer = false) {
@@ -6268,17 +6337,40 @@
       document.getElementById("btn-settings").onclick = () => {
           document.getElementById("main-menu").classList.add("hidden");
           document.getElementById("settings-menu").classList.remove("hidden");
-          // Display the current world seed
-          document.getElementById("world-seed-display").textContent = game.worldSeed;
+          // Show mobile UI section only on touch devices
+          if (isTouchDevice()) {
+            document.getElementById('mobile-ui-settings').style.display = 'flex';
+          }
       };
       document.getElementById("btn-settings-back").onclick = () => {
+          // Save settings
+          const rd = parseInt(document.getElementById("render-dist").value);
+          const ms = parseFloat(document.getElementById("mouse-sens").value);
+          const ts = parseInt(document.getElementById("touch-sens").value);
+          if (!isNaN(rd) && rd >= 2 && rd <= 16) SETTINGS.renderDistance = rd;
+          if (!isNaN(ms) && ms > 0) SETTINGS.sensitivity = ms;
+          if (!isNaN(ts) && ts >= 1) SETTINGS.touchSensitivity = ts;
+          // Save mobile UI prefs
+          if (isTouchDevice()) {
+            SETTINGS.mobileUI.joystick = document.getElementById('tog-joystick').checked;
+            SETTINGS.mobileUI.jump     = document.getElementById('tog-jump').checked;
+            SETTINGS.mobileUI.sprint   = document.getElementById('tog-sprint').checked;
+            SETTINGS.mobileUI.invBtn   = document.getElementById('tog-inv-btn').checked;
+            SETTINGS.mobileUI.hotbar   = document.getElementById('tog-hotbar').checked;
+            applyMobileUIVisibility();
+          }
           document.getElementById("settings-menu").classList.add("hidden");
           document.getElementById("main-menu").classList.remove("hidden");
           if (game.skinRenderer) setTimeout(() => resizeSkinPreview(), 50);
       };
-      document.getElementById("btn-reset-world").onclick = () => {
-          clearWorld();
-      };
+
+      // Touch sensitivity slider
+      const touchSensSlider = document.getElementById('touch-sens');
+      const touchSensVal    = document.getElementById('touch-sens-val');
+      touchSensSlider.addEventListener('input', () => {
+        touchSensVal.textContent = touchSensSlider.value;
+        SETTINGS.touchSensitivity = parseInt(touchSensSlider.value);
+      });
 
       // AUTH UI EVENTS
       document.getElementById("btn-login-menu").onclick = () => {
@@ -6378,14 +6470,17 @@
       const joystickHandle = document.getElementById('joystick-handle');
       const lookZone       = document.getElementById('look-zone');
       const btnJump        = document.getElementById('btn-mob-jump');
-      const btnBreak       = document.getElementById('btn-mob-break');
-      const btnPlace       = document.getElementById('btn-mob-place');
       const btnInv         = document.getElementById('btn-mob-inv');
       const btnSprint      = document.getElementById('btn-mob-sprint');
+      const breakRing      = document.getElementById('break-progress-ring');
+      const breakFill      = document.getElementById('break-ring-fill');
+
+      const CIRCUMFERENCE = 163; // 2 * pi * 26 (radius)
+      const BREAK_HOLD_MS = 700; // ms to hold to break a block
 
       const JOY_RADIUS = 45;
       let joyTouch = null;
-      let joyOriginX = 65, joyOriginY = 65; // center of joystick base
+      let joyOriginX = 65, joyOriginY = 65;
 
       // ---- JOYSTICK ----
       joystickZone.addEventListener('touchstart', e => {
@@ -6407,7 +6502,6 @@
         if (dist > JOY_RADIUS) { dx = dx / dist * JOY_RADIUS; dy = dy / dist * JOY_RADIUS; }
         joystickHandle.style.left = (joyOriginX + dx) + 'px';
         joystickHandle.style.top  = (joyOriginY + dy) + 'px';
-
         const nx = dx / JOY_RADIUS;
         const ny = dy / JOY_RADIUS;
         const dead = 0.18;
@@ -6420,9 +6514,7 @@
       joystickZone.addEventListener('touchmove', e => {
         e.preventDefault();
         for (const t of e.changedTouches) {
-          if (t.identifier === joyTouch) {
-            updateJoy(t.clientX, t.clientY, joystickZone.getBoundingClientRect());
-          }
+          if (t.identifier === joyTouch) updateJoy(t.clientX, t.clientY, joystickZone.getBoundingClientRect());
         }
       }, { passive: false });
 
@@ -6440,32 +6532,112 @@
       joystickZone.addEventListener('touchend',    endJoy, { passive: false });
       joystickZone.addEventListener('touchcancel', endJoy, { passive: false });
 
-      // ---- LOOK (right half drag) ----
+      // ---- LOOK ZONE + MINECRAFT PE BLOCK INTERACTION ----
+      // Tap = place block, Hold (700ms) = break block
       let lookTouch = null, lookLastX = 0, lookLastY = 0;
-      const LOOK_SENS = 0.004;
+      let lookStartX = 0, lookStartY = 0;
+      let holdTimer = null, holdStart = 0;
+      let holding = false, hasMoved = false;
+
+      function getLookSens() { return (SETTINGS.touchSensitivity || 4) * 0.001; }
+
+      function cancelHold() {
+        if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+        holding = false;
+        breakRing.style.display = 'none';
+        breakFill.style.strokeDashoffset = CIRCUMFERENCE;
+      }
+
+      function updateBreakRing(elapsed) {
+        const pct = Math.min(elapsed / BREAK_HOLD_MS, 1);
+        breakFill.style.strokeDashoffset = CIRCUMFERENCE * (1 - pct);
+      }
+
+      let breakAnimId = null;
+      function startBreakAnimation() {
+        breakRing.style.display = 'block';
+        holdStart = performance.now();
+        const animate = () => {
+          if (!holding) return;
+          updateBreakRing(performance.now() - holdStart);
+          breakAnimId = requestAnimationFrame(animate);
+        };
+        breakAnimId = requestAnimationFrame(animate);
+      }
+
+      function doBreak() {
+        if (!STATE.isRunning || STATE.isPaused || invOpen || loadingState.active) return;
+        game.player.punchAnim = 1;
+        const mob = raycastMob(4.2);
+        if (mob) { hurtMob(mob, 3); return; }
+        const res = raycastBlock();
+        if (res.hit) {
+          const brokenId = getBlockAt(res.hit.x, res.hit.y, res.hit.z);
+          setBlock(res.hit.x, res.hit.y, res.hit.z, BLOCKS.AIR, { fromUser: true });
+          if (getCurrentWorldMode() === 'survival' && brokenId !== BLOCKS.AIR && brokenId !== BLOCKS.WATER) {
+            spawnDroppedItem(res.hit.x + 0.5, res.hit.y + 0.7, res.hit.z + 0.5, brokenId, 1, false);
+          }
+        }
+      }
+
+      function doPlace() {
+        if (!STATE.isRunning || STATE.isPaused || invOpen || loadingState.active) return;
+        if (game.selectedBlock === null) { showNotification('No block selected!'); return; }
+        game.player.placeAnim = 1;
+        const res = raycastBlock();
+        if (!res.hit || !res.face) return;
+        const nx = res.hit.x + res.face.x;
+        const ny = res.hit.y + res.face.y;
+        const nz = res.hit.z + res.face.z;
+        const p = game.player.pos, w = 0.3;
+        if (nx+1 > p.x-w && nx < p.x+w && ny+1 > p.y && ny < p.y+1.8 && nz+1 > p.z-w && nz < p.z+w) return;
+        setBlock(nx, ny, nz, game.selectedBlock, { fromUser: true });
+      }
 
       lookZone.addEventListener('touchstart', e => {
         e.preventDefault();
+        if (invOpen || STATE.isPaused) return;
         if (lookTouch !== null) return;
         const t = e.changedTouches[0];
         lookTouch = t.identifier;
-        lookLastX = t.clientX;
-        lookLastY = t.clientY;
+        lookLastX = lookStartX = t.clientX;
+        lookLastY = lookStartY = t.clientY;
+        hasMoved = false;
+        holding = true;
         AUDIO.ensureUnlocked();
+
+        // Start hold timer for breaking
+        holdTimer = setTimeout(() => {
+          if (!hasMoved && holding) {
+            doBreak();
+            cancelHold();
+          }
+        }, BREAK_HOLD_MS);
+
+        startBreakAnimation();
       }, { passive: false });
 
       lookZone.addEventListener('touchmove', e => {
         e.preventDefault();
-        if (lookTouch === null) return;
-        if (STATE.isPaused || invOpen) return;
+        if (lookTouch === null || STATE.isPaused || invOpen) return;
         for (const t of e.changedTouches) {
           if (t.identifier === lookTouch) {
             const dx = t.clientX - lookLastX;
             const dy = t.clientY - lookLastY;
+
+            // If moved more than threshold, cancel hold-to-break and switch to look mode
+            const totalDx = t.clientX - lookStartX;
+            const totalDy = t.clientY - lookStartY;
+            if (!hasMoved && Math.sqrt(totalDx*totalDx + totalDy*totalDy) > 8) {
+              hasMoved = true;
+              cancelHold();
+            }
+
             lookLastX = t.clientX;
             lookLastY = t.clientY;
-            game.player.yaw   -= dx * LOOK_SENS;
-            game.player.pitch -= dy * LOOK_SENS;
+            const sens = getLookSens();
+            game.player.yaw   -= dx * sens;
+            game.player.pitch -= dy * sens;
             game.player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, game.player.pitch));
           }
         }
@@ -6473,23 +6645,25 @@
 
       const endLook = (e) => {
         for (const t of e.changedTouches) {
-          if (t.identifier === lookTouch) lookTouch = null;
+          if (t.identifier === lookTouch) {
+            lookTouch = null;
+            // If we didn't move (tap) → place block
+            if (!hasMoved) doPlace();
+            cancelHold();
+          }
         }
       };
       lookZone.addEventListener('touchend',    endLook, { passive: false });
       lookZone.addEventListener('touchcancel', endLook, { passive: false });
 
       // ---- ACTION BUTTONS ----
-      function mobPress(el, down) {
-        el.classList.toggle('pressed', down);
-      }
+      function mobPress(el, down) { el.classList.toggle('pressed', down); }
 
       // Jump
       btnJump.addEventListener('touchstart', e => {
         e.preventDefault();
         mobPress(btnJump, true);
         keys.space = 1;
-        // Double-tap logic for flight toggle
         const now = performance.now();
         if (now - game.player.lastSpaceTime < 300) {
           game.player.isFlying = !game.player.isFlying;
@@ -6502,47 +6676,6 @@
       }, { passive: false });
       btnJump.addEventListener('touchend',    e => { e.preventDefault(); mobPress(btnJump, false); keys.space = 0; }, { passive: false });
       btnJump.addEventListener('touchcancel', e => { e.preventDefault(); mobPress(btnJump, false); keys.space = 0; }, { passive: false });
-
-      // Break (left-click equivalent)
-      btnBreak.addEventListener('touchstart', e => {
-        e.preventDefault();
-        mobPress(btnBreak, true);
-        if (STATE.isRunning && !STATE.isPaused && !invOpen && !loadingState.active) {
-          game.player.punchAnim = 1;
-          const mob = raycastMob(4.2);
-          if (mob) { hurtMob(mob, 3); return; }
-          const res = raycastBlock();
-          if (res.hit) {
-            const brokenId = getBlockAt(res.hit.x, res.hit.y, res.hit.z);
-            setBlock(res.hit.x, res.hit.y, res.hit.z, BLOCKS.AIR, { fromUser: true });
-            if (getCurrentWorldMode() === 'survival' && brokenId !== BLOCKS.AIR && brokenId !== BLOCKS.WATER) {
-              spawnDroppedItem(res.hit.x + 0.5, res.hit.y + 0.7, res.hit.z + 0.5, brokenId, 1, false);
-            }
-          }
-        }
-      }, { passive: false });
-      btnBreak.addEventListener('touchend',    e => { e.preventDefault(); mobPress(btnBreak, false); }, { passive: false });
-      btnBreak.addEventListener('touchcancel', e => { e.preventDefault(); mobPress(btnBreak, false); }, { passive: false });
-
-      // Place (right-click equivalent)
-      btnPlace.addEventListener('touchstart', e => {
-        e.preventDefault();
-        mobPress(btnPlace, true);
-        if (STATE.isRunning && !STATE.isPaused && !invOpen && !loadingState.active) {
-          if (game.selectedBlock === null) { showNotification('No block selected!'); return; }
-          game.player.placeAnim = 1;
-          const res = raycastBlock();
-          if (!res.hit || !res.face) return;
-          const nx = res.hit.x + res.face.x;
-          const ny = res.hit.y + res.face.y;
-          const nz = res.hit.z + res.face.z;
-          const p = game.player.pos, w = 0.3;
-          if (nx+1 > p.x-w && nx < p.x+w && ny+1 > p.y && ny < p.y+1.8 && nz+1 > p.z-w && nz < p.z+w) return;
-          setBlock(nx, ny, nz, game.selectedBlock, { fromUser: true });
-        }
-      }, { passive: false });
-      btnPlace.addEventListener('touchend',    e => { e.preventDefault(); mobPress(btnPlace, false); }, { passive: false });
-      btnPlace.addEventListener('touchcancel', e => { e.preventDefault(); mobPress(btnPlace, false); }, { passive: false });
 
       // Inventory
       btnInv.addEventListener('touchstart', e => {
@@ -6562,17 +6695,11 @@
         btnSprint.style.borderColor = sprintOn ? '#fbc02d' : '';
       }, { passive: false });
 
-      // Swipe hotbar with two fingers or tap HUD slots directly
-      // (HUD slots already have click handlers)
-
       // Prevent default touch behaviors on game canvas
       if (game.renderer?.domElement) {
         game.renderer.domElement.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
         game.renderer.domElement.addEventListener('touchmove',  e => e.preventDefault(), { passive: false });
       }
-
-      // Show mobile UI
-      document.getElementById('mobile-controls').style.display = 'block';
     }
 
     init();
