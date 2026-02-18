@@ -515,6 +515,19 @@
 
     /* ---- In-world hotbar overrides for empty slots ---- */
     .slot.empty-slot { background-image: none !important; background-color: rgba(0,0,0,0.2); }
+
+    /* Stack count badges */
+    .slot-count {
+      position: absolute; bottom: 2px; right: 4px;
+      color: #fff; font-size: 10px; font-family: 'Minecraft', monospace;
+      text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;
+      pointer-events: none; line-height: 1;
+    }
+    .inv-slot-count {
+      position: absolute; bottom: 2px; right: 4px;
+      color: #fff; font-size: 10px; font-family: 'Minecraft', monospace;
+      text-shadow: 1px 1px 0 #000, -1px -1px 0 #000; pointer-events: none;
+    }
   </style>
 
   <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"></script>
@@ -1567,9 +1580,10 @@
     ];
 
     // --- INVENTORY STATE ---
-    // hotbarSlots[0..8]: blockId or null
+    // Slots are now: null | { id: blockId, count: number }  (max stack = 64)
     const HOTBAR_SIZE = 9;
     const INV_ROWS = 3;
+    const MAX_STACK = 64;
     let hotbarSlots   = Array(HOTBAR_SIZE).fill(null);
     let inventorySlots = Array(HOTBAR_SIZE * INV_ROWS).fill(null); // 27 slots
     let selectedHotbarIdx = 0;
@@ -1577,7 +1591,58 @@
     let invActiveTab = 'all';
     let invSearchQuery = '';
     // drag state
-    let dragSource = null;  // { type:'catalog'|'hotbar'|'inventory', idx, blockId }
+    let dragSource = null;  // { type:'catalog'|'hotbar'|'inventory', idx, blockId, count }
+
+    // --- DROPPED ITEMS ---
+    // Each: { id, count, pos: Vector3, vel: Vector3, mesh: THREE.Object3D, pickupDelay, age, bobOffset }
+    const droppedItems = [];
+
+    function getCurrentWorldMode() {
+      if (!activeWorldId) return 'creative';
+      const w = worldsRegistry.find(e => e.id === activeWorldId);
+      return w?.mode || 'creative';
+    }
+
+    // Add blockId/count to inventory (hotbar first, stacking, then inventory slots)
+    function addToInventory(blockId, count) {
+      let remaining = count;
+      // 1) Try to top-up existing stacks in hotbar
+      for (let i = 0; i < HOTBAR_SIZE && remaining > 0; i++) {
+        const s = hotbarSlots[i];
+        if (s && s.id === blockId && s.count < MAX_STACK) {
+          const add = Math.min(MAX_STACK - s.count, remaining);
+          s.count += add; remaining -= add;
+        }
+      }
+      // 2) Try to top-up existing stacks in inventory
+      for (let i = 0; i < inventorySlots.length && remaining > 0; i++) {
+        const s = inventorySlots[i];
+        if (s && s.id === blockId && s.count < MAX_STACK) {
+          const add = Math.min(MAX_STACK - s.count, remaining);
+          s.count += add; remaining -= add;
+        }
+      }
+      // 3) Fill empty hotbar slots
+      for (let i = 0; i < HOTBAR_SIZE && remaining > 0; i++) {
+        if (!hotbarSlots[i]) {
+          const add = Math.min(MAX_STACK, remaining);
+          hotbarSlots[i] = { id: blockId, count: add }; remaining -= add;
+        }
+      }
+      // 4) Fill empty inventory slots
+      for (let i = 0; i < inventorySlots.length && remaining > 0; i++) {
+        if (!inventorySlots[i]) {
+          const add = Math.min(MAX_STACK, remaining);
+          inventorySlots[i] = { id: blockId, count: add }; remaining -= add;
+        }
+      }
+      // Update selected block
+      game.selectedBlock = hotbarSlots[selectedHotbarIdx]?.id ?? null;
+      renderHotbarWorld();
+      refreshHeldBlockVisuals();
+      if (invOpen) { renderInventoryMainGrid(); renderInventoryHotbarRow(); }
+      return remaining === 0; // returns true if all items fit
+    }
 
 
     let SETTINGS = { renderDistance: 6, sensitivity: 0.002, nickname: "Player" };
@@ -2707,7 +2772,24 @@
 
       // 7. Setup in-world Hotbar UI (empty slots)
       renderHotbarWorld();
-    }
+
+      // Make the hotbar container itself a drop zone:
+      // dragging FROM inventory onto the hotbar HUD = clears that hotbar slot
+      const hotbarEl = document.getElementById('hotbar');
+      hotbarEl.addEventListener('dragover', e => e.preventDefault());
+      hotbarEl.addEventListener('drop', e => {
+        e.preventDefault();
+        // If a hotbar slot child handled it, ignore
+        if (!dragSource) return;
+        if (dragSource.type === 'hotbar') {
+          // Dragging a hotbar item back onto hotbar bar = clear it (throw away)
+          hotbarSlots[dragSource.idx] = null;
+          if (dragSource.idx === selectedHotbarIdx) game.selectedBlock = null;
+          renderHotbarWorld(); refreshHeldBlockVisuals();
+          endDragGhost();
+        }
+      });
+    } // end generateTextures
 
     // =====================================================================
     // INVENTORY SYSTEM
@@ -2718,13 +2800,21 @@
       hotbar.innerHTML = '';
       for (let i = 0; i < HOTBAR_SIZE; i++) {
         const div = document.createElement("div");
-        const blockId = hotbarSlots[i];
+        const slot = hotbarSlots[i];
+        const blockId = slot?.id ?? null;
+        const count = slot?.count ?? 0;
         div.className = `slot${i === selectedHotbarIdx ? ' selected' : ''}${blockId === null ? ' empty-slot' : ''}`;
         div.dataset.slotIdx = i;
         if (blockId !== null && BLOCK_ICONS[blockId]) {
           div.style.backgroundImage = `url('${BLOCK_ICONS[blockId]}')`;
         }
         div.innerHTML = `<span class="slot-num">${i + 1}</span>`;
+        if (count > 1) {
+          const cBadge = document.createElement('span');
+          cBadge.className = 'slot-count';
+          cBadge.textContent = count;
+          div.appendChild(cBadge);
+        }
         div.addEventListener('click', () => selectSlot(i));
         // Allow dropping from inventory onto in-world hotbar
         div.addEventListener('dragover', e => { e.preventDefault(); div.classList.add('inv-slot-drag-over'); });
@@ -2732,7 +2822,10 @@
         div.addEventListener('drop', e => {
           e.preventDefault();
           div.classList.remove('inv-slot-drag-over');
-          if (dragSource) commitDrop('hotbar', i);
+          if (dragSource) {
+            // Dropping FROM inventory/hotbar ONTO in-world hotbar slot → place it there
+            commitDrop('hotbar', i);
+          }
         });
         hotbar.appendChild(div);
       }
@@ -2740,7 +2833,7 @@
 
     function selectSlot(idx) {
       selectedHotbarIdx = Math.max(0, Math.min(HOTBAR_SIZE - 1, idx));
-      game.selectedBlock = hotbarSlots[selectedHotbarIdx] ?? null;
+      game.selectedBlock = hotbarSlots[selectedHotbarIdx]?.id ?? null;
       renderHotbarWorld();
       refreshHeldBlockVisuals();
       // sync selected highlight in open inventory too
@@ -2759,6 +2852,30 @@
       overlay.onclick = (e) => {
         if (e.target === overlay) closeInventory();
       };
+      // Drag onto backdrop = drop item into world
+      overlay.addEventListener('dragover', (e) => e.preventDefault());
+      overlay.addEventListener('drop', (e) => {
+        e.preventDefault();
+        if (!dragSource || dragSource.type === 'catalog') { endDragGhost(); return; }
+        const over = document.elementFromPoint(e.clientX, e.clientY);
+        const inPanel = over && (over.closest('#creative-panel') || over.closest('#player-inv-panel'));
+        if (!inPanel) {
+          // Dropped on backdrop → drop into world
+          const dropBlockId = dragSource.blockId;
+          const dropCount   = dragSource.count;
+          if (dragSource.type === 'hotbar') {
+            hotbarSlots[dragSource.idx] = null;
+            if (dragSource.idx === selectedHotbarIdx) game.selectedBlock = null;
+            renderHotbarWorld(); refreshHeldBlockVisuals();
+          } else {
+            inventorySlots[dragSource.idx] = null;
+            renderInventoryMainGrid();
+          }
+          const p = game.player.pos;
+          spawnDroppedItem(p.x, p.y + 1, p.z, dropBlockId, dropCount, true);
+          endDragGhost();
+        }
+      });
     }
 
     function closeInventory() {
@@ -2842,18 +2959,23 @@
         item.dataset.blockId = b.id;
         item.style.backgroundImage = `url('${b.icon}')`;
         item.innerHTML = `<span class="inv-block-name">${b.name}</span>`;
-        // Click to put in hotbar at selected slot
-        item.addEventListener('click', () => {
-          hotbarSlots[selectedHotbarIdx] = b.id;
-          game.selectedBlock = b.id;
-          renderHotbarWorld();
-          renderInventoryHotbarRow();
-          refreshHeldBlockVisuals();
-          showNotification(`${b.name} → Slot ${selectedHotbarIdx + 1}`);
+
+        // Left click → give 64
+        item.addEventListener('click', (e) => {
+          if (e.button !== 0) return;
+          addToInventory(b.id, 64);
+          showNotification(`${b.name} ×64 → Inventory`);
         });
-        // Drag start
+        // Middle click → give 1
+        item.addEventListener('auxclick', (e) => {
+          if (e.button !== 1) return;
+          e.preventDefault();
+          addToInventory(b.id, 1);
+          showNotification(`${b.name} ×1 → Inventory`);
+        });
+        // Drag start (always drag 64)
         item.addEventListener('dragstart', e => {
-          dragSource = { type: 'catalog', blockId: b.id };
+          dragSource = { type: 'catalog', blockId: b.id, count: 64 };
           startDragGhost(b.icon, e);
         });
         item.addEventListener('dragend', endDragGhost);
@@ -2884,7 +3006,9 @@
       }
     }
 
-    function makeInvSlot(type, idx, blockId, isHotbar = false) {
+    function makeInvSlot(type, idx, slotData, isHotbar = false) {
+      const blockId = slotData?.id ?? null;
+      const count   = slotData?.count ?? 0;
       const slot = document.createElement('div');
       slot.className = `inv-slot${blockId !== null ? ' has-item' : ''}`;
       slot.dataset.slotType = type;
@@ -2899,14 +3023,41 @@
         tip.textContent = catEntry.name;
         slot.appendChild(tip);
       }
+      if (count > 1) {
+        const cBadge = document.createElement('span');
+        cBadge.className = 'inv-slot-count';
+        cBadge.textContent = count;
+        slot.appendChild(cBadge);
+      }
       // Drag from slot
       if (blockId !== null) {
         slot.draggable = true;
         slot.addEventListener('dragstart', e => {
-          dragSource = { type, idx, blockId };
+          dragSource = { type, idx, blockId, count };
           startDragGhost(BLOCK_ICONS[blockId], e);
         });
-        slot.addEventListener('dragend', endDragGhost);
+        slot.addEventListener('dragend', (e) => {
+          // If dropped outside the inventory overlay → drop into world
+          const over = document.elementFromPoint(e.clientX, e.clientY);
+          const inOverlay = over && over.closest('#inventory-overlay');
+          if (!inOverlay && dragSource) {
+            const dropBlockId = dragSource.blockId;
+            const dropCount   = dragSource.count;
+            // Clear the source slot
+            if (dragSource.type === 'hotbar') {
+              hotbarSlots[dragSource.idx] = null;
+              if (dragSource.idx === selectedHotbarIdx) game.selectedBlock = null;
+              renderHotbarWorld(); refreshHeldBlockVisuals();
+            } else if (dragSource.type === 'inventory') {
+              inventorySlots[dragSource.idx] = null;
+              renderInventoryMainGrid();
+            }
+            // Spawn as dropped item in world
+            const p = game.player.pos;
+            spawnDroppedItem(p.x, p.y + 1, p.z, dropBlockId, dropCount, true);
+          }
+          endDragGhost();
+        });
       }
       // Drop onto slot
       slot.addEventListener('dragover', e => { e.preventDefault(); slot.classList.add('inv-slot-drag-over'); });
@@ -2916,17 +3067,21 @@
         slot.classList.remove('inv-slot-drag-over');
         if (dragSource) commitDrop(type, idx);
       });
-      // Right-click to clear
+      // Right-click → remove 1 (or clear if count=1)
       slot.addEventListener('contextmenu', e => {
         e.preventDefault();
         if (type === 'hotbar') {
-          hotbarSlots[idx] = null;
-          if (selectedHotbarIdx === idx) game.selectedBlock = null;
+          if (!hotbarSlots[idx]) return;
+          if (hotbarSlots[idx].count > 1) hotbarSlots[idx].count--;
+          else hotbarSlots[idx] = null;
+          if (selectedHotbarIdx === idx) game.selectedBlock = hotbarSlots[idx]?.id ?? null;
           renderHotbarWorld();
           renderInventoryHotbarRow();
           refreshHeldBlockVisuals();
         } else if (type === 'inventory') {
-          inventorySlots[idx] = null;
+          if (!inventorySlots[idx]) return;
+          if (inventorySlots[idx].count > 1) inventorySlots[idx].count--;
+          else inventorySlots[idx] = null;
           renderInventoryMainGrid();
         }
       });
@@ -2963,34 +3118,39 @@
 
     function commitDrop(targetType, targetIdx) {
       if (!dragSource) return;
-      const srcType = dragSource.type;
-      const srcIdx  = dragSource.idx;
-      const blockId = dragSource.blockId;
+      const srcType  = dragSource.type;
+      const srcIdx   = dragSource.idx;
+      const blockId  = dragSource.blockId;
+      const count    = dragSource.count ?? 1;
 
-      if (targetType === 'hotbar') {
-        const oldBlock = hotbarSlots[targetIdx];
-        hotbarSlots[targetIdx] = blockId;
-        // If moving FROM hotbar, swap
-        if (srcType === 'hotbar' && srcIdx !== targetIdx) hotbarSlots[srcIdx] = oldBlock;
-        // If moving FROM inventory, clear source
-        if (srcType === 'inventory') { inventorySlots[srcIdx] = oldBlock; }
-        // Update selected block if dropped into selected slot
-        if (targetIdx === selectedHotbarIdx) game.selectedBlock = blockId;
-        renderHotbarWorld();
-        renderInventoryHotbarRow();
-        if (srcType === 'inventory') renderInventoryMainGrid();
-      } else if (targetType === 'inventory') {
-        const oldBlock = inventorySlots[targetIdx];
-        inventorySlots[targetIdx] = blockId;
-        if (srcType === 'inventory' && srcIdx !== targetIdx) inventorySlots[srcIdx] = oldBlock;
-        if (srcType === 'hotbar') {
-          hotbarSlots[srcIdx] = oldBlock;
-          if (srcIdx === selectedHotbarIdx) game.selectedBlock = oldBlock ?? null;
-          renderHotbarWorld();
-          renderInventoryHotbarRow();
+      // Helper: get slot reference
+      const getSlot  = (t, i) => t === 'hotbar' ? hotbarSlots[i] : inventorySlots[i];
+      const setSlot  = (t, i, v) => { if (t === 'hotbar') hotbarSlots[i] = v; else inventorySlots[i] = v; };
+
+      const target = getSlot(targetType, targetIdx);
+
+      if (target && target.id === blockId) {
+        // Stack onto same block type
+        const canAdd = MAX_STACK - target.count;
+        const addAmt = Math.min(canAdd, count);
+        target.count += addAmt;
+        const leftover = count - addAmt;
+        if (srcType !== 'catalog') {
+          if (leftover > 0) setSlot(srcType, srcIdx, { id: blockId, count: leftover });
+          else setSlot(srcType, srcIdx, null);
         }
-        renderInventoryMainGrid();
+      } else {
+        // Swap
+        const oldTarget = target ? { ...target } : null;
+        setSlot(targetType, targetIdx, { id: blockId, count });
+        if (srcType !== 'catalog') setSlot(srcType, srcIdx, oldTarget);
       }
+
+      // Sync selected block
+      game.selectedBlock = hotbarSlots[selectedHotbarIdx]?.id ?? null;
+      renderHotbarWorld();
+      renderInventoryHotbarRow();
+      renderInventoryMainGrid();
       refreshHeldBlockVisuals();
       dragSource = null;
     }
@@ -4450,7 +4610,19 @@
       if (e.code === "KeyA") keys.a = 1;
       if (e.code === "KeyS") keys.s = 1;
       if (e.code === "KeyD") keys.d = 1;
-      if (e.code === "KeyQ") keys.q = 1; // Track Q hold
+      if (e.code === "KeyQ" && !e.repeat) {
+        keys.q = 1;
+        // Drop current hotbar item into world
+        const curSlot = hotbarSlots[selectedHotbarIdx];
+        if (curSlot && document.pointerLockElement === game.renderer?.domElement) {
+          const p = game.player.pos;
+          spawnDroppedItem(p.x, p.y + 1.2, p.z, curSlot.id, curSlot.count, true);
+          hotbarSlots[selectedHotbarIdx] = null;
+          game.selectedBlock = null;
+          renderHotbarWorld();
+          refreshHeldBlockVisuals();
+        }
+      }
       if (e.code === "Space") {
           keys.space = 1;
           if (!e.repeat) {
@@ -4847,6 +5019,107 @@
       else if (under === BLOCKS.SAND) color = 0xfff59d;
       else if (under === BLOCKS.STONE || under === BLOCKS.BRICK || under === BLOCKS.BEDROCK) color = 0xb0bec5;
       spawnParticlesAt(new THREE.Vector3(p.x, p.y, p.z), color, 18, 0.08, 0.55, 1.8, 0.35);
+    }
+
+    // =====================================================================
+    // DROPPED ITEMS SYSTEM
+    // =====================================================================
+
+    function spawnDroppedItem(wx, wy, wz, blockId, count = 1, fromPlayer = false) {
+      if (!game.scene || blockId == null) return;
+
+      const color = BLOCK_COLORS[blockId] ?? 0xffffff;
+      const geo = new THREE.BoxGeometry(0.35, 0.35, 0.35);
+      const mat = new THREE.MeshLambertMaterial({ color });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(wx, wy, wz);
+      mesh.castShadow = false;
+      game.scene.add(mesh);
+
+      const velX = fromPlayer
+        ? (Math.cos(game.player.yaw + Math.PI) * 3.5 + (Math.random() - 0.5) * 1.5)
+        : ((Math.random() - 0.5) * 2.5);
+      const velZ = fromPlayer
+        ? (Math.sin(game.player.yaw + Math.PI) * 3.5 + (Math.random() - 0.5) * 1.5)
+        : ((Math.random() - 0.5) * 2.5);
+
+      droppedItems.push({
+        id: blockId, count,
+        pos: new THREE.Vector3(wx, wy, wz),
+        vel: new THREE.Vector3(velX, fromPlayer ? 3.5 : 3.0, velZ),
+        mesh,
+        pickupDelay: fromPlayer ? 0.7 : 0.4,
+        age: 0,
+        bobOffset: Math.random() * Math.PI * 2
+      });
+    }
+
+    function updateDroppedItems(dt) {
+      if (!droppedItems.length) return;
+      const GRAVITY = -18;
+      const PICKUP_RADIUS = 1.4;
+      const p = game.player.pos;
+
+      for (let i = droppedItems.length - 1; i >= 0; i--) {
+        const item = droppedItems[i];
+        item.age += dt;
+        item.pickupDelay = Math.max(0, item.pickupDelay - dt);
+
+        // Physics
+        item.vel.y += GRAVITY * dt;
+        item.pos.x += item.vel.x * dt;
+        item.pos.y += item.vel.y * dt;
+        item.pos.z += item.vel.z * dt;
+
+        // Ground collision
+        const groundY = Math.floor(item.pos.y);
+        const blockBelow = getBlockAt(Math.floor(item.pos.x), groundY, Math.floor(item.pos.z));
+        if (blockBelow > 0 && blockBelow !== BLOCKS.WATER && item.vel.y < 0) {
+          item.pos.y = groundY + 1 + 0.18;
+          item.vel.y *= -0.28; // bounce
+          if (Math.abs(item.vel.y) < 0.4) item.vel.y = 0;
+          item.vel.x *= 0.75;
+          item.vel.z *= 0.75;
+        }
+
+        // Bob animation when resting
+        const bobY = Math.sin(game.timeSec * 2.2 + item.bobOffset) * 0.06;
+        item.mesh.position.set(item.pos.x, item.pos.y + 0.18 + bobY, item.pos.z);
+        item.mesh.rotation.y = game.timeSec * 1.8 + item.bobOffset;
+
+        // Auto-despawn after 5 minutes
+        if (item.age > 300) {
+          game.scene.remove(item.mesh);
+          item.mesh.geometry.dispose();
+          item.mesh.material.dispose();
+          droppedItems.splice(i, 1);
+          continue;
+        }
+
+        // Pickup check
+        if (item.pickupDelay > 0) continue;
+        const dx = p.x - item.pos.x;
+        const dy = (p.y + 0.9) - item.pos.y;
+        const dz = p.z - item.pos.z;
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (dist < PICKUP_RADIUS) {
+          // Animate toward player
+          const speed = 8;
+          item.pos.x += dx * speed * dt;
+          item.pos.y += dy * speed * dt;
+          item.pos.z += dz * speed * dt;
+          if (dist < 0.4) {
+            // Pick up!
+            const added = addToInventory(item.id, item.count);
+            if (added) {
+              game.scene.remove(item.mesh);
+              item.mesh.geometry.dispose();
+              item.mesh.material.dispose();
+              droppedItems.splice(i, 1);
+            }
+          }
+        }
+      }
     }
 
     function updateParticles(dt) {
@@ -5566,7 +5839,14 @@
           return;
         }
         const res = raycastBlock();
-        if (res.hit) setBlock(res.hit.x, res.hit.y, res.hit.z, BLOCKS.AIR, { fromUser: true });
+        if (res.hit) {
+          const brokenId = getBlockAt(res.hit.x, res.hit.y, res.hit.z);
+          setBlock(res.hit.x, res.hit.y, res.hit.z, BLOCKS.AIR, { fromUser: true });
+          // Drop the block as a 3D item (survival mode only)
+          if (getCurrentWorldMode() === 'survival' && brokenId !== BLOCKS.AIR && brokenId !== BLOCKS.WATER) {
+            spawnDroppedItem(res.hit.x + 0.5, res.hit.y + 0.7, res.hit.z + 0.5, brokenId, 1, false);
+          }
+        }
         return;
       }
 
@@ -5676,6 +5956,7 @@
       updateMobSpawning(dt);
       updateMobs(dt);
 
+      updateDroppedItems(dt);
       updateParticles(dt);
       maybePlaySplash();
       maybePlayFootstep(dt);
