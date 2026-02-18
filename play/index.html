@@ -11,7 +11,7 @@
     /* --- GLOBAL & FONTS --- */
     @font-face {
       font-family: 'Minecraft';
-      src: url('https://cdn.jsdelivr.net/gh/South-Paw/typeface-minecraft@master/fonts/minecraft.woff') format('woff');
+      src: url('https://cdn.jsdelivr.net/npm/@south-paw/typeface-minecraft/fonts/minecraft.woff') format('woff');
     }
     body { margin: 0; overflow: hidden; background: #111; font-family: 'Minecraft', 'Courier New', monospace; user-select: none; }
     
@@ -372,6 +372,149 @@
     @keyframes wsPulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
     .world-modal-mode-btn { outline: 2px solid transparent; }
     .world-modal-mode-btn.active-mode { outline: 2px solid #fff; }
+    /* =============================================
+       INVENTORY / CREATIVE SCREEN
+       ============================================= */
+    #inventory-overlay {
+      position: absolute; inset: 0; z-index: 3000;
+      background: rgba(0,0,0,0.65); backdrop-filter: blur(3px);
+      display: flex; align-items: center; justify-content: center;
+      pointer-events: auto;
+    }
+    #inventory-overlay.hidden { display: none !important; }
+
+    .inv-root {
+      display: flex; flex-direction: column; align-items: center; gap: 8px;
+      user-select: none;
+    }
+
+    /* ---- CREATIVE BLOCK PICKER (top panel) ---- */
+    #creative-panel {
+      background: rgba(18,18,18,0.97);
+      border: 2px solid #555; border-bottom: 3px solid #333;
+      border-radius: 6px; width: 560px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.9);
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+
+    /* Tab bar */
+    .inv-tabs {
+      display: flex; background: rgba(0,0,0,0.5);
+      border-bottom: 2px solid #444; overflow-x: auto; flex-shrink: 0;
+      scrollbar-width: none;
+    }
+    .inv-tabs::-webkit-scrollbar { display: none; }
+    .inv-tab {
+      padding: 8px 14px; font-family: 'Minecraft', monospace; font-size: 11px;
+      color: #888; cursor: pointer; white-space: nowrap; border-bottom: 2px solid transparent;
+      margin-bottom: -2px; transition: color 0.15s, border-color 0.15s;
+      flex-shrink: 0;
+    }
+    .inv-tab:hover { color: #ccc; }
+    .inv-tab.active { color: #fff; border-bottom-color: #fbc02d; text-shadow: 0 0 8px rgba(251,192,45,0.5); }
+    .inv-tab .tab-icon { font-size: 14px; margin-right: 5px; }
+
+    /* Search bar */
+    .inv-search-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 10px; border-bottom: 1px solid #333; flex-shrink: 0;
+    }
+    .inv-search-row input {
+      flex: 1; background: #111; border: 2px solid #444; color: #fff;
+      font-family: 'Minecraft', monospace; font-size: 13px; padding: 6px 10px;
+      outline: none; border-radius: 3px;
+    }
+    .inv-search-row input:focus { border-color: #888; }
+    .inv-search-row input::placeholder { color: #555; }
+    .inv-search-clear {
+      background: #333; border: 1px solid #555; color: #aaa; cursor: pointer;
+      font-size: 14px; width: 26px; height: 26px; border-radius: 3px;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .inv-search-clear:hover { background: #444; color: #fff; }
+
+    /* Block grid */
+    .inv-block-grid {
+      display: grid; grid-template-columns: repeat(9, 1fr);
+      gap: 4px; padding: 10px; overflow-y: auto; min-height: 160px; max-height: 290px;
+      scrollbar-width: thin; scrollbar-color: #444 #111;
+    }
+    .inv-block-grid::-webkit-scrollbar { width: 6px; }
+    .inv-block-grid::-webkit-scrollbar-track { background: #111; }
+    .inv-block-grid::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+
+    .inv-block-item {
+      width: 52px; height: 52px; background: rgba(255,255,255,0.04);
+      border: 2px solid #3a3a3a; border-radius: 4px; cursor: grab;
+      position: relative; background-size: 75%; background-position: center;
+      background-repeat: no-repeat; image-rendering: pixelated;
+      transition: border-color 0.12s, background-color 0.12s, transform 0.1s;
+      display: flex; align-items: flex-end; justify-content: flex-end;
+    }
+    .inv-block-item:hover { border-color: #bbb; background-color: rgba(255,255,255,0.12); transform: scale(1.08); z-index: 1; }
+    .inv-block-item:active { cursor: grabbing; transform: scale(0.96); }
+    .inv-block-item .inv-block-name {
+      position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+      background: rgba(10,10,10,0.95); color: #fff; font-size: 10px; white-space: nowrap;
+      padding: 3px 8px; border-radius: 3px; pointer-events: none; opacity: 0;
+      transition: opacity 0.15s; border: 1px solid #444; z-index: 100;
+      font-family: 'Minecraft', monospace; text-shadow: 1px 1px 0 #000;
+    }
+    .inv-block-item:hover .inv-block-name { opacity: 1; }
+    .inv-block-empty { color: #444; text-align: center; grid-column: span 9; padding: 30px; font-size: 12px; }
+
+    /* Drag ghost */
+    #drag-ghost {
+      position: fixed; pointer-events: none; z-index: 9999;
+      width: 48px; height: 48px; background-size: 75%; background-position: center;
+      background-repeat: no-repeat; image-rendering: pixelated;
+      background-color: rgba(80,130,200,0.35); border: 2px solid #7ec8ff;
+      border-radius: 4px; transform: translate(-50%,-50%); display: none;
+    }
+
+    /* ---- PLAYER INVENTORY (bottom panel) ---- */
+    #player-inv-panel {
+      background: rgba(18,18,18,0.97);
+      border: 2px solid #555; border-bottom: 3px solid #333;
+      border-radius: 6px; width: 560px; padding: 10px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.9);
+    }
+    .inv-section-label {
+      font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 1px;
+      margin-bottom: 6px; padding-left: 2px;
+    }
+    .inv-player-grid {
+      display: grid; grid-template-columns: repeat(9, 1fr);
+      gap: 4px; margin-bottom: 8px;
+    }
+    .inv-player-grid.inv-player-main { grid-template-rows: repeat(3, 1fr); }
+
+    .inv-slot {
+      width: 52px; height: 52px; background: rgba(255,255,255,0.04);
+      border: 2px solid #3a3a3a; border-radius: 4px; position: relative;
+      background-size: 75%; background-position: center; background-repeat: no-repeat;
+      image-rendering: pixelated; cursor: pointer;
+      transition: border-color 0.1s, background-color 0.1s;
+    }
+    .inv-slot:hover { border-color: #888; background-color: rgba(255,255,255,0.08); }
+    .inv-slot.inv-slot-drag-over { border-color: #7ec8ff; background-color: rgba(126,200,255,0.15); }
+    .inv-slot.has-item { cursor: grab; }
+    .inv-slot.has-item:active { cursor: grabbing; }
+
+    /* Hotbar row inside inventory */
+    .inv-hotbar-row {
+      display: grid; grid-template-columns: repeat(9, 1fr);
+      gap: 4px; padding-top: 8px; border-top: 2px solid #333;
+    }
+    .inv-hotbar-row .inv-slot { border-color: #666; }
+    .inv-hotbar-row .inv-slot.active-slot { border-color: #fbc02d; box-shadow: 0 0 6px rgba(251,192,45,0.4); }
+    .inv-slot-num {
+      position: absolute; top: 2px; left: 4px; font-size: 9px; color: rgba(255,255,255,0.5);
+      font-family: 'Minecraft', monospace; pointer-events: none; text-shadow: 1px 1px 0 #000;
+    }
+
+    /* ---- In-world hotbar overrides for empty slots ---- */
+    .slot.empty-slot { background-image: none !important; background-color: rgba(0,0,0,0.2); }
   </style>
 
   <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"></script>
@@ -693,6 +836,34 @@
     <!-- Hidden 2D Canvas for texture data -->
     <canvas id="skin-canvas" width="64" height="64"></canvas>
   </div>
+
+  <!-- INVENTORY / CREATIVE OVERLAY -->
+  <div id="inventory-overlay" class="hidden">
+    <div class="inv-root">
+
+      <!-- Creative block picker panel -->
+      <div id="creative-panel">
+        <div class="inv-tabs" id="inv-tabs"></div>
+        <div class="inv-search-row" id="inv-search-row" style="display:none;">
+          <input type="text" id="inv-search-input" placeholder="Search blocks..." autocomplete="off" spellcheck="false">
+          <button class="inv-search-clear" id="inv-search-clear" title="Clear">✕</button>
+        </div>
+        <div class="inv-block-grid" id="inv-block-grid"></div>
+      </div>
+
+      <!-- Player inventory panel -->
+      <div id="player-inv-panel">
+        <div class="inv-section-label">Inventory</div>
+        <div class="inv-player-grid inv-player-main" id="inv-main-grid"></div>
+        <div class="inv-section-label" style="margin-top:4px;">Hotbar</div>
+        <div class="inv-hotbar-row" id="inv-hotbar-row"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Drag ghost element -->
+  <div id="drag-ghost"></div>
 
   <script type="module">
     import * as THREE from "three";
@@ -1052,7 +1223,7 @@
     }
 
     function escapeHtml(s) {
-        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        return String(s).replace(/&/g,'&amp;').replace(/\x3c/g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
     function selectWorldCard(id) {
@@ -1374,17 +1545,40 @@
         water: "https://i.postimg.cc/J7q7xbFT/Water.png"
     };
 
-    // Hotbar Icons
-    const BLOCK_ICONS = {
-        [BLOCKS.DIRT]: TEXTURE_SRC.dirt,
-        [BLOCKS.GRASS]: TEXTURE_SRC.grass_side,
-        [BLOCKS.STONE]: TEXTURE_SRC.stone,
-        [BLOCKS.WOOD]: TEXTURE_SRC.log_side,
-        [BLOCKS.LEAVES]: TEXTURE_SRC.leaves,
-        [BLOCKS.BRICK]: TEXTURE_SRC.stone, // Fallback
-        [BLOCKS.SAND]: TEXTURE_SRC.sand,
-        [BLOCKS.WATER]: TEXTURE_SRC.water
-    };
+    // Full block catalog with categories
+    const BLOCK_CATALOG = [
+      { id: BLOCKS.GRASS,   name: 'Grass',   icon: TEXTURE_SRC.grass_side,  category: 'natural'  },
+      { id: BLOCKS.DIRT,    name: 'Dirt',    icon: TEXTURE_SRC.dirt,        category: 'natural'  },
+      { id: BLOCKS.SAND,    name: 'Sand',    icon: TEXTURE_SRC.sand,        category: 'natural'  },
+      { id: BLOCKS.LEAVES,  name: 'Leaves',  icon: TEXTURE_SRC.leaves,      category: 'natural'  },
+      { id: BLOCKS.WATER,   name: 'Water',   icon: TEXTURE_SRC.water,       category: 'natural'  },
+      { id: BLOCKS.STONE,   name: 'Stone',   icon: TEXTURE_SRC.stone,       category: 'building' },
+      { id: BLOCKS.BRICK,   name: 'Brick',   icon: TEXTURE_SRC.stone,       category: 'building' },
+      { id: BLOCKS.BEDROCK, name: 'Bedrock', icon: TEXTURE_SRC.bedrock,     category: 'building' },
+      { id: BLOCKS.WOOD,    name: 'Log',     icon: TEXTURE_SRC.log_side,    category: 'wood'     },
+    ];
+    const BLOCK_ICONS = Object.fromEntries(BLOCK_CATALOG.map(b => [b.id, b.icon]));
+
+    const INV_CATEGORIES = [
+      { id: 'all',      label: 'All',      icon: '🔍' },
+      { id: 'natural',  label: 'Natural',  icon: '🌿' },
+      { id: 'building', label: 'Building', icon: '🧱' },
+      { id: 'wood',     label: 'Wood',     icon: '🪵' },
+    ];
+
+    // --- INVENTORY STATE ---
+    // hotbarSlots[0..8]: blockId or null
+    const HOTBAR_SIZE = 9;
+    const INV_ROWS = 3;
+    let hotbarSlots   = Array(HOTBAR_SIZE).fill(null);
+    let inventorySlots = Array(HOTBAR_SIZE * INV_ROWS).fill(null); // 27 slots
+    let selectedHotbarIdx = 0;
+    let invOpen = false;
+    let invActiveTab = 'all';
+    let invSearchQuery = '';
+    // drag state
+    let dragSource = null;  // { type:'catalog'|'hotbar'|'inventory', idx, blockId }
+
 
     let SETTINGS = { renderDistance: 6, sensitivity: 0.002, nickname: "Player" };
     let STATE = { mode: "MENU", isRunning: false, isPaused: false };
@@ -1916,7 +2110,7 @@
       skinTexture: null, // holds the THREE texture from editor
       gridTexture: null, // holds the Grid texture
       blockSelectMesh: null,
-      selectedBlock: BLOCKS.DIRT,
+      selectedBlock: null,
 
       skinScene: null, skinCamera: null, skinRenderer: null, skinMesh: null,
       worldPlayerMesh: null,
@@ -2511,37 +2705,305 @@
           img.src = imgDef.src;
       });
 
-      // 7. Setup Hotbar UI
+      // 7. Setup in-world Hotbar UI (empty slots)
+      renderHotbarWorld();
+    }
+
+    // =====================================================================
+    // INVENTORY SYSTEM
+    // =====================================================================
+
+    function renderHotbarWorld() {
       const hotbar = document.getElementById("hotbar");
       hotbar.innerHTML = '';
-      [BLOCKS.DIRT, BLOCKS.GRASS, BLOCKS.STONE, BLOCKS.WOOD, BLOCKS.LEAVES, BLOCKS.BRICK, BLOCKS.SAND, BLOCKS.WATER].forEach((b, i) => {
+      for (let i = 0; i < HOTBAR_SIZE; i++) {
         const div = document.createElement("div");
-        div.className = `slot ${i === 0 ? "selected" : ""}`;
-        div.dataset.id = b;
-        
-        // Use the mapped icon if available, otherwise fallback color
-        if (BLOCK_ICONS[b]) {
-            div.style.backgroundImage = `url('${BLOCK_ICONS[b]}')`;
-        } else {
-            const colorHex = BLOCK_COLORS[b].toString(16);
-            div.style.backgroundColor = `#${colorHex}`;
+        const blockId = hotbarSlots[i];
+        div.className = `slot${i === selectedHotbarIdx ? ' selected' : ''}${blockId === null ? ' empty-slot' : ''}`;
+        div.dataset.slotIdx = i;
+        if (blockId !== null && BLOCK_ICONS[blockId]) {
+          div.style.backgroundImage = `url('${BLOCK_ICONS[blockId]}')`;
         }
-        
         div.innerHTML = `<span class="slot-num">${i + 1}</span>`;
-        div.onclick = () => selectSlot(i);
+        div.addEventListener('click', () => selectSlot(i));
+        // Allow dropping from inventory onto in-world hotbar
+        div.addEventListener('dragover', e => { e.preventDefault(); div.classList.add('inv-slot-drag-over'); });
+        div.addEventListener('dragleave', () => div.classList.remove('inv-slot-drag-over'));
+        div.addEventListener('drop', e => {
+          e.preventDefault();
+          div.classList.remove('inv-slot-drag-over');
+          if (dragSource) commitDrop('hotbar', i);
+        });
         hotbar.appendChild(div);
-      });
+      }
     }
 
     function selectSlot(idx) {
-      const slots = document.querySelectorAll(".slot");
-      slots.forEach((s) => s.classList.remove("selected"));
-      slots[idx]?.classList.add("selected");
-      if (slots[idx]) game.selectedBlock = parseInt(slots[idx].dataset.id);
+      selectedHotbarIdx = Math.max(0, Math.min(HOTBAR_SIZE - 1, idx));
+      game.selectedBlock = hotbarSlots[selectedHotbarIdx] ?? null;
+      renderHotbarWorld();
       refreshHeldBlockVisuals();
+      // sync selected highlight in open inventory too
+      if (invOpen) renderInventoryHotbarRow();
+    }
+
+    // ---- INVENTORY OPEN / CLOSE ----
+    function openInventory() {
+      if (invOpen) return;
+      invOpen = true;
+      document.exitPointerLock();
+      buildInventoryUI();
+      const overlay = document.getElementById('inventory-overlay');
+      overlay.classList.remove('hidden');
+      // Close when clicking the dark backdrop (not the panels)
+      overlay.onclick = (e) => {
+        if (e.target === overlay) closeInventory();
+      };
+    }
+
+    function closeInventory() {
+      if (!invOpen) return;
+      invOpen = false;
+      document.getElementById('inventory-overlay').classList.add('hidden');
+      if (STATE.isRunning && !STATE.isPaused) {
+        game.renderer?.domElement.requestPointerLock();
+      }
+    }
+
+    // ---- BUILD FULL INVENTORY UI ----
+    function buildInventoryUI() {
+      buildCatalogTabs();
+      buildSearchRow();
+      renderCatalogGrid();
+      renderInventoryMainGrid();
+      renderInventoryHotbarRow();
+    }
+
+    function buildCatalogTabs() {
+      const tabBar = document.getElementById('inv-tabs');
+      tabBar.innerHTML = '';
+      INV_CATEGORIES.forEach(cat => {
+        const tab = document.createElement('div');
+        tab.className = `inv-tab${cat.id === invActiveTab ? ' active' : ''}`;
+        tab.innerHTML = `<span class="tab-icon">${cat.icon}</span>${cat.label}`;
+        tab.addEventListener('click', () => {
+          invActiveTab = cat.id;
+          invSearchQuery = '';
+          document.getElementById('inv-search-input').value = '';
+          const searchRow = document.getElementById('inv-search-row');
+          searchRow.style.display = cat.id === 'all' ? 'flex' : 'none';
+          document.querySelectorAll('.inv-tab').forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          renderCatalogGrid();
+        });
+        tabBar.appendChild(tab);
+      });
+    }
+
+    function buildSearchRow() {
+      const searchRow = document.getElementById('inv-search-row');
+      searchRow.style.display = invActiveTab === 'all' ? 'flex' : 'none';
+      const input = document.getElementById('inv-search-input');
+      input.value = invSearchQuery;
+      input.oninput = () => {
+        invSearchQuery = input.value.trim().toLowerCase();
+        renderCatalogGrid();
+      };
+      document.getElementById('inv-search-clear').onclick = () => {
+        invSearchQuery = '';
+        input.value = '';
+        renderCatalogGrid();
+      };
+    }
+
+    function getFilteredBlocks() {
+      let list = BLOCK_CATALOG;
+      if (invActiveTab !== 'all') {
+        list = list.filter(b => b.category === invActiveTab);
+      }
+      if (invSearchQuery) {
+        list = list.filter(b => b.name.toLowerCase().includes(invSearchQuery));
+      }
+      return list;
+    }
+
+    function renderCatalogGrid() {
+      const grid = document.getElementById('inv-block-grid');
+      grid.innerHTML = '';
+      const blocks = getFilteredBlocks();
+      if (blocks.length === 0) {
+        grid.innerHTML = '<div class="inv-block-empty">No blocks found</div>';
+        return;
+      }
+      blocks.forEach(b => {
+        const item = document.createElement('div');
+        item.className = 'inv-block-item';
+        item.draggable = true;
+        item.dataset.blockId = b.id;
+        item.style.backgroundImage = `url('${b.icon}')`;
+        item.innerHTML = `<span class="inv-block-name">${b.name}</span>`;
+        // Click to put in hotbar at selected slot
+        item.addEventListener('click', () => {
+          hotbarSlots[selectedHotbarIdx] = b.id;
+          game.selectedBlock = b.id;
+          renderHotbarWorld();
+          renderInventoryHotbarRow();
+          refreshHeldBlockVisuals();
+          showNotification(`${b.name} → Slot ${selectedHotbarIdx + 1}`);
+        });
+        // Drag start
+        item.addEventListener('dragstart', e => {
+          dragSource = { type: 'catalog', blockId: b.id };
+          startDragGhost(b.icon, e);
+        });
+        item.addEventListener('dragend', endDragGhost);
+        grid.appendChild(item);
+      });
+    }
+
+    function renderInventoryMainGrid() {
+      const grid = document.getElementById('inv-main-grid');
+      grid.innerHTML = '';
+      for (let i = 0; i < inventorySlots.length; i++) {
+        grid.appendChild(makeInvSlot('inventory', i, inventorySlots[i]));
+      }
+    }
+
+    function renderInventoryHotbarRow() {
+      const row = document.getElementById('inv-hotbar-row');
+      row.innerHTML = '';
+      for (let i = 0; i < HOTBAR_SIZE; i++) {
+        const slot = makeInvSlot('hotbar', i, hotbarSlots[i], true);
+        if (i === selectedHotbarIdx) slot.classList.add('active-slot');
+        const num = document.createElement('span');
+        num.className = 'inv-slot-num';
+        num.textContent = i + 1;
+        slot.appendChild(num);
+        slot.addEventListener('click', () => selectSlot(i));
+        row.appendChild(slot);
+      }
+    }
+
+    function makeInvSlot(type, idx, blockId, isHotbar = false) {
+      const slot = document.createElement('div');
+      slot.className = `inv-slot${blockId !== null ? ' has-item' : ''}`;
+      slot.dataset.slotType = type;
+      slot.dataset.slotIdx = idx;
+      if (blockId !== null && BLOCK_ICONS[blockId]) {
+        slot.style.backgroundImage = `url('${BLOCK_ICONS[blockId]}')`;
+      }
+      const catEntry = blockId !== null ? BLOCK_CATALOG.find(b => b.id === blockId) : null;
+      if (catEntry) {
+        const tip = document.createElement('span');
+        tip.className = 'inv-block-name';
+        tip.textContent = catEntry.name;
+        slot.appendChild(tip);
+      }
+      // Drag from slot
+      if (blockId !== null) {
+        slot.draggable = true;
+        slot.addEventListener('dragstart', e => {
+          dragSource = { type, idx, blockId };
+          startDragGhost(BLOCK_ICONS[blockId], e);
+        });
+        slot.addEventListener('dragend', endDragGhost);
+      }
+      // Drop onto slot
+      slot.addEventListener('dragover', e => { e.preventDefault(); slot.classList.add('inv-slot-drag-over'); });
+      slot.addEventListener('dragleave', () => slot.classList.remove('inv-slot-drag-over'));
+      slot.addEventListener('drop', e => {
+        e.preventDefault();
+        slot.classList.remove('inv-slot-drag-over');
+        if (dragSource) commitDrop(type, idx);
+      });
+      // Right-click to clear
+      slot.addEventListener('contextmenu', e => {
+        e.preventDefault();
+        if (type === 'hotbar') {
+          hotbarSlots[idx] = null;
+          if (selectedHotbarIdx === idx) game.selectedBlock = null;
+          renderHotbarWorld();
+          renderInventoryHotbarRow();
+          refreshHeldBlockVisuals();
+        } else if (type === 'inventory') {
+          inventorySlots[idx] = null;
+          renderInventoryMainGrid();
+        }
+      });
+      return slot;
+    }
+
+    // ---- DRAG & DROP ----
+    function startDragGhost(iconUrl, e) {
+      const ghost = document.getElementById('drag-ghost');
+      ghost.style.backgroundImage = `url('${iconUrl}')`;
+      ghost.style.display = 'block';
+      ghost.style.left = e.clientX + 'px';
+      ghost.style.top  = e.clientY + 'px';
+      // Use a transparent 1x1 as drag image to hide browser ghost
+      const img = new Image(1, 1);
+      img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+      e.dataTransfer.setDragImage(img, 0, 0);
+      e.dataTransfer.effectAllowed = 'move';
+    }
+
+    function endDragGhost() {
+      document.getElementById('drag-ghost').style.display = 'none';
+      dragSource = null;
+    }
+
+    // Keep ghost following mouse
+    document.addEventListener('dragover', e => {
+      const ghost = document.getElementById('drag-ghost');
+      if (ghost.style.display !== 'none') {
+        ghost.style.left = e.clientX + 'px';
+        ghost.style.top  = e.clientY + 'px';
+      }
+    });
+
+    function commitDrop(targetType, targetIdx) {
+      if (!dragSource) return;
+      const srcType = dragSource.type;
+      const srcIdx  = dragSource.idx;
+      const blockId = dragSource.blockId;
+
+      if (targetType === 'hotbar') {
+        const oldBlock = hotbarSlots[targetIdx];
+        hotbarSlots[targetIdx] = blockId;
+        // If moving FROM hotbar, swap
+        if (srcType === 'hotbar' && srcIdx !== targetIdx) hotbarSlots[srcIdx] = oldBlock;
+        // If moving FROM inventory, clear source
+        if (srcType === 'inventory') { inventorySlots[srcIdx] = oldBlock; }
+        // Update selected block if dropped into selected slot
+        if (targetIdx === selectedHotbarIdx) game.selectedBlock = blockId;
+        renderHotbarWorld();
+        renderInventoryHotbarRow();
+        if (srcType === 'inventory') renderInventoryMainGrid();
+      } else if (targetType === 'inventory') {
+        const oldBlock = inventorySlots[targetIdx];
+        inventorySlots[targetIdx] = blockId;
+        if (srcType === 'inventory' && srcIdx !== targetIdx) inventorySlots[srcIdx] = oldBlock;
+        if (srcType === 'hotbar') {
+          hotbarSlots[srcIdx] = oldBlock;
+          if (srcIdx === selectedHotbarIdx) game.selectedBlock = oldBlock ?? null;
+          renderHotbarWorld();
+          renderInventoryHotbarRow();
+        }
+        renderInventoryMainGrid();
+      }
+      refreshHeldBlockVisuals();
+      dragSource = null;
     }
 
     function createHeldBlockMesh(scale = 1) {
+      if (game.selectedBlock === null) {
+        // Return invisible placeholder
+        const mesh = new THREE.Mesh(
+          new THREE.BoxGeometry(0, 0, 0),
+          new THREE.MeshLambertMaterial()
+        );
+        return mesh;
+      }
       const color = BLOCK_COLORS[game.selectedBlock] ?? 0xffffff;
       const mat = new THREE.MeshLambertMaterial({ color });
       return new THREE.Mesh(new THREE.BoxGeometry(0.24 * scale, 0.24 * scale, 0.24 * scale), mat);
@@ -3811,6 +4273,15 @@
         document.getElementById("main-menu").classList.remove("hidden");
         if (game.socket) { game.socket.close(); game.socket = null; }
         
+        // Close inventory if open
+        if (invOpen) { invOpen = false; document.getElementById('inventory-overlay').classList.add('hidden'); }
+
+        // Remove game-specific event listeners
+        document.removeEventListener("keydown", onKeyDown);
+        document.removeEventListener("keyup", onKeyUp);
+        document.removeEventListener("mousedown", onMouseDown);
+        document.removeEventListener("wheel", onHotbarWheel);
+        
         // Clean up scene partially (optional but good practice)
         game.mobs.clear(); // Clear mob map logic
         game.world = {};   // Clear world data
@@ -3899,6 +4370,9 @@
       document.addEventListener("keyup", onKeyUp);
       document.addEventListener("mousedown", onMouseDown);
 
+      // Mouse wheel scrolls hotbar slots
+      document.addEventListener("wheel", onHotbarWheel, { passive: false });
+
       game.renderer.domElement.onclick = () => {
         if (loadingState.active) return; // Don't lock pointer during loading
         AUDIO.ensureUnlocked();
@@ -3948,9 +4422,19 @@
 
     // --- INPUT ---
     const keys = { w: 0, a: 0, s: 0, d: 0, space: 0, shift: 0, q: 0 };
+    function onHotbarWheel(e) {
+      // Only scroll hotbar when pointer is locked (in game) and inventory is closed
+      if (document.pointerLockElement !== game.renderer?.domElement) return;
+      if (invOpen) return;
+      e.preventDefault();
+      const dir = e.deltaY > 0 ? 1 : -1;
+      const next = ((selectedHotbarIdx + dir) + HOTBAR_SIZE) % HOTBAR_SIZE;
+      selectSlot(next);
+    }
     function onKeyDown(e) {
       // Pause Toggle
       if (e.code === "Escape") {
+          if (invOpen) { closeInventory(); return; }
           if (STATE.isRunning) {
               if (STATE.isPaused) resumeGame();
               else openPauseMenu();
@@ -3960,6 +4444,7 @@
 
       if (STATE.isPaused) return; // Block input when paused
       if (loadingState.active) return; // Block input while loading
+      if (invOpen) return; // Block input while inventory is open
 
       if (e.code === "KeyW") keys.w = 1;
       if (e.code === "KeyA") keys.a = 1;
@@ -3988,6 +4473,13 @@
       }
 
       if (e.key >= "1" && e.key <= "9") selectSlot(parseInt(e.key) - 1);
+
+      // Inventory / Block picker
+      if (e.code === "KeyE" || e.code === "KeyI") {
+        if (invOpen) closeInventory();
+        else openInventory();
+        return;
+      }
 
       if (e.code === "KeyT") {
         document.getElementById("chat-input").style.display = "block";
@@ -4021,6 +4513,7 @@
       if (document.pointerLockElement !== game.renderer?.domElement) return;
       if (STATE.isPaused) return;
       if (loadingState.active) return; // Block mouse during loading
+      if (invOpen) return;
 
       game.player.yaw -= e.movementX * SETTINGS.sensitivity;
       game.player.pitch -= e.movementY * SETTINGS.sensitivity;
@@ -5062,6 +5555,7 @@
     function onMouseDown(e) {
       if (STATE.isPaused) return; // Block clicks when paused
       if (loadingState.active) return; // Block clicks while loading
+      if (invOpen) return; // Block clicks when inventory open
       if (document.pointerLockElement !== game.renderer.domElement) return;
 
       if (e.button === 0) {
@@ -5077,6 +5571,10 @@
       }
 
       if (e.button === 2) {
+        if (game.selectedBlock === null) {
+          showNotification('No block selected — press E to open inventory!');
+          return;
+        }
         game.player.placeAnim = 1;
         const res = raycastBlock();
         if (!res.hit || !res.face) return;
