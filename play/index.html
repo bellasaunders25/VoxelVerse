@@ -565,6 +565,39 @@
     #mobile-jump { position: absolute; right: 14px; bottom: 14px; pointer-events: auto; }
     #mobile-inv-btn   { position: absolute; top: 14px; right: 14px; pointer-events: auto; }
     #mobile-sprint-btn{ position: absolute; left: 158px; bottom: 64px; pointer-events: auto; }
+
+    /* Pause button – top left */
+    #mobile-pause-btn {
+      position: absolute; top: 14px; left: 14px; pointer-events: auto;
+      width: 46px; height: 46px;
+      background: rgba(0,0,0,0.5); border: 2px solid rgba(255,255,255,0.3); border-radius: 10px;
+      color: #fff; font-size: 17px; display: flex; align-items: center; justify-content: center;
+      touch-action: manipulation; user-select: none; -webkit-user-select: none;
+      transition: background 0.08s, transform 0.08s;
+    }
+    #mobile-pause-btn:active { background: rgba(255,255,255,0.22); transform: scale(0.9); }
+
+    /* Drag-edit mode for repositionable controls */
+    .mob-draggable { touch-action: none; }
+    .mob-draggable.edit-mode {
+      outline: 2px dashed #fbc02d; outline-offset: 3px;
+      filter: drop-shadow(0 0 6px rgba(251,192,45,0.6));
+    }
+    /* Edit-mode bottom bar */
+    #mob-edit-bar {
+      display: none; position: absolute; bottom: 0; left: 0; right: 0;
+      background: rgba(0,0,0,0.85); border-top: 2px solid #fbc02d;
+      padding: 8px 16px; pointer-events: auto; z-index: 10;
+      flex-direction: row; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    #mob-edit-bar.active { display: flex; }
+    #mob-edit-bar span { color: #fbc02d; font-size: 11px; font-family: 'Minecraft', monospace; text-shadow: 1px 1px 0 #000; flex: 1; }
+    .mob-edit-btn {
+      background: #388e3c; border: 2px solid #1b5e20; border-top-color: #66bb6a; border-left-color: #66bb6a;
+      color: #fff; font-family: 'Minecraft', monospace; font-size: 11px; padding: 6px 14px;
+      cursor: pointer; touch-action: manipulation; border-radius: 4px; box-shadow: inset 0 -3px 0 rgba(0,0,0,0.4);
+    }
+    .mob-edit-btn.grey { background: #616161; border-color: #212121; border-top-color: #9e9e9e; border-left-color: #9e9e9e; }
   </style>
 
 
@@ -612,7 +645,7 @@
       <h1>GAME PAUSED</h1>
       <div class="pause-btn-group">
           <button id="btn-pause-resume" class="minecraft-btn btn-green"><i class="fa-solid fa-play btn-icon"></i> Resume Game</button>
-          <button id="btn-pause-options" class="minecraft-btn btn-grey" disabled><i class="fa-solid fa-sliders btn-icon"></i> Options (WIP)</button>
+          <button id="btn-pause-options" class="minecraft-btn btn-grey"><i class="fa-solid fa-sliders btn-icon"></i> Options</button>
           <button id="btn-pause-quit" class="minecraft-btn btn-red"><i class="fa-solid fa-right-from-bracket btn-icon"></i> Quit to Title</button>
       </div>
   </div>
@@ -838,6 +871,10 @@
               <label class="mob-toggle-row"><input type="checkbox" id="tog-inv-btn" checked> Inventory Button</label>
               <label class="mob-toggle-row"><input type="checkbox" id="tog-hotbar" checked> Hotbar</label>
             </div>
+
+            <button id="btn-layout-controls" class="minecraft-btn btn-gold" style="height:40px; font-size:12px;">
+              <i class="fa-solid fa-up-down-left-right btn-icon"></i> Reposition Controls
+            </button>
         </div>
         
         <button id="btn-settings-back" class="minecraft-btn btn-grey" style="margin-top:20px;"><i class="fa-solid fa-arrow-left btn-icon"></i> Back to Menu</button>
@@ -935,16 +972,19 @@
 
   <!-- MOBILE CONTROLS (shown only in-game on touch devices) -->
   <div id="mobile-controls">
-    <!-- Left joystick -->
-    <div id="joystick-zone">
+    <!-- Pause button – top left -->
+    <div id="mobile-pause-btn"><i class="fa-solid fa-bars"></i></div>
+
+    <!-- Left joystick (draggable) -->
+    <div id="joystick-zone" class="mob-draggable">
       <div id="joystick-base"></div>
       <div id="joystick-handle"></div>
     </div>
 
-    <!-- Look zone (right half) — tap = place, hold = break -->
+    <!-- Look zone (right half) — tap = place/attack, hold = break -->
     <div id="look-zone"></div>
 
-    <!-- Block break progress ring (shown in center during hold-to-break) -->
+    <!-- Block break progress ring -->
     <div id="break-progress-ring">
       <svg viewBox="0 0 64 64">
         <circle class="track" cx="32" cy="32" r="26"/>
@@ -952,24 +992,29 @@
       </svg>
     </div>
 
-    <!-- Action buttons: Inventory + Sprint -->
-    <div id="mobile-action-btns">
+    <!-- Action buttons: Sprint + Inventory (draggable) -->
+    <div id="mobile-action-btns" class="mob-draggable">
       <div class="mob-btn-row">
         <div class="mob-btn" id="btn-mob-sprint"><i class="fa-solid fa-person-running"></i></div>
         <div class="mob-btn" id="btn-mob-inv"><i class="fa-solid fa-cubes"></i></div>
       </div>
     </div>
 
-    <!-- Big Jump button - bottom right corner -->
-    <div id="mobile-jump">
+    <!-- Big Jump button (draggable) -->
+    <div id="mobile-jump" class="mob-draggable">
       <div class="mob-btn big" id="btn-mob-jump"><i class="fa-solid fa-arrow-up"></i></div>
     </div>
 
-    <!-- Inventory toggle (top right) -->
+    <!-- Hidden legacy divs (kept for compat) -->
     <div id="mobile-inv-btn" style="display:none;"></div>
-
-    <!-- Sprint toggle (moved into action btns) -->
     <div id="mobile-sprint-btn" style="display:none;"></div>
+
+    <!-- Edit-mode bottom bar -->
+    <div id="mob-edit-bar">
+      <span>✦ Drag controls to reposition</span>
+      <button class="mob-edit-btn grey" id="mob-edit-reset">Reset</button>
+      <button class="mob-edit-btn" id="mob-edit-done">Done ✓</button>
+    </div>
   </div>
 
   <script type="module">
@@ -1742,6 +1787,7 @@
     let SETTINGS = { renderDistance: 6, sensitivity: 0.002, touchSensitivity: 4, nickname: "Player",
       mobileUI: { joystick: true, jump: true, sprint: true, invBtn: true, hotbar: true } };
     let STATE = { mode: "MENU", isRunning: false, isPaused: false };
+    let settingsReturnTo = 'main'; // 'main' or 'pause'
 
     // Mobile detection (declared early so all functions can use it)
     const isTouchDevice = () => window.matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0;
@@ -5142,6 +5188,136 @@
       spawnParticlesAt(new THREE.Vector3(p.x, p.y, p.z), color, 18, 0.08, 0.55, 1.8, 0.35);
     }
 
+    // =====================================================================
+    // MOBILE LAYOUT SYSTEM – drag to reposition, save to cloud
+    // =====================================================================
+
+    const LAYOUT_STORAGE_KEY = 'voxelverse_mob_layout_v1';
+    const DEFAULT_LAYOUT = {
+      'joystick-zone':      { left: 20,  top: null, right: null, bottom: 28 },
+      'mobile-jump':        { left: null, top: null, right: 14,  bottom: 14 },
+      'mobile-action-btns': { left: null, top: null, right: 14,  bottom: 70 },
+    };
+    let mobLayout = JSON.parse(JSON.stringify(DEFAULT_LAYOUT));
+    let mobEditMode = false;
+
+    function applyElementLayout(el, pos) {
+      el.style.left   = pos.left   != null ? pos.left   + 'px' : '';
+      el.style.right  = pos.right  != null ? pos.right  + 'px' : '';
+      el.style.top    = pos.top    != null ? pos.top    + 'px' : '';
+      el.style.bottom = pos.bottom != null ? pos.bottom + 'px' : '';
+    }
+
+    function applyAllLayouts() {
+      for (const [id, pos] of Object.entries(mobLayout)) {
+        const el = document.getElementById(id);
+        if (el) applyElementLayout(el, pos);
+      }
+    }
+
+    function saveMobileLayout() {
+      try { localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(mobLayout)); } catch(e) {}
+      // Save to Supabase if logged in
+      if (currentUser && supabase) {
+        supabase.from('profiles').update({ ui_layout: mobLayout }).eq('id', currentUser.id)
+          .then(({ error }) => { if (error) console.warn('Layout cloud save failed:', error.message); });
+      }
+    }
+
+    function loadMobileLayout() {
+      try {
+        const saved = localStorage.getItem(LAYOUT_STORAGE_KEY);
+        if (saved) { mobLayout = { ...DEFAULT_LAYOUT, ...JSON.parse(saved) }; }
+      } catch(e) {}
+    }
+
+    async function loadMobileLayoutFromCloud() {
+      if (!currentUser || !supabase) return;
+      try {
+        const { data } = await supabase.from('profiles').select('ui_layout').eq('id', currentUser.id).single();
+        if (data?.ui_layout) {
+          mobLayout = { ...DEFAULT_LAYOUT, ...data.ui_layout };
+          try { localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(mobLayout)); } catch(e) {}
+          applyAllLayouts();
+        }
+      } catch(e) {}
+    }
+
+    function enterMobEditMode() {
+      mobEditMode = true;
+      document.querySelectorAll('.mob-draggable').forEach(el => el.classList.add('edit-mode'));
+      document.getElementById('mob-edit-bar').classList.add('active');
+      // Shrink look-zone during edit so controls are reachable
+      document.getElementById('look-zone').style.pointerEvents = 'none';
+    }
+
+    function exitMobEditMode() {
+      mobEditMode = false;
+      document.querySelectorAll('.mob-draggable').forEach(el => el.classList.remove('edit-mode'));
+      document.getElementById('mob-edit-bar').classList.remove('active');
+      document.getElementById('look-zone').style.pointerEvents = '';
+      saveMobileLayout();
+      showNotification('Layout saved!');
+    }
+
+    function resetMobLayout() {
+      mobLayout = JSON.parse(JSON.stringify(DEFAULT_LAYOUT));
+      applyAllLayouts();
+      saveMobileLayout();
+    }
+
+    function setupDraggableControls() {
+      const draggables = document.querySelectorAll('.mob-draggable');
+      draggables.forEach(el => {
+        let dragId = null, startX = 0, startY = 0, startLeft = 0, startTop = 0;
+
+        el.addEventListener('touchstart', e => {
+          if (!mobEditMode) return;
+          e.preventDefault(); e.stopPropagation();
+          const t = e.changedTouches[0];
+          dragId = t.identifier;
+          const rect = el.getBoundingClientRect();
+          startX = t.clientX; startY = t.clientY;
+          startLeft = rect.left; startTop = rect.top;
+        }, { passive: false });
+
+        el.addEventListener('touchmove', e => {
+          if (!mobEditMode || dragId === null) return;
+          e.preventDefault(); e.stopPropagation();
+          for (const t of e.changedTouches) {
+            if (t.identifier !== dragId) continue;
+            const dx = t.clientX - startX;
+            const dy = t.clientY - startY;
+            const newLeft = Math.max(0, Math.min(window.innerWidth  - el.offsetWidth,  startLeft + dx));
+            const newTop  = Math.max(0, Math.min(window.innerHeight - el.offsetHeight, startTop  + dy));
+            el.style.left = newLeft + 'px';
+            el.style.top  = newTop  + 'px';
+            el.style.right  = '';
+            el.style.bottom = '';
+            // Update layout store
+            const id = el.id;
+            if (mobLayout[id]) {
+              mobLayout[id] = { left: newLeft, top: newTop, right: null, bottom: null };
+            }
+          }
+        }, { passive: false });
+
+        const endDrag = e => {
+          if (!mobEditMode) return;
+          for (const t of e.changedTouches) { if (t.identifier === dragId) dragId = null; }
+        };
+        el.addEventListener('touchend',    endDrag, { passive: false });
+        el.addEventListener('touchcancel', endDrag, { passive: false });
+      });
+
+      document.getElementById('mob-edit-done').addEventListener('touchstart', e => {
+        e.preventDefault(); exitMobEditMode();
+      }, { passive: false });
+      document.getElementById('mob-edit-reset').addEventListener('touchstart', e => {
+        e.preventDefault(); resetMobLayout(); showNotification('Layout reset!');
+      }, { passive: false });
+    }
+
     // --- MOBILE UI VISIBILITY ---
     function applyMobileUIVisibility() {
       if (!isTouchDevice()) return;
@@ -5160,12 +5336,17 @@
 
     function showMobileControls() {
       if (!isTouchDevice()) return;
+      loadMobileLayout();
+      applyAllLayouts();
       document.getElementById('mobile-controls').style.display = 'block';
       applyMobileUIVisibility();
+      // Try to load cloud layout after a moment
+      if (currentUser) setTimeout(loadMobileLayoutFromCloud, 500);
     }
 
     function hideMobileControls() {
       document.getElementById('mobile-controls').style.display = 'none';
+      if (mobEditMode) { mobEditMode = false; document.querySelectorAll('.mob-draggable').forEach(el => el.classList.remove('edit-mode')); document.getElementById('mob-edit-bar').classList.remove('active'); }
     }
 
     // =====================================================================
@@ -6332,9 +6513,16 @@
       // PAUSE MENU LISTENERS
       document.getElementById("btn-pause-resume").onclick = resumeGame;
       document.getElementById("btn-pause-quit").onclick = quitToTitle;
+      document.getElementById("btn-pause-options").onclick = () => {
+          settingsReturnTo = 'pause';
+          document.getElementById("pause-menu").classList.add("hidden");
+          document.getElementById("settings-menu").classList.remove("hidden");
+          if (isTouchDevice()) document.getElementById('mobile-ui-settings').style.display = 'flex';
+      };
 
       // SETTINGS MENU LISTENERS
       document.getElementById("btn-settings").onclick = () => {
+          settingsReturnTo = 'main';
           document.getElementById("main-menu").classList.add("hidden");
           document.getElementById("settings-menu").classList.remove("hidden");
           // Show mobile UI section only on touch devices
@@ -6360,8 +6548,12 @@
             applyMobileUIVisibility();
           }
           document.getElementById("settings-menu").classList.add("hidden");
-          document.getElementById("main-menu").classList.remove("hidden");
-          if (game.skinRenderer) setTimeout(() => resizeSkinPreview(), 50);
+          if (settingsReturnTo === 'pause') {
+              document.getElementById("pause-menu").classList.remove("hidden");
+          } else {
+              document.getElementById("main-menu").classList.remove("hidden");
+              if (game.skinRenderer) setTimeout(() => resizeSkinPreview(), 50);
+          }
       };
 
       // Touch sensitivity slider
@@ -6371,6 +6563,21 @@
         touchSensVal.textContent = touchSensSlider.value;
         SETTINGS.touchSensitivity = parseInt(touchSensSlider.value);
       });
+
+      // Layout controls button (only visible on touch)
+      const layoutBtn = document.getElementById('btn-layout-controls');
+      if (layoutBtn) {
+        layoutBtn.addEventListener('click', () => {
+          // Close settings, go back to game, enter edit mode
+          document.getElementById("settings-menu").classList.add("hidden");
+          if (settingsReturnTo === 'pause') {
+            // Resume so game is visible, then enter edit
+            STATE.isPaused = false;
+            document.getElementById("pause-menu").classList.add("hidden");
+          }
+          enterMobEditMode();
+        });
+      }
 
       // AUTH UI EVENTS
       document.getElementById("btn-login-menu").onclick = () => {
@@ -6472,18 +6679,30 @@
       const btnJump        = document.getElementById('btn-mob-jump');
       const btnInv         = document.getElementById('btn-mob-inv');
       const btnSprint      = document.getElementById('btn-mob-sprint');
+      const btnPause       = document.getElementById('mobile-pause-btn');
       const breakRing      = document.getElementById('break-progress-ring');
       const breakFill      = document.getElementById('break-ring-fill');
 
-      const CIRCUMFERENCE = 163; // 2 * pi * 26 (radius)
-      const BREAK_HOLD_MS = 700; // ms to hold to break a block
+      const CIRCUMFERENCE  = 163;
+      const BREAK_HOLD_MS  = 700;
+      const JOY_RADIUS     = 45;
 
-      const JOY_RADIUS = 45;
-      let joyTouch = null;
-      let joyOriginX = 65, joyOriginY = 65;
+      // ---- Setup draggable controls ----
+      setupDraggableControls();
+
+      // ---- PAUSE BUTTON ----
+      btnPause.addEventListener('touchstart', e => {
+        e.preventDefault();
+        if (mobEditMode) return;
+        if (invOpen) { closeInventory(); return; }
+        if (STATE.isPaused) resumeGame(); else openPauseMenu();
+      }, { passive: false });
 
       // ---- JOYSTICK ----
+      let joyTouch = null, joyOriginX = 65, joyOriginY = 65;
+
       joystickZone.addEventListener('touchstart', e => {
+        if (mobEditMode) return;
         e.preventDefault();
         const t = e.changedTouches[0];
         joyTouch = t.identifier;
@@ -6502,9 +6721,7 @@
         if (dist > JOY_RADIUS) { dx = dx / dist * JOY_RADIUS; dy = dy / dist * JOY_RADIUS; }
         joystickHandle.style.left = (joyOriginX + dx) + 'px';
         joystickHandle.style.top  = (joyOriginY + dy) + 'px';
-        const nx = dx / JOY_RADIUS;
-        const ny = dy / JOY_RADIUS;
-        const dead = 0.18;
+        const nx = dx / JOY_RADIUS, ny = dy / JOY_RADIUS, dead = 0.18;
         keys.w = (ny < -dead) ? 1 : 0;
         keys.s = (ny >  dead) ? 1 : 0;
         keys.a = (nx < -dead) ? 1 : 0;
@@ -6512,6 +6729,7 @@
       }
 
       joystickZone.addEventListener('touchmove', e => {
+        if (mobEditMode) return;
         e.preventDefault();
         for (const t of e.changedTouches) {
           if (t.identifier === joyTouch) updateJoy(t.clientX, t.clientY, joystickZone.getBoundingClientRect());
@@ -6532,12 +6750,10 @@
       joystickZone.addEventListener('touchend',    endJoy, { passive: false });
       joystickZone.addEventListener('touchcancel', endJoy, { passive: false });
 
-      // ---- LOOK ZONE + MINECRAFT PE BLOCK INTERACTION ----
-      // Tap = place block, Hold (700ms) = break block
+      // ---- LOOK ZONE – tap=place/attack, hold=break ----
       let lookTouch = null, lookLastX = 0, lookLastY = 0;
       let lookStartX = 0, lookStartY = 0;
-      let holdTimer = null, holdStart = 0;
-      let holding = false, hasMoved = false;
+      let holdTimer = null, holdStart = 0, holding = false, hasMoved = false;
 
       function getLookSens() { return (SETTINGS.touchSensitivity || 4) * 0.001; }
 
@@ -6548,21 +6764,16 @@
         breakFill.style.strokeDashoffset = CIRCUMFERENCE;
       }
 
-      function updateBreakRing(elapsed) {
-        const pct = Math.min(elapsed / BREAK_HOLD_MS, 1);
-        breakFill.style.strokeDashoffset = CIRCUMFERENCE * (1 - pct);
-      }
-
-      let breakAnimId = null;
       function startBreakAnimation() {
         breakRing.style.display = 'block';
         holdStart = performance.now();
         const animate = () => {
           if (!holding) return;
-          updateBreakRing(performance.now() - holdStart);
-          breakAnimId = requestAnimationFrame(animate);
+          const pct = Math.min((performance.now() - holdStart) / BREAK_HOLD_MS, 1);
+          breakFill.style.strokeDashoffset = CIRCUMFERENCE * (1 - pct);
+          requestAnimationFrame(animate);
         };
-        breakAnimId = requestAnimationFrame(animate);
+        requestAnimationFrame(animate);
       }
 
       function doBreak() {
@@ -6574,21 +6785,21 @@
         if (res.hit) {
           const brokenId = getBlockAt(res.hit.x, res.hit.y, res.hit.z);
           setBlock(res.hit.x, res.hit.y, res.hit.z, BLOCKS.AIR, { fromUser: true });
-          if (getCurrentWorldMode() === 'survival' && brokenId !== BLOCKS.AIR && brokenId !== BLOCKS.WATER) {
+          if (getCurrentWorldMode() === 'survival' && brokenId !== BLOCKS.AIR && brokenId !== BLOCKS.WATER)
             spawnDroppedItem(res.hit.x + 0.5, res.hit.y + 0.7, res.hit.z + 0.5, brokenId, 1, false);
-          }
         }
       }
 
       function doPlace() {
         if (!STATE.isRunning || STATE.isPaused || invOpen || loadingState.active) return;
+        game.player.punchAnim = 1;
+        const mob = raycastMob(4.2);
+        if (mob) { hurtMob(mob, 3); return; }
         if (game.selectedBlock === null) { showNotification('No block selected!'); return; }
         game.player.placeAnim = 1;
         const res = raycastBlock();
         if (!res.hit || !res.face) return;
-        const nx = res.hit.x + res.face.x;
-        const ny = res.hit.y + res.face.y;
-        const nz = res.hit.z + res.face.z;
+        const nx = res.hit.x + res.face.x, ny = res.hit.y + res.face.y, nz = res.hit.z + res.face.z;
         const p = game.player.pos, w = 0.3;
         if (nx+1 > p.x-w && nx < p.x+w && ny+1 > p.y && ny < p.y+1.8 && nz+1 > p.z-w && nz < p.z+w) return;
         setBlock(nx, ny, nz, game.selectedBlock, { fromUser: true });
@@ -6596,106 +6807,86 @@
 
       lookZone.addEventListener('touchstart', e => {
         e.preventDefault();
-        if (invOpen || STATE.isPaused) return;
+        if (mobEditMode || invOpen || STATE.isPaused) return;
         if (lookTouch !== null) return;
         const t = e.changedTouches[0];
         lookTouch = t.identifier;
         lookLastX = lookStartX = t.clientX;
         lookLastY = lookStartY = t.clientY;
-        hasMoved = false;
-        holding = true;
+        hasMoved = false; holding = true;
         AUDIO.ensureUnlocked();
-
-        // Start hold timer for breaking
-        holdTimer = setTimeout(() => {
-          if (!hasMoved && holding) {
-            doBreak();
-            cancelHold();
-          }
-        }, BREAK_HOLD_MS);
-
+        holdTimer = setTimeout(() => { if (!hasMoved && holding) { doBreak(); cancelHold(); } }, BREAK_HOLD_MS);
         startBreakAnimation();
       }, { passive: false });
 
       lookZone.addEventListener('touchmove', e => {
         e.preventDefault();
-        if (lookTouch === null || STATE.isPaused || invOpen) return;
+        if (lookTouch === null || mobEditMode || STATE.isPaused || invOpen) return;
         for (const t of e.changedTouches) {
-          if (t.identifier === lookTouch) {
-            const dx = t.clientX - lookLastX;
-            const dy = t.clientY - lookLastY;
-
-            // If moved more than threshold, cancel hold-to-break and switch to look mode
-            const totalDx = t.clientX - lookStartX;
-            const totalDy = t.clientY - lookStartY;
-            if (!hasMoved && Math.sqrt(totalDx*totalDx + totalDy*totalDy) > 8) {
-              hasMoved = true;
-              cancelHold();
-            }
-
-            lookLastX = t.clientX;
-            lookLastY = t.clientY;
-            const sens = getLookSens();
-            game.player.yaw   -= dx * sens;
-            game.player.pitch -= dy * sens;
-            game.player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, game.player.pitch));
-          }
+          if (t.identifier !== lookTouch) continue;
+          const dx = t.clientX - lookLastX, dy = t.clientY - lookLastY;
+          const tdx = t.clientX - lookStartX, tdy = t.clientY - lookStartY;
+          if (!hasMoved && Math.sqrt(tdx*tdx + tdy*tdy) > 8) { hasMoved = true; cancelHold(); }
+          lookLastX = t.clientX; lookLastY = t.clientY;
+          const s = getLookSens();
+          game.player.yaw   -= dx * s;
+          game.player.pitch -= dy * s;
+          game.player.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, game.player.pitch));
         }
       }, { passive: false });
 
       const endLook = (e) => {
         for (const t of e.changedTouches) {
-          if (t.identifier === lookTouch) {
-            lookTouch = null;
-            // If we didn't move (tap) → place block
-            if (!hasMoved) doPlace();
-            cancelHold();
-          }
+          if (t.identifier !== lookTouch) continue;
+          lookTouch = null;
+          if (!hasMoved) doPlace();
+          cancelHold();
         }
       };
       lookZone.addEventListener('touchend',    endLook, { passive: false });
       lookZone.addEventListener('touchcancel', endLook, { passive: false });
 
-      // ---- ACTION BUTTONS ----
+      // ---- BUTTONS ----
       function mobPress(el, down) { el.classList.toggle('pressed', down); }
 
-      // Jump
+      // Jump (double-tap = fly toggle)
       btnJump.addEventListener('touchstart', e => {
-        e.preventDefault();
-        mobPress(btnJump, true);
-        keys.space = 1;
+        e.preventDefault(); mobPress(btnJump, true); keys.space = 1;
         const now = performance.now();
         if (now - game.player.lastSpaceTime < 300) {
-          game.player.isFlying = !game.player.isFlying;
-          game.player.vel.y = 0;
+          game.player.isFlying = !game.player.isFlying; game.player.vel.y = 0;
           showNotification(game.player.isFlying ? 'Flight Mode: ON' : 'Flight Mode: OFF');
           game.player.lastSpaceTime = 0;
-        } else {
-          game.player.lastSpaceTime = now;
-        }
+        } else { game.player.lastSpaceTime = now; }
       }, { passive: false });
       btnJump.addEventListener('touchend',    e => { e.preventDefault(); mobPress(btnJump, false); keys.space = 0; }, { passive: false });
       btnJump.addEventListener('touchcancel', e => { e.preventDefault(); mobPress(btnJump, false); keys.space = 0; }, { passive: false });
 
-      // Inventory
+      // Inventory – cooldown prevents ghost-click immediately closing the overlay
+      let invCooldown = false;
       btnInv.addEventListener('touchstart', e => {
-        e.preventDefault();
-        mobPress(btnInv, true);
-        if (invOpen) closeInventory(); else openInventory();
+        e.preventDefault(); mobPress(btnInv, true);
+        if (invCooldown) return;
+        invCooldown = true; setTimeout(() => { invCooldown = false; }, 400);
+        if (invOpen) {
+          lookZone.style.pointerEvents = '';
+          closeInventory();
+        } else {
+          lookZone.style.pointerEvents = 'none'; // stop look-zone eating inventory touches
+          openInventory();
+        }
       }, { passive: false });
-      btnInv.addEventListener('touchend',    e => { e.preventDefault(); mobPress(btnInv, false); }, { passive: false });
+      btnInv.addEventListener('touchend', e => { e.preventDefault(); mobPress(btnInv, false); }, { passive: false });
 
       // Sprint toggle
       let sprintOn = false;
       btnSprint.addEventListener('touchstart', e => {
-        e.preventDefault();
-        sprintOn = !sprintOn;
-        keys.shift = sprintOn ? 1 : 0;
-        btnSprint.style.background = sprintOn ? 'rgba(255,200,0,0.35)' : '';
+        e.preventDefault(); sprintOn = !sprintOn; keys.shift = sprintOn ? 1 : 0;
+        btnSprint.style.background  = sprintOn ? 'rgba(255,200,0,0.35)' : '';
         btnSprint.style.borderColor = sprintOn ? '#fbc02d' : '';
       }, { passive: false });
 
-      // Prevent default touch behaviors on game canvas
+      // Prevent canvas stealing touches
       if (game.renderer?.domElement) {
         game.renderer.domElement.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
         game.renderer.domElement.addEventListener('touchmove',  e => e.preventDefault(), { passive: false });
