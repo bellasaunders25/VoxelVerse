@@ -372,14 +372,24 @@
 
   <!-- LOADING SCREEN -->
   <div id="loading-screen" class="screen menu-bg hidden" style="z-index: 9999; pointer-events: auto;">
-      <div style="text-align: center;">
-          <h1 style="font-size: 48px; margin-bottom: 30px; text-shadow: 3px 3px 0 #000; color: #fbc02d;">Loading World...</h1>
-          <div style="width: 400px; height: 40px; background: rgba(0, 0, 0, 0.5); border: 3px solid #555; border-radius: 4px; overflow: hidden; position: relative; box-shadow: 0 4px 8px rgba(0,0,0,0.5);">
-              <div id="loading-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #388e3c 0%, #66bb6a 100%); transition: width 0.3s ease;"></div>
-          </div>
-          <p id="loading-text" style="margin-top: 20px; font-size: 18px; color: #fff; text-shadow: 2px 2px 0 #000;">Generating terrain...</p>
-          <p id="loading-chunks" style="margin-top: 10px; font-size: 14px; color: #ccc; text-shadow: 1px 1px 0 #000;">0 / 0 chunks</p>
-      </div>
+    <div class="voxel-panel" style="width: 420px; align-items: center; text-align: center;">
+        <h2 style="color: #fbc02d; font-size: 28px; border-bottom: none; margin-bottom: 10px;">Loading World</h2>
+        
+        <div style="width: 100%; margin: 10px 0;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                <span id="loading-text" style="font-size: 14px; color: #ddd;">Generating terrain...</span>
+                <span id="loading-chunks" style="font-size: 14px; color: #aaa;">0 / 0</span>
+            </div>
+            
+            <div style="width: 100%; height: 20px; background: #111; border: 2px solid #555; position: relative; padding: 2px;">
+                <div id="loading-progress-bar" style="width: 0%; height: 100%; background-color: #388e3c; box-shadow: inset 0 2px 0 rgba(255,255,255,0.2), inset 0 -2px 0 rgba(0,0,0,0.2); transition: width 0.2s;"></div>
+            </div>
+        </div>
+        
+        <div style="margin-top: 15px; font-size: 12px; color: #666; font-style: italic;">
+            Tip: Press 'F5' to toggle view
+        </div>
+    </div>
   </div>
 
   <!-- Auth Modal -->
