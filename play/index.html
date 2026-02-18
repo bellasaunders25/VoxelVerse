@@ -326,6 +326,52 @@
     .skin-item:hover { border-color: #fff; background: rgba(255,255,255,0.1); }
     .skin-item img { width: 64px; height: 64px; image-rendering: pixelated; background: #555; }
     .skin-item span { margin-top: 5px; font-size: 10px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; width: 100%; text-align: center; color: #ddd; }
+
+    /* --- WORLD SELECT SCREEN --- */
+    #world-select-screen { z-index: 100; }
+    .world-select-header { font-size: 32px; color: #fff; text-shadow: 3px 3px 0 #000; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 2px; }
+    .world-list-container {
+      width: 680px; max-width: 95vw; max-height: 55vh; overflow-y: auto;
+      background: rgba(0,0,0,0.5); border: 2px solid #555; padding: 8px;
+      display: flex; flex-direction: column; gap: 6px; border-radius: 4px;
+      scrollbar-width: thin; scrollbar-color: #555 #222;
+    }
+    .world-list-container::-webkit-scrollbar { width: 8px; }
+    .world-list-container::-webkit-scrollbar-track { background: #222; }
+    .world-list-container::-webkit-scrollbar-thumb { background: #555; border-radius: 4px; }
+    .world-card {
+      display: flex; align-items: center; gap: 15px;
+      background: rgba(30,30,30,0.9); border: 2px solid #444; padding: 12px 15px;
+      cursor: pointer; border-radius: 4px; transition: border-color 0.15s, background 0.15s;
+      user-select: none;
+    }
+    .world-card:hover { border-color: #888; background: rgba(50,50,50,0.9); }
+    .world-card.selected { border-color: #fff; background: rgba(25,60,100,0.9); box-shadow: 0 0 0 1px rgba(255,255,255,0.2); }
+    .world-card-icon {
+      width: 64px; height: 64px; background: #111; border: 2px solid #555; border-radius: 4px;
+      flex-shrink: 0; overflow: hidden; display: flex; align-items: center; justify-content: center;
+      font-size: 30px; image-rendering: pixelated;
+    }
+    .world-card-icon canvas { width: 64px !important; height: 64px !important; }
+    .world-card-info { flex: 1; min-width: 0; }
+    .world-card-name { font-size: 18px; color: #fff; text-shadow: 1px 1px 0 #000; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .world-card-meta { font-size: 11px; color: #888; line-height: 1.8; }
+    .world-card-badge { font-size: 10px; padding: 2px 7px; border-radius: 3px; display: inline-block; margin-right: 5px; font-weight: bold; }
+    .badge-cloud { background: #1565c0; color: #90caf9; border: 1px solid #1976d2; }
+    .badge-local { background: #2e7d32; color: #a5d6a7; border: 1px solid #388e3c; }
+    .badge-survival { background: #4e342e; color: #ff8a65; border: 1px solid #6d4c41; }
+    .badge-creative { background: #4a148c; color: #ce93d8; border: 1px solid #6a1b9a; }
+    .world-select-actions { display: flex; gap: 10px; margin-top: 15px; flex-wrap: wrap; justify-content: center; width: 680px; max-width: 95vw; }
+    .world-empty-state { color: #666; text-align: center; padding: 40px 20px; font-size: 14px; line-height: 1.8; }
+    .world-empty-state span { font-size: 48px; display: block; margin-bottom: 12px; }
+    .world-sync-status { position: absolute; top: 15px; right: 20px; font-size: 11px; color: #888; display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.5); padding: 6px 12px; border-radius: 20px; border: 1px solid #333; }
+    .sync-dot { width: 8px; height: 8px; border-radius: 50%; background: #555; flex-shrink: 0; }
+    .sync-dot.synced { background: #4caf50; }
+    .sync-dot.syncing { background: #fbc02d; animation: wsPulse 1s infinite; }
+    .sync-dot.error { background: #f44336; }
+    @keyframes wsPulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+    .world-modal-mode-btn { outline: 2px solid transparent; }
+    .world-modal-mode-btn.active-mode { outline: 2px solid #fff; }
   </style>
 
   <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"></script>
@@ -434,6 +480,70 @@
               <button id="btn-cloud-close" class="minecraft-btn btn-grey">Close</button>
           </div>
       </div>
+  </div>
+
+  <!-- WORLD SELECT SCREEN -->
+  <div id="world-select-screen" class="screen menu-bg hidden">
+    <div class="world-sync-status">
+      <div id="sync-dot" class="sync-dot"></div>
+      <span id="sync-status-text">Offline</span>
+    </div>
+    <h2 class="world-select-header">🌍 Select World</h2>
+    <div id="world-list-container" class="world-list-container">
+      <div class="world-empty-state">
+        <span>🌱</span>
+        No worlds yet.<br>Click <strong>New World</strong> to get started!
+      </div>
+    </div>
+    <div class="world-select-actions">
+      <button id="btn-play-world" class="minecraft-btn btn-green" style="width:185px;" disabled>
+        <span class="btn-icon">▶</span> Play Selected
+      </button>
+      <button id="btn-new-world" class="minecraft-btn btn-blue" style="width:185px;">
+        <span class="btn-icon">✨</span> New World
+      </button>
+      <button id="btn-edit-world" class="minecraft-btn btn-gold" style="width:150px;" disabled>
+        <span class="btn-icon">✏</span> Edit World
+      </button>
+      <button id="btn-delete-world" class="minecraft-btn btn-red" style="width:150px;" disabled>
+        <span class="btn-icon">🗑</span> Delete
+      </button>
+      <button id="btn-world-select-back" class="minecraft-btn btn-grey" style="width:150px;">
+        ← Back
+      </button>
+    </div>
+  </div>
+
+  <!-- CREATE / EDIT WORLD MODAL -->
+  <div id="world-create-modal" class="modal-overlay hidden">
+    <div class="voxel-panel" style="width: 420px;">
+      <h2 id="world-modal-title">Create New World</h2>
+
+      <div style="display:flex; flex-direction:column; gap:5px;">
+        <label style="font-size:12px; color:#aaa; text-transform:uppercase;">World Name</label>
+        <input type="text" id="world-name-input" class="voxel-input" placeholder="My World" maxlength="30">
+      </div>
+
+      <div id="world-seed-section" style="display:flex; flex-direction:column; gap:5px;">
+        <label style="font-size:12px; color:#aaa; text-transform:uppercase;">Seed (blank = random)</label>
+        <input type="text" id="world-seed-input" class="voxel-input" placeholder="e.g. 123456789">
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <label style="font-size:12px; color:#aaa; text-transform:uppercase;">Game Mode</label>
+        <div style="display:flex; gap:10px;">
+          <button id="btn-mode-survival" class="minecraft-btn btn-gold world-modal-mode-btn active-mode" style="flex:1; height:40px; font-size:13px;">⚔ Survival</button>
+          <button id="btn-mode-creative" class="minecraft-btn btn-purple world-modal-mode-btn" style="flex:1; height:40px; font-size:13px;">🎨 Creative</button>
+        </div>
+      </div>
+
+      <div id="world-modal-error" style="color:#ff5555; font-size:12px; display:none; background:rgba(255,0,0,0.1); padding:6px; border:1px solid #f44336; border-radius:4px;"></div>
+
+      <div style="display:flex; gap:10px; margin-top:5px;">
+        <button id="btn-world-confirm" class="minecraft-btn btn-green" style="flex:2;">Create World</button>
+        <button id="btn-world-cancel" class="minecraft-btn btn-grey" style="flex:1;">Cancel</button>
+      </div>
+    </div>
   </div>
 
   <!-- MAIN MENU -->
@@ -596,6 +706,14 @@
     let currentUser = null;
     let userProfile = null;
     
+    // --- WORLD MANAGEMENT STATE ---
+    let activeWorldId = null;       // Currently playing world ID
+    let worldsRegistry = [];        // [{id, name, seed, lastPlayed, mode, hasCloud}]
+    let selectedWorldId = null;     // Selected in world-select UI
+    let worldEditMode = 'create';   // 'create' or 'edit'
+    let pendingWorldMode = 'survival';
+    const WORLDS_LIST_KEY = 'voxelverse_worlds_v2';
+    
     if (window.supabase) {
         supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
     } else {
@@ -610,8 +728,12 @@
             currentUser = session.user;
             await fetchProfile();
             updateAuthUI(true);
+            // Sync worlds from cloud
+            loadWorldsRegistry();
+            await syncWorldsFromCloud();
         } else {
             updateAuthUI(false);
+            setSyncStatus('offline');
         }
 
         // Listen for auth changes
@@ -622,11 +744,18 @@
                 updateAuthUI(true);
                 document.getElementById('auth-modal').classList.add('hidden');
                 showNotification("Logged in successfully!");
+                // Sync cloud worlds
+                await syncWorldsFromCloud();
+                // If world select is open, refresh it
+                if (!document.getElementById('world-select-screen').classList.contains('hidden')) {
+                    renderWorldList();
+                }
             } else if (event === 'SIGNED_OUT') {
                 currentUser = null;
                 userProfile = null;
                 updateAuthUI(false);
                 showNotification("Logged out.");
+                setSyncStatus('offline');
             }
         });
     }
@@ -646,6 +775,393 @@
             document.getElementById('username').value = data.username || "Player"; // Update MP name
             SETTINGS.nickname = data.username || "Player";
         }
+    }
+
+    // =====================================================================
+    // WORLD MANAGEMENT SYSTEM
+    // =====================================================================
+
+    function generateWorldId() {
+        return 'w_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+    }
+
+    function loadWorldsRegistry() {
+        try {
+            const raw = localStorage.getItem(WORLDS_LIST_KEY);
+            worldsRegistry = raw ? JSON.parse(raw) : [];
+        } catch(e) {
+            worldsRegistry = [];
+        }
+    }
+
+    function saveWorldsRegistry() {
+        localStorage.setItem(WORLDS_LIST_KEY, JSON.stringify(worldsRegistry));
+    }
+
+    function createNewWorld(name, seed, mode) {
+        const id = generateWorldId();
+        const resolvedSeed = seed ? parseInt(seed.replace(/\D/g, '')) || Math.floor(Math.random() * 1e9) : Math.floor(Math.random() * 1e9);
+        const entry = {
+            id,
+            name: name || 'My World',
+            seed: resolvedSeed,
+            mode: mode || 'survival',
+            created: Date.now(),
+            lastPlayed: Date.now(),
+            hasCloud: false,
+            cloudId: null,
+            playerX: 0, playerY: 80, playerZ: 0
+        };
+        // Store the seed in localStorage too for the world seed system
+        localStorage.setItem(getWorldSeedStorageKey(id), resolvedSeed.toString());
+        worldsRegistry.unshift(entry);
+        saveWorldsRegistry();
+        return entry;
+    }
+
+    function deleteWorld(id) {
+        const idx = worldsRegistry.findIndex(w => w.id === id);
+        if (idx < 0) return;
+        const w = worldsRegistry[idx];
+        // Remove local data
+        localStorage.removeItem(getWorldStorageKey(id));
+        localStorage.removeItem(getWorldSeedStorageKey(id));
+        worldsRegistry.splice(idx, 1);
+        saveWorldsRegistry();
+        // Delete from cloud if needed
+        if (currentUser && w.hasCloud && supabase) {
+            deleteWorldFromCloud(id).catch(e => console.warn('Cloud delete failed:', e));
+        }
+    }
+
+    function updateWorldEntry(id, changes) {
+        const w = worldsRegistry.find(w => w.id === id);
+        if (w) Object.assign(w, changes);
+        saveWorldsRegistry();
+    }
+
+    // --- SYNC STATUS UI ---
+    function setSyncStatus(status, text) {
+        const dot = document.getElementById('sync-dot');
+        const txt = document.getElementById('sync-status-text');
+        if (!dot || !txt) return;
+        dot.className = 'sync-dot ' + status;
+        const labels = { synced: 'Cloud Synced', syncing: 'Syncing...', error: 'Sync Error', offline: 'Not logged in' };
+        txt.textContent = text || labels[status] || status;
+    }
+
+    // --- CLOUD WORLD FUNCTIONS ---
+    async function saveWorldToCloud(worldId) {
+        if (!currentUser || !supabase) return false;
+        const worldEntry = worldsRegistry.find(w => w.id === worldId);
+        if (!worldEntry) return false;
+
+        setSyncStatus('syncing');
+        try {
+            // 1. Upload chunk data to Supabase Storage
+            const chunkData = localStorage.getItem(getWorldStorageKey(worldId)) || '{}';
+            const blob = new Blob([chunkData], { type: 'application/json' });
+            const storagePath = `${currentUser.id}/${worldId}/chunks.json`;
+
+            const { error: uploadErr } = await supabase.storage
+                .from('worlds')
+                .upload(storagePath, blob, { upsert: true, cacheControl: '3600' });
+
+            if (uploadErr) throw uploadErr;
+
+            // 2. Upsert world metadata in DB
+            const meta = {
+                user_id: currentUser.id,
+                local_id: worldId,
+                name: worldEntry.name,
+                seed: worldEntry.seed,
+                game_mode: worldEntry.mode || 'survival',
+                last_played: new Date().toISOString(),
+                player_x: worldEntry.playerX || 0,
+                player_y: worldEntry.playerY || 80,
+                player_z: worldEntry.playerZ || 0,
+                storage_path: storagePath
+            };
+
+            const { data: dbData, error: dbErr } = await supabase
+                .from('worlds')
+                .upsert(meta, { onConflict: 'user_id,local_id' })
+                .select()
+                .single();
+
+            if (dbErr) throw dbErr;
+
+            // Mark world as cloud-backed
+            updateWorldEntry(worldId, { hasCloud: true, cloudId: dbData?.id });
+            setSyncStatus('synced');
+            return true;
+        } catch(e) {
+            console.error('Cloud save error:', e);
+            setSyncStatus('error', 'Sync failed');
+            return false;
+        }
+    }
+
+    async function syncWorldsFromCloud() {
+        if (!currentUser || !supabase) { setSyncStatus('offline'); return; }
+        setSyncStatus('syncing');
+        try {
+            const { data: cloudWorlds, error } = await supabase
+                .from('worlds')
+                .select('*')
+                .eq('user_id', currentUser.id)
+                .order('last_played', { ascending: false });
+
+            if (error) throw error;
+
+            for (const cw of cloudWorlds) {
+                const existing = worldsRegistry.find(w => w.id === cw.local_id);
+                if (!existing) {
+                    // World exists in cloud but not locally — add to registry
+                    const entry = {
+                        id: cw.local_id,
+                        name: cw.name,
+                        seed: cw.seed,
+                        mode: cw.game_mode || 'survival',
+                        created: new Date(cw.last_played).getTime(),
+                        lastPlayed: new Date(cw.last_played).getTime(),
+                        hasCloud: true,
+                        cloudId: cw.id,
+                        needsDownload: true,
+                        playerX: cw.player_x || 0, playerY: cw.player_y || 80, playerZ: cw.player_z || 0
+                    };
+                    localStorage.setItem(getWorldSeedStorageKey(cw.local_id), cw.seed.toString());
+                    worldsRegistry.push(entry);
+                } else {
+                    // Update cloud metadata
+                    existing.hasCloud = true;
+                    existing.cloudId = cw.id;
+                    if (new Date(cw.last_played).getTime() > (existing.lastPlayed || 0)) {
+                        existing.lastPlayed = new Date(cw.last_played).getTime();
+                    }
+                }
+            }
+            // Sort by lastPlayed descending
+            worldsRegistry.sort((a, b) => (b.lastPlayed || 0) - (a.lastPlayed || 0));
+            saveWorldsRegistry();
+            setSyncStatus('synced');
+        } catch(e) {
+            console.error('Cloud sync error:', e);
+            setSyncStatus('error', 'Sync failed');
+        }
+    }
+
+    async function downloadWorldFromCloud(worldId) {
+        if (!currentUser || !supabase) return false;
+        const w = worldsRegistry.find(x => x.id === worldId);
+        if (!w) return false;
+
+        setSyncStatus('syncing', 'Downloading...');
+        try {
+            const storagePath = `${currentUser.id}/${worldId}/chunks.json`;
+            const { data, error } = await supabase.storage.from('worlds').download(storagePath);
+            if (error) throw error;
+
+            const text = await data.text();
+            localStorage.setItem(getWorldStorageKey(worldId), text);
+            updateWorldEntry(worldId, { needsDownload: false });
+            setSyncStatus('synced');
+            return true;
+        } catch(e) {
+            console.error('Download error:', e);
+            setSyncStatus('error', 'Download failed');
+            return false;
+        }
+    }
+
+    async function deleteWorldFromCloud(worldId) {
+        if (!currentUser || !supabase) return;
+        try {
+            // Delete metadata from DB
+            await supabase.from('worlds').delete().eq('user_id', currentUser.id).eq('local_id', worldId);
+            // Delete chunk data from storage
+            await supabase.storage.from('worlds').remove([`${currentUser.id}/${worldId}/chunks.json`]);
+        } catch(e) {
+            console.warn('Cloud delete error:', e);
+        }
+    }
+
+    // --- WORLD SELECT UI ---
+    function showWorldSelectScreen() {
+        loadWorldsRegistry();
+        document.getElementById('main-menu').classList.add('hidden');
+        document.getElementById('world-select-screen').classList.remove('hidden');
+        selectedWorldId = null;
+        updateWorldSelectButtons();
+        renderWorldList();
+        // Try syncing from cloud
+        if (currentUser) {
+            syncWorldsFromCloud().then(() => renderWorldList());
+        } else {
+            setSyncStatus('offline');
+        }
+    }
+
+    function hideWorldSelectScreen() {
+        document.getElementById('world-select-screen').classList.add('hidden');
+        document.getElementById('main-menu').classList.remove('hidden');
+        if (game.skinRenderer) setTimeout(() => resizeSkinPreview(), 50);
+    }
+
+    function renderWorldList() {
+        const container = document.getElementById('world-list-container');
+        if (!container) return;
+        container.innerHTML = '';
+
+        if (worldsRegistry.length === 0) {
+            container.innerHTML = '<div class="world-empty-state"><span>🌱</span>No worlds yet.<br>Click <strong>New World</strong> to get started!</div>';
+            return;
+        }
+
+        worldsRegistry.forEach(w => {
+            const card = document.createElement('div');
+            card.className = 'world-card' + (w.id === selectedWorldId ? ' selected' : '');
+            card.dataset.worldId = w.id;
+
+            const lastPlayedStr = w.lastPlayed
+                ? new Date(w.lastPlayed).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+                : 'Never';
+
+            const cloudBadge = w.hasCloud
+                ? '<span class="world-card-badge badge-cloud">☁ Cloud</span>'
+                : '<span class="world-card-badge badge-local">💾 Local</span>';
+            const modeBadge = w.mode === 'creative'
+                ? '<span class="world-card-badge badge-creative">🎨 Creative</span>'
+                : '<span class="world-card-badge badge-survival">⚔ Survival</span>';
+            const downloadNote = w.needsDownload ? ' <span style="color:#fbc02d; font-size:10px;">(needs download)</span>' : '';
+
+            card.innerHTML = `
+                <div class="world-card-icon">🌍</div>
+                <div class="world-card-info">
+                    <div class="world-card-name">${escapeHtml(w.name)}</div>
+                    <div class="world-card-meta">
+                        ${cloudBadge}${modeBadge}
+                        <br>Seed: <span style="color:#fbc02d;">${w.seed}</span> &nbsp;•&nbsp; Last played: ${lastPlayedStr}${downloadNote}
+                    </div>
+                </div>`;
+
+            card.addEventListener('click', () => selectWorldCard(w.id));
+            card.addEventListener('dblclick', () => { selectWorldCard(w.id); playSelectedWorld(); });
+            container.appendChild(card);
+        });
+    }
+
+    function escapeHtml(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function selectWorldCard(id) {
+        selectedWorldId = id;
+        document.querySelectorAll('.world-card').forEach(c => {
+            c.classList.toggle('selected', c.dataset.worldId === id);
+        });
+        updateWorldSelectButtons();
+    }
+
+    function updateWorldSelectButtons() {
+        const hasSelection = !!selectedWorldId;
+        document.getElementById('btn-play-world').disabled = !hasSelection;
+        document.getElementById('btn-edit-world').disabled = !hasSelection;
+        document.getElementById('btn-delete-world').disabled = !hasSelection;
+    }
+
+    async function playSelectedWorld() {
+        if (!selectedWorldId) return;
+        const w = worldsRegistry.find(x => x.id === selectedWorldId);
+        if (!w) return;
+
+        // If world needs to download from cloud first
+        if (w.needsDownload) {
+            showNotification('Downloading world from cloud...');
+            const ok = await downloadWorldFromCloud(selectedWorldId);
+            if (!ok) {
+                showNotification('Could not download world. Starting fresh.');
+            }
+        }
+
+        document.getElementById('world-select-screen').classList.add('hidden');
+        activeWorldId = selectedWorldId;
+        invalidateWorldDataCache();
+        game.worldSeed = w.seed;
+        updateWorldEntry(selectedWorldId, { lastPlayed: Date.now() });
+        startGame('SP');
+    }
+
+    function openCreateWorldModal(mode) {
+        worldEditMode = mode || 'create';
+        pendingWorldMode = 'survival';
+        const modal = document.getElementById('world-create-modal');
+        const title = document.getElementById('world-modal-title');
+        const confirmBtn = document.getElementById('btn-world-confirm');
+        const seedSection = document.getElementById('world-seed-section');
+        const err = document.getElementById('world-modal-error');
+        err.style.display = 'none';
+
+        if (worldEditMode === 'create') {
+            title.textContent = 'Create New World';
+            confirmBtn.textContent = 'Create World';
+            document.getElementById('world-name-input').value = 'World ' + (worldsRegistry.length + 1);
+            document.getElementById('world-seed-input').value = '';
+            seedSection.style.display = 'flex';
+        } else {
+            const w = worldsRegistry.find(x => x.id === selectedWorldId);
+            if (!w) return;
+            title.textContent = 'Edit World';
+            confirmBtn.textContent = 'Save Changes';
+            document.getElementById('world-name-input').value = w.name;
+            document.getElementById('world-seed-input').value = w.seed;
+            pendingWorldMode = w.mode || 'survival';
+            seedSection.style.display = 'none'; // Seed can't change after creation
+        }
+        updateModeButtons(pendingWorldMode);
+        modal.classList.remove('hidden');
+    }
+
+    function updateModeButtons(mode) {
+        pendingWorldMode = mode;
+        const s = document.getElementById('btn-mode-survival');
+        const c = document.getElementById('btn-mode-creative');
+        if (s) s.classList.toggle('active-mode', mode === 'survival');
+        if (c) c.classList.toggle('active-mode', mode === 'creative');
+    }
+
+    function confirmWorldModal() {
+        const name = document.getElementById('world-name-input').value.trim();
+        const err = document.getElementById('world-modal-error');
+        err.style.display = 'none';
+
+        if (!name) { err.textContent = 'Please enter a world name.'; err.style.display = 'block'; return; }
+        if (name.length > 30) { err.textContent = 'Name too long (max 30 chars).'; err.style.display = 'block'; return; }
+
+        if (worldEditMode === 'create') {
+            const seed = document.getElementById('world-seed-input').value.trim();
+            const newWorld = createNewWorld(name, seed, pendingWorldMode);
+            document.getElementById('world-create-modal').classList.add('hidden');
+            renderWorldList();
+            selectWorldCard(newWorld.id);
+        } else {
+            updateWorldEntry(selectedWorldId, { name, mode: pendingWorldMode });
+            document.getElementById('world-create-modal').classList.add('hidden');
+            renderWorldList();
+            // Re-select
+            setTimeout(() => selectWorldCard(selectedWorldId), 50);
+        }
+    }
+
+    function confirmDeleteWorld() {
+        if (!selectedWorldId) return;
+        const w = worldsRegistry.find(x => x.id === selectedWorldId);
+        if (!w) return;
+        if (!confirm(`Delete world "${w.name}"? This cannot be undone!`)) return;
+        deleteWorld(selectedWorldId);
+        selectedWorldId = null;
+        updateWorldSelectButtons();
+        renderWorldList();
     }
 
     function updateAuthUI(isLoggedIn) {
@@ -1171,8 +1687,10 @@
     }
 
     // --- WORLD SAVE/LOAD SYSTEM ---
-    const WORLD_STORAGE_KEY = 'voxel_world_data';
-    const WORLD_SEED_KEY = 'voxel_world_seed';
+    // Dynamic keys based on active world ID
+    function getWorldStorageKey(wid) { return `voxelverse_world_${wid || activeWorldId || 'default'}_data`; }
+    function getWorldSeedStorageKey(wid) { return `voxelverse_world_${wid || activeWorldId || 'default'}_seed`; }
+    const WORLD_STORAGE_KEY = null; // Legacy - use getWorldStorageKey() instead
     
     // Cache world data to avoid repeated JSON.parse calls
     let cachedWorldData = null;
@@ -1181,7 +1699,7 @@
     function getWorldData() {
       if (!cachedWorldData) {
         try {
-          cachedWorldData = JSON.parse(localStorage.getItem(WORLD_STORAGE_KEY) || '{}');
+          cachedWorldData = JSON.parse(localStorage.getItem(getWorldStorageKey()) || '{}');
         } catch (e) {
           console.warn('Failed to parse world data:', e);
           cachedWorldData = {};
@@ -1260,7 +1778,7 @@
             }
           }
           
-          localStorage.setItem(WORLD_STORAGE_KEY, JSON.stringify(worldData));
+          localStorage.setItem(getWorldStorageKey(), JSON.stringify(worldData));
           
           // Clear queues
           this.chunks.clear();
@@ -1283,11 +1801,16 @@
     };
     
     function getWorldSeed() {
-      let seed = localStorage.getItem(WORLD_SEED_KEY);
+      // Prefer seed from active world registry entry
+      if (activeWorldId) {
+        const w = worldsRegistry.find(x => x.id === activeWorldId);
+        if (w && w.seed) return parseInt(w.seed);
+      }
+      const seedKey = getWorldSeedStorageKey();
+      let seed = localStorage.getItem(seedKey);
       if (!seed) {
-        // Generate a random seed between 0 and 1 billion
         seed = Math.floor(Math.random() * 1000000000);
-        localStorage.setItem(WORLD_SEED_KEY, seed.toString());
+        localStorage.setItem(seedKey, seed.toString());
         console.log('Generated new world seed:', seed);
       }
       return parseInt(seed);
@@ -1318,9 +1841,9 @@
     }
     
     function clearWorld() {
-      if (confirm('Are you sure you want to delete this world and start fresh? This cannot be undone!')) {
-        localStorage.removeItem(WORLD_STORAGE_KEY);
-        localStorage.removeItem(WORLD_SEED_KEY);
+      if (confirm('Are you sure you want to reset this world\'s terrain? This cannot be undone!')) {
+        localStorage.removeItem(getWorldStorageKey());
+        localStorage.removeItem(getWorldSeedStorageKey());
         invalidateWorldDataCache();
         location.reload();
       }
@@ -1328,6 +1851,15 @@
     
     // Save when page is about to unload
     window.addEventListener('beforeunload', () => {
+      // Save player position if in game
+      if (STATE.isRunning && activeWorldId) {
+        updateWorldEntry(activeWorldId, {
+          lastPlayed: Date.now(),
+          playerX: Math.round(game.player.pos.x),
+          playerY: Math.round(game.player.pos.y),
+          playerZ: Math.round(game.player.pos.z)
+        });
+      }
       saveQueue.forceSave();
     });
     
@@ -1337,6 +1869,22 @@
         saveQueue.forceSave();
       }
     }, 10000);
+
+    // Periodic cloud sync every 90 seconds during gameplay
+    setInterval(async () => {
+      if (STATE.isRunning && currentUser && activeWorldId) {
+        saveQueue.forceSave();
+        if (activeWorldId) {
+            updateWorldEntry(activeWorldId, {
+                lastPlayed: Date.now(),
+                playerX: Math.round(game.player.pos.x),
+                playerY: Math.round(game.player.pos.y),
+                playerZ: Math.round(game.player.pos.z)
+            });
+        }
+        await saveWorldToCloud(activeWorldId);
+      }
+    }, 90000);
 
     // --- GAME STATE ---
     const game = {
@@ -1870,6 +2418,7 @@
 
       setupUISounds();
       setupUI();
+      loadWorldsRegistry(); // Load worlds on startup
       
       // Initialize the skin editor (this creates the canvas texture and 3D preview)
       setupSkinEditor(); 
@@ -3226,18 +3775,34 @@
         // Force save all pending changes before quitting
         saveQueue.forceSave();
         
-        // Also save all currently loaded chunks
+        // Save ALL currently loaded chunks (not just dirty) to ensure nothing is missed
         for (const k in game.world) {
           const [cx, cz] = k.split(",").map(Number);
           const c = game.world[k];
-          if (c.isDirty && c.data) {
+          if (c.data) {
             saveChunk(cx, cz, c.data);
           }
         }
         saveQueue.forceSave(); // Flush the final saves
+
+        // Save player position for this world
+        if (activeWorldId) {
+            updateWorldEntry(activeWorldId, {
+                lastPlayed: Date.now(),
+                playerX: Math.round(game.player.pos.x),
+                playerY: Math.round(game.player.pos.y),
+                playerZ: Math.round(game.player.pos.z)
+            });
+        }
+        
+        // Async cloud sync (non-blocking)
+        if (currentUser && activeWorldId) {
+            saveWorldToCloud(activeWorldId).catch(e => console.warn('Cloud save on quit failed:', e));
+        }
         
         // Invalidate cache to free memory
         invalidateWorldDataCache();
+        activeWorldId = null;
         
         STATE.isRunning = false;
         STATE.isPaused = false;
@@ -3258,7 +3823,27 @@
     function startGame(mode) {
       AUDIO.ensureUnlocked();
       
+      // Ensure we have an active world
+      if (!activeWorldId) {
+        loadWorldsRegistry();
+        if (worldsRegistry.length === 0) {
+            const w = createNewWorld('My World', '', 'survival');
+            activeWorldId = w.id;
+        } else {
+            activeWorldId = worldsRegistry[0].id;
+        }
+      }
+
+      // Set game seed from world registry
+      const worldEntry = worldsRegistry.find(w => w.id === activeWorldId);
+      if (worldEntry) {
+        game.worldSeed = worldEntry.seed;
+      } else {
+        game.worldSeed = getWorldSeed();
+      }
+      
       // Preload world data cache once at game start
+      invalidateWorldDataCache();
       getWorldData();
 
       document.getElementById("main-menu").classList.add("hidden");
@@ -3320,7 +3905,17 @@
         game.renderer.domElement.requestPointerLock();
       };
 
-      game.player.pos.set(0, 80, 0);
+      // Restore saved player position, or fall back to spawn
+      const _spawnEntry = worldsRegistry.find(w => w.id === activeWorldId);
+      if (_spawnEntry && (_spawnEntry.playerX !== 0 || _spawnEntry.playerZ !== 0)) {
+        game.player.pos.set(
+          _spawnEntry.playerX || 0,
+          _spawnEntry.playerY != null ? _spawnEntry.playerY : 80,
+          _spawnEntry.playerZ || 0
+        );
+      } else {
+        game.player.pos.set(0, 80, 0);
+      }
       game.camera.position.copy(game.player.pos);
 
       game.audioState.lastPos.copy(game.player.pos);
@@ -4742,13 +5337,38 @@
 
     // --- UI ---
     function setupUI() {
-      document.getElementById("btn-sp").onclick = () => startGame("SP");
+      // btn-sp now opens world select instead of directly starting
+      document.getElementById("btn-sp").onclick = () => showWorldSelectScreen();
+      
       document.getElementById("btn-mp").onclick = () => { document.getElementById("mp-options").classList.remove("hidden"); };
       document.getElementById("btn-join").onclick = () => {
         // If not logged in, use input value, else use profile name
         if (!currentUser) SETTINGS.nickname = document.getElementById("username").value;
+        // Ensure there's an active world for MP too
+        if (!activeWorldId) {
+            loadWorldsRegistry();
+            if (worldsRegistry.length === 0) createNewWorld('MP World', '', 'survival');
+            activeWorldId = worldsRegistry[0].id;
+            game.worldSeed = worldsRegistry[0].seed;
+            invalidateWorldDataCache();
+        }
         startGame("MP");
       };
+
+      // WORLD SELECT SCREEN BUTTONS
+      document.getElementById("btn-play-world").onclick = () => playSelectedWorld();
+      document.getElementById("btn-new-world").onclick = () => openCreateWorldModal('create');
+      document.getElementById("btn-edit-world").onclick = () => openCreateWorldModal('edit');
+      document.getElementById("btn-delete-world").onclick = () => confirmDeleteWorld();
+      document.getElementById("btn-world-select-back").onclick = () => hideWorldSelectScreen();
+
+      // WORLD CREATE MODAL BUTTONS
+      document.getElementById("btn-world-confirm").onclick = () => confirmWorldModal();
+      document.getElementById("btn-world-cancel").onclick = () => {
+          document.getElementById('world-create-modal').classList.add('hidden');
+      };
+      document.getElementById("btn-mode-survival").onclick = () => updateModeButtons('survival');
+      document.getElementById("btn-mode-creative").onclick = () => updateModeButtons('creative');
 
       document.getElementById("btn-skin").onclick = () => {
         document.getElementById("main-menu").classList.add("hidden");
