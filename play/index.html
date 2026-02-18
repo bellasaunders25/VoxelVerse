@@ -76,6 +76,24 @@
       width: min(380px, 94vw);
       backdrop-filter: blur(5px);
       overflow-y: auto; max-height: 94vh;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    /* Settings screen: allow the panel to scroll on mobile */
+    #settings-menu {
+      overflow-y: auto !important;
+      -webkit-overflow-scrolling: touch;
+    }
+    #settings-menu .voxel-panel {
+      max-height: none;
+      overflow-y: visible;
+    }
+    @media (pointer: coarse) and (orientation: landscape) {
+      #settings-menu .voxel-panel {
+        max-height: 88vh;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+      }
     }
     .voxel-panel h1, .voxel-panel h2 {
       margin: 0 0 6px 0; text-align: center;
@@ -6518,6 +6536,8 @@
           document.getElementById("pause-menu").classList.add("hidden");
           document.getElementById("settings-menu").classList.remove("hidden");
           if (isTouchDevice()) document.getElementById('mobile-ui-settings').style.display = 'flex';
+          // Hide hotbar so it doesn't obscure the settings panel on mobile
+          document.getElementById("hotbar").style.display = 'none';
       };
 
       // SETTINGS MENU LISTENERS
@@ -6549,6 +6569,8 @@
           }
           document.getElementById("settings-menu").classList.add("hidden");
           if (settingsReturnTo === 'pause') {
+              // Restore hotbar visibility (was hidden when settings opened from pause)
+              document.getElementById("hotbar").style.display = '';
               document.getElementById("pause-menu").classList.remove("hidden");
           } else {
               document.getElementById("main-menu").classList.remove("hidden");
