@@ -76,24 +76,6 @@
       width: min(380px, 94vw);
       backdrop-filter: blur(5px);
       overflow-y: auto; max-height: 94vh;
-      -webkit-overflow-scrolling: touch;
-    }
-
-    /* Settings screen: allow the panel to scroll on mobile */
-    #settings-menu {
-      overflow-y: auto !important;
-      -webkit-overflow-scrolling: touch;
-    }
-    #settings-menu .voxel-panel {
-      max-height: none;
-      overflow-y: visible;
-    }
-    @media (pointer: coarse) and (orientation: landscape) {
-      #settings-menu .voxel-panel {
-        max-height: 88vh;
-        overflow-y: auto;
-        -webkit-overflow-scrolling: touch;
-      }
     }
     .voxel-panel h1, .voxel-panel h2 {
       margin: 0 0 6px 0; text-align: center;
@@ -421,14 +403,58 @@
     /* =============================================
        INVENTORY / CREATIVE OVERLAY
        ============================================= */
+    /* Ensure the Three.js canvas never sits above UI overlays */
+    body > canvas { position: relative !important; z-index: 0 !important; }
+
     #inventory-overlay {
       position: fixed; inset: 0; z-index: 3000;
       background: rgba(0,0,0,0.65); backdrop-filter: blur(3px);
       display: flex; align-items: center; justify-content: center;
       pointer-events: auto; padding: 8px;
+      overflow-y: auto; -webkit-overflow-scrolling: touch;
     }
     #inventory-overlay.hidden { display: none !important; }
-    .inv-root { display: flex; flex-direction: column; align-items: center; gap: 7px; user-select: none; width: 100%; max-width: min(560px, 99vw); }
+    .inv-root {
+      display: flex; flex-direction: column; align-items: center; gap: 7px;
+      user-select: none; width: 100%; max-width: min(560px, 99vw);
+      /* Always keep content within the visible area on mobile */
+      max-height: 100%;
+    }
+
+    /* ---- Mobile landscape: compact inventory to always fit on screen ---- */
+    @media (pointer: coarse) and (orientation: landscape) {
+      #inventory-overlay {
+        align-items: flex-start;
+        padding: 6px;
+      }
+      .inv-root {
+        gap: 4px;
+        /* Take full height so panels share the space */
+        height: 100%;
+        flex-wrap: nowrap;
+        justify-content: flex-start;
+      }
+      #creative-panel {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .inv-block-grid {
+        flex: 1 1 auto;
+        min-height: 0;
+        max-height: none !important;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+      #player-inv-panel {
+        flex-shrink: 0;
+        padding: 6px;
+      }
+      .inv-player-grid { gap: 2px; margin-bottom: 4px; }
+      .inv-hotbar-row { gap: 2px; padding-top: 4px; }
+    }
 
     /* Creative panel */
     #creative-panel {
@@ -3010,10 +3036,12 @@
       buildInventoryUI();
       const overlay = document.getElementById('inventory-overlay');
       overlay.classList.remove('hidden');
-      // Close when clicking the dark backdrop (not the panels)
-      overlay.onclick = (e) => {
+      // Close when tapping/clicking the dark backdrop (not the panels)
+      overlay._closeHandler = (e) => {
         if (e.target === overlay) closeInventory();
       };
+      overlay.addEventListener('click', overlay._closeHandler);
+      overlay.addEventListener('touchend', overlay._closeHandler, { passive: true });
       // Drag onto backdrop = drop item into world
       overlay.addEventListener('dragover', (e) => e.preventDefault());
       overlay.addEventListener('drop', (e) => {
@@ -3043,7 +3071,13 @@
     function closeInventory() {
       if (!invOpen) return;
       invOpen = false;
-      document.getElementById('inventory-overlay').classList.add('hidden');
+      const overlay = document.getElementById('inventory-overlay');
+      overlay.classList.add('hidden');
+      if (overlay._closeHandler) {
+        overlay.removeEventListener('click', overlay._closeHandler);
+        overlay.removeEventListener('touchend', overlay._closeHandler);
+        overlay._closeHandler = null;
+      }
       if (STATE.isRunning && !STATE.isPaused) {
         game.renderer?.domElement.requestPointerLock();
       }
@@ -4677,6 +4711,9 @@
       game.renderer.setPixelRatio(window.devicePixelRatio);
       game.renderer.outputColorSpace = THREE.SRGBColorSpace;
       document.body.appendChild(game.renderer.domElement);
+      // Keep canvas below all UI overlays (inventory, pause menu, etc.)
+      game.renderer.domElement.style.position = 'relative';
+      game.renderer.domElement.style.zIndex = '0';
 
       game.scene.add(new THREE.AmbientLight(0xffffff, 0.8));
       const d = new THREE.DirectionalLight(0xffffff, 0.5);
@@ -6536,8 +6573,6 @@
           document.getElementById("pause-menu").classList.add("hidden");
           document.getElementById("settings-menu").classList.remove("hidden");
           if (isTouchDevice()) document.getElementById('mobile-ui-settings').style.display = 'flex';
-          // Hide hotbar so it doesn't obscure the settings panel on mobile
-          document.getElementById("hotbar").style.display = 'none';
       };
 
       // SETTINGS MENU LISTENERS
@@ -6569,8 +6604,6 @@
           }
           document.getElementById("settings-menu").classList.add("hidden");
           if (settingsReturnTo === 'pause') {
-              // Restore hotbar visibility (was hidden when settings opened from pause)
-              document.getElementById("hotbar").style.display = '';
               document.getElementById("pause-menu").classList.remove("hidden");
           } else {
               document.getElementById("main-menu").classList.remove("hidden");
