@@ -2773,8 +2773,10 @@
             geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
             geo.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
             geo.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
+            geo.computeBoundingSphere();
             const mesh = new THREE.Mesh(geo, game.materials.solid);
             mesh.position.set(x * CHUNK_SIZE, 0, z * CHUNK_SIZE);
+            mesh.frustumCulled = true;
             game.scene.add(mesh);
             chunk.mesh = mesh;
           }
@@ -2784,8 +2786,10 @@
             wGeo.setAttribute("position", new THREE.BufferAttribute(waterPositions, 3));
             wGeo.setAttribute("normal", new THREE.BufferAttribute(waterNormals, 3));
             wGeo.setAttribute("uv", new THREE.BufferAttribute(waterUvs, 2));
+            wGeo.computeBoundingSphere();
             const wMesh = new THREE.Mesh(wGeo, game.materials.water);
             wMesh.position.set(x * CHUNK_SIZE, 0, z * CHUNK_SIZE);
+            wMesh.frustumCulled = true;
             wMesh.renderOrder = 1;
             game.scene.add(wMesh);
             chunk.waterMesh = wMesh;
@@ -4659,9 +4663,11 @@
 
       game.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
       game.camera.thirdPerson = false;
-      game.renderer = new THREE.WebGLRenderer({ antialias: false });
+      game.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
+      game.renderer.powerPreference = "high-performance";
       game.renderer.setSize(window.innerWidth, window.innerHeight);
-      game.renderer.setPixelRatio(window.devicePixelRatio);
+      game.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+      game.renderer.sortObjects = false;
       game.renderer.outputColorSpace = THREE.SRGBColorSpace;
       document.body.appendChild(game.renderer.domElement);
 
@@ -4676,7 +4682,7 @@
       game.materials = {
         solid: new THREE.MeshLambertMaterial({
           map: game.textureAtlas,
-          transparent: true,
+          transparent: false,
           alphaTest: 0.1,
           side: THREE.FrontSide
         }),
@@ -4689,6 +4695,7 @@
           side: THREE.FrontSide
         })
       };
+      game.materials.water.transparent = true;
 
       document.addEventListener("keydown", onKeyDown);
       document.addEventListener("keyup", onKeyUp);
