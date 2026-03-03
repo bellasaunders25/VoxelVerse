@@ -844,6 +844,16 @@
             <label style="font-size:12px; color:#aaa; text-transform:uppercase;">Render Distance (Chunks)</label>
             <input type="number" id="render-dist" value="6" min="2" max="16" class="voxel-input" />
         </div>
+
+        <label class="mob-toggle-row" style="margin-top:8px;"><input type="checkbox" id="perf-mode"> Performance Mode</label>
+
+        <div style="display:flex; flex-direction:column; gap:5px;">
+            <label style="font-size:12px; color:#aaa; text-transform:uppercase;">Chunk Load Speed</label>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <input type="range" id="chunk-speed" min="1" max="5" value="2" step="1" style="flex:1; accent-color:#fbc02d;" />
+              <span id="chunk-speed-val" style="color:#fbc02d; font-size:12px; min-width:24px;">2</span>
+            </div>
+        </div>
         
         <div style="display:flex; flex-direction:column; gap:5px;">
             <label style="font-size:12px; color:#aaa; text-transform:uppercase;">Mouse Sensitivity</label>
@@ -1784,7 +1794,8 @@
     }
 
 
-    let SETTINGS = { renderDistance: 6, sensitivity: 0.002, touchSensitivity: 4, nickname: "Player",
+    const SETTINGS_STORAGE_KEY = "voxelverse_settings_v1";
+    let SETTINGS = { renderDistance: 6, sensitivity: 0.002, touchSensitivity: 4, nickname: "Player", perfMode: false, chunkLoadSpeed: 2,
       mobileUI: { joystick: true, jump: true, sprint: true, invBtn: true, hotbar: true } };
     let STATE = { mode: "MENU", isRunning: false, isPaused: false };
     let settingsReturnTo = 'main'; // 'main' or 'pause'
@@ -2727,8 +2738,71 @@
       };
     `;
 
+    function chunkLoadBudgetFromSpeed(speed) {
+      if (speed === 5) return 6;
+      return Math.max(1, Math.min(4, speed));
+    }
+
+    function persistGraphicsSettings() {
+      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({
+        renderDistance: SETTINGS.renderDistance,
+        perfMode: !!SETTINGS.perfMode,
+        chunkLoadSpeed: SETTINGS.chunkLoadSpeed
+      }));
+    }
+
+    function applyPerformanceSettings() {
+      MAX_CHUNKS_PER_FRAME = SETTINGS.perfMode ? 1 : chunkLoadBudgetFromSpeed(SETTINGS.chunkLoadSpeed || 2);
+      if (game.renderer) {
+        game.renderer.setPixelRatio(SETTINGS.perfMode ? 1.0 : Math.min(window.devicePixelRatio, 1.5));
+      }
+    }
+
+    function updateFogForRenderDistance() {
+      if (!game.scene || !game.scene.fog) return;
+      game.scene.fog.near = SETTINGS.renderDistance * CHUNK_SIZE * 0.55;
+      game.scene.fog.far = SETTINGS.renderDistance * CHUNK_SIZE - 8;
+    }
+
+    function triggerChunkReloadForSettings() {
+      if (!STATE.isRunning || !game.scene) return;
+      chunkGenerationQueue.length = 0;
+      updateChunks();
+    }
+
+    function loadGraphicsSettings() {
+      try {
+        const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+        if (!raw) return;
+        const saved = JSON.parse(raw);
+        if (Number.isInteger(saved.renderDistance) && saved.renderDistance >= 2 && saved.renderDistance <= 16) {
+          SETTINGS.renderDistance = saved.renderDistance;
+        }
+        if (typeof saved.perfMode === "boolean") SETTINGS.perfMode = saved.perfMode;
+        if (Number.isInteger(saved.chunkLoadSpeed) && saved.chunkLoadSpeed >= 1 && saved.chunkLoadSpeed <= 5) {
+          SETTINGS.chunkLoadSpeed = saved.chunkLoadSpeed;
+        }
+      } catch (e) {
+        console.warn("Failed to load graphics settings", e);
+      }
+      applyPerformanceSettings();
+    }
+
+    function applySettingsToUI() {
+      const rd = document.getElementById("render-dist");
+      const pm = document.getElementById("perf-mode");
+      const cs = document.getElementById("chunk-speed");
+      const csv = document.getElementById("chunk-speed-val");
+      if (rd) rd.value = String(SETTINGS.renderDistance);
+      if (pm) pm.checked = !!SETTINGS.perfMode;
+      if (cs) cs.value = String(SETTINGS.chunkLoadSpeed || 2);
+      if (csv) csv.textContent = String(SETTINGS.chunkLoadSpeed || 2);
+    }
+
     // --- INIT ---
     function init() {
+      loadGraphicsSettings();
+      applySettingsToUI();
       const blob = new Blob([workerScript], { type: "application/javascript" });
       game.worker = new Worker(URL.createObjectURL(blob));
 
@@ -4531,6 +4605,7 @@
         resizeSkinPreview();
         if (game.renderer && game.camera) {
             game.renderer.setSize(window.innerWidth, window.innerHeight);
+            game.renderer.setPixelRatio(SETTINGS.perfMode ? 1.0 : Math.min(window.devicePixelRatio, 1.5));
             game.camera.aspect = window.innerWidth / window.innerHeight;
             game.camera.updateProjectionMatrix();
         }
@@ -4659,14 +4734,14 @@
 
       game.scene = new THREE.Scene();
       game.scene.background = new THREE.Color(0x87CEEB);
-      game.scene.fog = new THREE.Fog(0x87CEEB, 20, SETTINGS.renderDistance * CHUNK_SIZE - 10);
+      game.scene.fog = new THREE.Fog(0x87CEEB, SETTINGS.renderDistance * CHUNK_SIZE * 0.55, SETTINGS.renderDistance * CHUNK_SIZE - 8);
 
       game.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
       game.camera.thirdPerson = false;
       game.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
       game.renderer.powerPreference = "high-performance";
       game.renderer.setSize(window.innerWidth, window.innerHeight);
-      game.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+      game.renderer.setPixelRatio(SETTINGS.perfMode ? 1.0 : Math.min(window.devicePixelRatio, 1.5));
       game.renderer.sortObjects = false;
       game.renderer.outputColorSpace = THREE.SRGBColorSpace;
       document.body.appendChild(game.renderer.domElement);
@@ -6326,7 +6401,7 @@
     // Chunk generation throttle to prevent lag spikes
     const chunkGenerationQueue = [];
     let chunksGeneratedThisFrame = 0;
-    const MAX_CHUNKS_PER_FRAME = 2; // Only generate 2 chunks per frame max
+    let MAX_CHUNKS_PER_FRAME = 2; // Adjustable chunk generation budget
     
     // Loading screen state
     const loadingState = {
@@ -6441,7 +6516,7 @@
       // Unload distant chunks
       for (const k in game.world) {
         const [cx, cz] = k.split(",").map(Number);
-        if (Math.abs(cx - px) > dist + 2 || Math.abs(cz - pz) > dist + 2) {
+        if (Math.abs(cx - px) > dist + 1 || Math.abs(cz - pz) > dist + 1) {
           const c = game.world[k];
           
           // Save chunk before unloading if it's dirty (modified)
@@ -6527,6 +6602,7 @@
       document.getElementById("btn-pause-quit").onclick = quitToTitle;
       document.getElementById("btn-pause-options").onclick = () => {
           settingsReturnTo = 'pause';
+          applySettingsToUI();
           document.getElementById("pause-menu").classList.add("hidden");
           document.getElementById("settings-menu").classList.remove("hidden");
           if (isTouchDevice()) document.getElementById('mobile-ui-settings').style.display = 'flex';
@@ -6535,6 +6611,7 @@
       // SETTINGS MENU LISTENERS
       document.getElementById("btn-settings").onclick = () => {
           settingsReturnTo = 'main';
+          applySettingsToUI();
           document.getElementById("main-menu").classList.add("hidden");
           document.getElementById("settings-menu").classList.remove("hidden");
           // Show mobile UI section only on touch devices
@@ -6547,9 +6624,23 @@
           const rd = parseInt(document.getElementById("render-dist").value);
           const ms = parseFloat(document.getElementById("mouse-sens").value);
           const ts = parseInt(document.getElementById("touch-sens").value);
+          const perfMode = document.getElementById("perf-mode").checked;
+          const chunkSpeed = parseInt(document.getElementById("chunk-speed").value);
           if (!isNaN(rd) && rd >= 2 && rd <= 16) SETTINGS.renderDistance = rd;
           if (!isNaN(ms) && ms > 0) SETTINGS.sensitivity = ms;
           if (!isNaN(ts) && ts >= 1) SETTINGS.touchSensitivity = ts;
+          if (!isNaN(chunkSpeed) && chunkSpeed >= 1 && chunkSpeed <= 5) SETTINGS.chunkLoadSpeed = chunkSpeed;
+          SETTINGS.perfMode = perfMode;
+          applyPerformanceSettings();
+          persistGraphicsSettings();
+
+          // Fog update on settings save
+          if (game.scene) {
+            game.scene.fog.near = SETTINGS.renderDistance * CHUNK_SIZE * 0.55;
+            game.scene.fog.far = SETTINGS.renderDistance * CHUNK_SIZE - 8;
+          }
+          triggerChunkReloadForSettings();
+
           // Save mobile UI prefs
           if (isTouchDevice()) {
             SETTINGS.mobileUI.joystick = document.getElementById('tog-joystick').checked;
@@ -6574,6 +6665,33 @@
       touchSensSlider.addEventListener('input', () => {
         touchSensVal.textContent = touchSensSlider.value;
         SETTINGS.touchSensitivity = parseInt(touchSensSlider.value);
+      });
+
+      const renderDistInput = document.getElementById('render-dist');
+      renderDistInput.addEventListener('change', () => {
+        const rd = parseInt(renderDistInput.value);
+        if (Number.isInteger(rd) && rd >= 2 && rd <= 16) {
+          SETTINGS.renderDistance = rd;
+          updateFogForRenderDistance();
+          triggerChunkReloadForSettings();
+        }
+      });
+
+      const perfModeInput = document.getElementById('perf-mode');
+      perfModeInput.addEventListener('change', () => {
+        SETTINGS.perfMode = !!perfModeInput.checked;
+        applyPerformanceSettings();
+      });
+
+      const chunkSpeedSlider = document.getElementById('chunk-speed');
+      const chunkSpeedVal = document.getElementById('chunk-speed-val');
+      chunkSpeedSlider.addEventListener('input', () => {
+        const speed = parseInt(chunkSpeedSlider.value);
+        chunkSpeedVal.textContent = chunkSpeedSlider.value;
+        if (Number.isInteger(speed) && speed >= 1 && speed <= 5) {
+          SETTINGS.chunkLoadSpeed = speed;
+          if (!SETTINGS.perfMode) MAX_CHUNKS_PER_FRAME = chunkLoadBudgetFromSpeed(speed);
+        }
       });
 
       // Layout controls button (only visible on touch)
